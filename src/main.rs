@@ -20,6 +20,8 @@ fn main() {
                 String::new()
             });
 
+            let mut error = false;
+
             for ch in file_contents.chars()  {
                 match ch {
                     '(' => println!("LEFT_PAREN ( null"),
@@ -32,11 +34,18 @@ fn main() {
                     '+' => println!("PLUS + null"),
                     ';' => println!("SEMICOLON ; null"),
                     '*' => println!("STAR * null"),
-                    _ => {}
+                    _ => {
+                        eprintln!("[line 1] Error: Unexpected character: {}", ch);
+                        error = true;
+                    }
                 }
             }
 
             println!("EOF  null");
+
+            if error {
+                std::process::exit(65);
+            }
         }
         _ => {
             println!("Unknown command: {}", command);
