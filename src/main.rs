@@ -158,8 +158,26 @@ fn main() {
                             }
                         }
 
-                        println!("IDENTIFIER {} null", ident_str);
-                    } 
+                        match ident_str.as_str() {
+                            "and"    => println!("AND and null"),
+                            "class"  => println!("CLASS class null"),
+                            "else"   => println!("ELSE else null"),
+                            "false"  => println!("FALSE false null"),
+                            "for"    => println!("FOR for null"),
+                            "fun"    => println!("FUN fun null"),
+                            "if"     => println!("IF if null"),
+                            "nil"    => println!("NIL nil null"),
+                            "or"     => println!("OR or null"),
+                            "print"  => println!("PRINT print null"),
+                            "return" => println!("RETURN return null"),
+                            "super"  => println!("SUPER super null"),
+                            "this"   => println!("THIS this null"),
+                            "true"   => println!("TRUE true null"),
+                            "var"    => println!("VAR var null"),
+                            "while"  => println!("WHILE while null"),
+                            _ => println!("IDENTIFIER {} null", ident_str),
+                        }
+                    }
                     _ => {
                         eprintln!("[line {}] Error: Unexpected character: {}", line, ch);
                         error = true;
