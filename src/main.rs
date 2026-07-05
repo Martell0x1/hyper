@@ -20,9 +20,10 @@ fn main() {
                 String::new()
             });
 
+            let mut chars = file_contents.chars().peekable();
             let mut error = false;
 
-            for ch in file_contents.chars()  {
+            while let Some(ch) = chars.next() {
                 match ch {
                     '(' => println!("LEFT_PAREN ( null"),
                     ')' => println!("RIGHT_PAREN ) null"),
@@ -34,6 +35,14 @@ fn main() {
                     '+' => println!("PLUS + null"),
                     ';' => println!("SEMICOLON ; null"),
                     '*' => println!("STAR * null"),
+                    '=' => {
+                        if chars.peek() == Some(&'=') {
+                            chars.next();
+                            println!("EQUAL_EQUAL == null");
+                        } else {
+                            println!("EQUAL = null")
+                        }
+                    }
                     _ => {
                         eprintln!("[line 1] Error: Unexpected character: {}", ch);
                         error = true;
