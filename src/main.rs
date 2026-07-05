@@ -25,6 +25,8 @@ fn main() {
 
             while let Some(ch) = chars.next() {
                 match ch {
+                    ' ' | '\t' | '\r' | '\n' => {}
+
                     '(' => println!("LEFT_PAREN ( null"),
                     ')' => println!("RIGHT_PAREN ) null"),
                     '{' => println!("LEFT_BRACE {{ null"),
@@ -41,6 +43,39 @@ fn main() {
                             println!("EQUAL_EQUAL == null");
                         } else {
                             println!("EQUAL = null")
+                        }
+                    }
+                    '!' => {
+                        if chars.peek() == Some(&'=') {
+                            chars.next();
+                            println!("BANG_EQUAL != null");
+                        } else {
+                            println!("BANG ! null")
+                        }
+                    }
+                    '<' => {
+                        if chars.peek() == Some(&'=') {
+                            chars.next();
+                            println!("LESS_EQUAL <= null");
+                        } else {
+                            println!("LESS < null")
+                        }
+                    }
+                    '>' => {
+                        if chars.peek() == Some(&'=') {
+                            chars.next();
+                            println!("GREATER_EQUAL >= null");
+                        } else {
+                            println!("GREATER > null")
+                        }
+                    }
+                    '/' => {
+                        if chars.peek() == Some(&'/') {
+                            while chars.peek() != Some(&'\n') && chars.peek().is_some() {
+                                chars.next();
+                            }
+                        } else {
+                            println!("SLASH / null")
                         }
                     }
                     _ => {
