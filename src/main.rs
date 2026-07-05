@@ -3,7 +3,7 @@ use std::fs;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() > 3 {
+    if args.len() < 3 {
         eprintln!("Usage: {} tokenize <filename>", args[0]);
         return;
     }
@@ -20,11 +20,17 @@ fn main() {
                 String::new()
             });
 
-            if !file_contents.is_empty() {
-                panic!("Scanner not implemented");
-            } else {
-                println!("EOF  null");
+            for ch in file_contents.chars()  {
+                match ch {
+                    '(' => println!("LEFT_PAREN ( null"),
+                    ')' => println!("RIGHT_PAREN ) null"),
+                    '{' => println!("LEFT_BRACE {{ null"),
+                    '}' => println!("RIGHT_BRACE }} null"),
+                    _ => {}
+                }
             }
+
+            println!("EOF  null");
         }
         _ => {
             println!("Unknown command: {}", command);
