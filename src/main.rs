@@ -22,10 +22,12 @@ fn main() {
 
             let mut chars = file_contents.chars().peekable();
             let mut error = false;
+            let mut line = 1;
 
             while let Some(ch) = chars.next() {
                 match ch {
-                    ' ' | '\t' | '\r' | '\n' => {}
+                    ' ' | '\t' | '\r' => {}
+                    '\n' => { line += 1; } 
 
                     '(' => println!("LEFT_PAREN ( null"),
                     ')' => println!("RIGHT_PAREN ) null"),
@@ -79,7 +81,7 @@ fn main() {
                         }
                     }
                     _ => {
-                        eprintln!("[line 1] Error: Unexpected character: {}", ch);
+                        eprintln!("[line {}] Error: Unexpected character: {}", line, ch);
                         error = true;
                     }
                 }
