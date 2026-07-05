@@ -146,6 +146,20 @@ fn main() {
 
                         println!("NUMBER {} {}", num_str, literal_str)
                     }
+                    'a'..='z' | 'A'..='Z' | '_' => {
+                        let mut ident_str = String::new();
+                        ident_str.push(ch);
+
+                        while let Some(&next_ch) = chars.peek() {
+                            if next_ch.is_ascii_alphanumeric() || next_ch == '_' {
+                                ident_str.push(chars.next().unwrap());
+                            } else {
+                                break;
+                            }
+                        }
+
+                        println!("IDENTIFIER {} null", ident_str);
+                    } 
                     _ => {
                         eprintln!("[line {}] Error: Unexpected character: {}", line, ch);
                         error = true;
