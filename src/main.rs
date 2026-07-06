@@ -2,6 +2,7 @@ use std::env;
 use std::fs;
 
 mod scanner;
+mod parser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -21,6 +22,9 @@ fn main() {
     match command.as_str() {
         "tokenize" => {
             scanner::run_tokenize(file_contents);
+        }
+        "parse" => {
+            parser::run_parse(file_contents);
         }
         _ => {
             println!("Unknown command: {}", command);
