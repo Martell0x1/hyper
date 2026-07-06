@@ -1,5 +1,6 @@
 pub fn run_parse(file_contents: String) {
     let mut chars = file_contents.chars().peekable();
+    let mut unary_closes = 0; 
 
     while let Some(ch) = chars.next() {
         match ch {
@@ -11,11 +12,34 @@ pub fn run_parse(file_contents: String) {
                     }
                 }
             }
+            '(' => {
+                print!("(group ");
+            }
+            ')' => {
+                print!(")");
+                if unary_closes > 0 {
+                    print!(")");
+                    unary_closes -= 1;
+                }
+            }
+            '!' => {
+                print!("(! ");
+                unary_closes += 1;
+            }
+            '-' => {
+                print!("(-");
+                unary_closes += 1;
+            }
             '"' => {
                 let (str_val, is_terminated, _) = crate::scanner::str_literals(&mut chars);
 
                 if is_terminated {
-                    println!("{}", str_val);
+                    print!("{}", str_val);
+                    
+                    while unary_closes > 0 {
+                        print!(")");
+                        unary_closes -= 1;
+                    }
                 } else {
                     std::process::exit(65);
                 }
@@ -25,10 +49,15 @@ pub fn run_parse(file_contents: String) {
                 let num_val: f64 = num_str.parse().unwrap(); 
 
                 if num_val.fract() == 0.0 {
-                    println!("{:.1}", num_val)
+                    print!("{:.1}", num_val)
                 } else {
-                    println!("{}", num_val)
+                    print!("{}", num_val)
                 };
+
+                while unary_closes > 0 {
+                    print!(")");
+                    unary_closes -= 1;
+                }
             }
             'a'..='z' | 'A'..='Z' | '_' => {
                 let mut ident_str = String::new();
@@ -43,13 +72,20 @@ pub fn run_parse(file_contents: String) {
                 }
 
                 match ident_str.as_str() {
-                    "true" => println!("true"),
-                    "false" => println!("false"),
-                    "nil" => println!("nil"),
+                    "true" => print!("true"),
+                    "false" => print!("false"),
+                    "nil" => print!("nil"),
                     _ => std::process::exit(65),
+                }
+
+                while unary_closes > 0 {
+                    print!(")");
+                    unary_closes -= 1;
                 }
             }
             _ => std::process::exit(65),
         }
     }
+
+    println!()
 }
