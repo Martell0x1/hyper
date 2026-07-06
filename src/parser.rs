@@ -1,6 +1,7 @@
 pub fn run_parse(file_contents: String) {
     let mut chars = file_contents.chars().peekable();
     let mut unary_closes = 0; 
+    let mut curr_expr = String::new();
 
     while let Some(ch) = chars.next() {
         match ch {
@@ -10,34 +11,50 @@ pub fn run_parse(file_contents: String) {
                     while chars.peek() != Some(&'\n') && chars.peek().is_some() {
                         chars.next();
                     }
+                } else {
+                    curr_expr = format!("(/ {} ", curr_expr.trim());
+                    unary_closes += 1;
+                }
+            }
+            '*' => {
+                curr_expr = format!("(* {} ", curr_expr.trim());
+                unary_closes += 1;
+            }
+            '+' => {
+                curr_expr = format!("(+ {} ", curr_expr.trim());
+                unary_closes += 1;
+            }
+            '-' => {
+                if curr_expr.trim().is_empty() {
+                    curr_expr.push_str("(- ");
+                    unary_closes += 1;
+                } else {
+                    curr_expr = format!("(- {} ", curr_expr.trim());
+                    unary_closes += 1;
                 }
             }
             '(' => {
-                print!("(group ");
+                curr_expr.push_str("(group ");
             }
             ')' => {
-                print!(")");
+                curr_expr.push(')');
                 if unary_closes > 0 {
-                    print!(")");
+                    curr_expr.push(')');
                     unary_closes -= 1;
                 }
             }
             '!' => {
-                print!("(! ");
-                unary_closes += 1;
-            }
-            '-' => {
-                print!("(-");
+                curr_expr.push_str("(! ");
                 unary_closes += 1;
             }
             '"' => {
                 let (str_val, is_terminated, _) = crate::scanner::str_literals(&mut chars);
 
                 if is_terminated {
-                    print!("{}", str_val);
+                    curr_expr.push_str(&str_val);
                     
                     while unary_closes > 0 {
-                        print!(")");
+                        curr_expr.push(')');
                         unary_closes -= 1;
                     }
                 } else {
@@ -48,14 +65,16 @@ pub fn run_parse(file_contents: String) {
                 let num_str = crate::scanner::num_literals(ch, &mut chars);
                 let num_val: f64 = num_str.parse().unwrap(); 
 
-                if num_val.fract() == 0.0 {
-                    print!("{:.1}", num_val)
+                let formatted_num = if num_val.fract() == 0.0 {
+                    format!("{:.1}", num_val)
                 } else {
-                    print!("{}", num_val)
+                    format!("{}", num_val)
                 };
 
+                curr_expr.push_str(&formatted_num);
+
                 while unary_closes > 0 {
-                    print!(")");
+                    curr_expr.push(')');
                     unary_closes -= 1;
                 }
             }
@@ -72,14 +91,14 @@ pub fn run_parse(file_contents: String) {
                 }
 
                 match ident_str.as_str() {
-                    "true" => print!("true"),
-                    "false" => print!("false"),
-                    "nil" => print!("nil"),
+                    "true" => curr_expr.push_str("true"),
+                    "false" => curr_expr.push_str("false"),
+                    "nil" => curr_expr.push_str("nil"),
                     _ => std::process::exit(65),
                 }
 
                 while unary_closes > 0 {
-                    print!(")");
+                    curr_expr.push(')');
                     unary_closes -= 1;
                 }
             }
@@ -87,5 +106,5 @@ pub fn run_parse(file_contents: String) {
         }
     }
 
-    println!()
+    println!("{}", curr_expr.trim());
 }
