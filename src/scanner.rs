@@ -1,107 +1,110 @@
-pub fn num_literals(ch: char, chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
-    let mut num_str = String::new();
-    num_str.push(ch);
+use std::iter::Peekable;
+use std::str::Chars;
 
-    while let Some(&next_ch) = chars.peek() {
-        if next_ch.is_ascii_digit() {
-            num_str.push(chars.next().unwrap());
-        } else {
-            break;
-        }
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenType {
+    LeftParen, RightParen, LeftBrace, RightBrace,
+    Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
+    Bang, BangEqual, Equal, EqualEqual,
+    Greater, GreaterEqual, Less, LessEqual,
+    Identifier, StringLit, Number,
+    And, Class, Else, False, Fun, For, If, Nil, Or,
+    Print, Return, Super, This, True, Var, While, EOF,
+}
+
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub token_type: TokenType,
+    pub lexeme: String,
+    pub literal: String,
+    pub line: usize,
+}
+
+pub fn num_literals(ch: char, chars: &mut Peekable<Chars>) -> String {
+    let mut num_str = String::from(ch);
+    while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+        num_str.push(chars.next().unwrap());
     }
-
     if chars.peek() == Some(&'.') {
-        let mut clone_chars = chars.clone();
-        clone_chars.next();
-
-        if let Some(&after_dot) = clone_chars.peek() {
-            if after_dot.is_ascii_digit() {
+        let mut clone = chars.clone();
+        clone.next();
+        if chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+            num_str.push(chars.next().unwrap());
+            while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
                 num_str.push(chars.next().unwrap());
-
-                while let Some(&next_ch) = chars.peek() {
-                    if next_ch.is_ascii_digit() {
-                        num_str.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
             }
         }
     }
     num_str
 }
 
-pub fn str_literals(chars: &mut std::iter::Peekable<std::str::Chars>) -> (String, bool, usize) {
+pub fn str_literals(chars: &mut Peekable<Chars>, line: &mut usize) -> Option<String> {
     let mut str_val = String::new();
-    let mut is_terminated = false;
-    let mut lines = 0;
-
-    while let Some(&next_ch) = chars.peek() {
-        if next_ch == '"' {
-            chars.next();
-            is_terminated = true;
-            break;
-        }
-
-        if next_ch == '\n' {
-            lines += 1;
-        }
-
-        str_val.push(chars.next().unwrap());
+    while let Some(next_ch) = chars.next() {
+        if next_ch == '"' { return Some(str_val); }
+        if next_ch == '\n' { *line += 1; }
+        str_val.push(next_ch);
     }
-    (str_val, is_terminated, lines)
+    None
 }
 
-pub fn run_tokenize(file_contents: String) {
+pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
     let mut chars = file_contents.chars().peekable();
+    let mut tokens = Vec::new();
     let mut error = false;
     let mut line = 1;
+
+    macro_rules! add_token {
+        ($t:expr, $lex:expr, $lit:expr) => {
+            tokens.push(Token { token_type: $t, lexeme: $lex.to_string(), literal: $lit.to_string(), line })
+        };
+    }
 
     while let Some(ch) = chars.next() {
         match ch {
             ' ' | '\t' | '\r' => {}
             '\n' => { line += 1; } 
 
-            '(' => println!("LEFT_PAREN ( null"),
-            ')' => println!("RIGHT_PAREN ) null"),
-            '{' => println!("LEFT_BRACE {{ null"),
-            '}' => println!("RIGHT_BRACE }} null"),
-            '.' => println!("DOT . null"),
-            ',' => println!("COMMA , null"),
-            '-' => println!("MINUS - null"),
-            '+' => println!("PLUS + null"),
-            ';' => println!("SEMICOLON ; null"),
-            '*' => println!("STAR * null"),
+            '(' => add_token!(TokenType::LeftParen, "(", "null"),
+            ')' => add_token!(TokenType::RightParen, ")", "null"),
+            '{' => add_token!(TokenType::LeftBrace, "{", "null"),
+            '}' => add_token!(TokenType::RightBrace, "}", "null"),
+            '.' => add_token!(TokenType::Dot, ".", "null"),
+            ',' => add_token!(TokenType::Comma, ",", "null"),
+            '-' => add_token!(TokenType::Minus, "-", "null"),
+            '+' => add_token!(TokenType::Plus, "+", "null"),
+            ';' => add_token!(TokenType::Semicolon, ";", "null"),
+            '*' => add_token!(TokenType::Star, "*", "null"),
             '=' => {
                 if chars.peek() == Some(&'=') {
                     chars.next();
-                    println!("EQUAL_EQUAL == null");
+                    add_token!(TokenType::EqualEqual, "==", "null");
                 } else {
-                    println!("EQUAL = null")
+                    add_token!(TokenType::Equal, "=", "null");
                 }
             }
             '!' => {
                 if chars.peek() == Some(&'=') {
                     chars.next();
-                    println!("BANG_EQUAL != null");
+                    add_token!(TokenType::BangEqual, "!=", "null");
                 } else {
-                    println!("BANG ! null")
+                    add_token!(TokenType::Bang, "!", "null");
                 }
             }
             '<' => {
                 if chars.peek() == Some(&'=') {
                     chars.next();
-                    println!("LESS_EQUAL <= null");
+                    add_token!(TokenType::LessEqual, "<=", "null");
                 } else {
-                    println!("LESS < null")
+                    add_token!(TokenType::Less, "<", "null");
                 }
             }
             '>' => {
                 if chars.peek() == Some(&'=') {
                     chars.next();
-                    println!("GREATER_EQUAL >= null");
+                    add_token!(TokenType::GreaterEqual, ">=", "null");
                 } else {
-                    println!("GREATER > null")
+                    add_token!(TokenType::Greater, ">", "null");
                 }
             }
             '/' => {
@@ -110,15 +113,12 @@ pub fn run_tokenize(file_contents: String) {
                         chars.next();
                     }
                 } else {
-                    println!("SLASH / null")
+                    add_token!(TokenType::Slash, "/", "null");
                 }
             }
             '"' => {
-                let (str_val, is_terminated, lines) = str_literals(&mut chars);
-                line += lines;
-
-                if is_terminated {
-                    println!("STRING \"{}\" {}", str_val, str_val);
+                if let Some(str_val) = str_literals(&mut chars, &mut line) {
+                    add_token!(TokenType::StringLit, format!("\"{}\"", str_val), str_val);
                 } else {
                     eprint!("[line {}] Error: Unterminated string.", line);
                     error = true;
@@ -128,45 +128,29 @@ pub fn run_tokenize(file_contents: String) {
                 let num_str = num_literals(ch, &mut chars);
                 let num_val: f64 = num_str.parse().unwrap(); 
 
-                let literal_str = if num_val.fract() == 0.0 {
+                let lit = if num_val.fract() == 0.0 {
                     format!("{:.1}", num_val)
                 } else {
-                    format!("{}", num_val)
+                    num_val.to_string()
                 };
 
-                println!("NUMBER {} {}", num_str, literal_str)
+                add_token!(TokenType::Number, num_str, lit);
             }
             'a'..='z' | 'A'..='Z' | '_' => {
-                let mut ident_str = String::new();
-                ident_str.push(ch);
-
-                while let Some(&next_ch) = chars.peek() {
-                    if next_ch.is_ascii_alphanumeric() || next_ch == '_' {
-                        ident_str.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
+                let mut ident = String::from(ch);
+                while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
+                    ident.push(chars.next().unwrap());
                 }
 
-                match ident_str.as_str() {
-                    "and"    => println!("AND and null"),
-                    "class"  => println!("CLASS class null"),
-                    "else"   => println!("ELSE else null"),
-                    "false"  => println!("FALSE false null"),
-                    "for"    => println!("FOR for null"),
-                    "fun"    => println!("FUN fun null"),
-                    "if"     => println!("IF if null"),
-                    "nil"    => println!("NIL nil null"),
-                    "or"     => println!("OR or null"),
-                    "print"  => println!("PRINT print null"),
-                    "return" => println!("RETURN return null"),
-                    "super"  => println!("SUPER super null"),
-                    "this"   => println!("THIS this null"),
-                    "true"   => println!("TRUE true null"),
-                    "var"    => println!("VAR var null"),
-                    "while"  => println!("WHILE while null"),
-                    _ => println!("IDENTIFIER {} null", ident_str),
-                }
+                let t_type = match ident.as_str() {
+                    "and" => TokenType::And, "class" => TokenType::Class, "else" => TokenType::Else,
+                    "false" => TokenType::False, "for" => TokenType::For, "fun" => TokenType::Fun,
+                    "if" => TokenType::If, "nil" => TokenType::Nil, "or" => TokenType::Or,
+                    "print" => TokenType::Print, "return" => TokenType::Return, "super" => TokenType::Super,
+                    "this" => TokenType::This, "true" => TokenType::True, "var" => TokenType::Var,
+                    "while" => TokenType::While, _ => TokenType::Identifier,
+                };
+                add_token!(t_type, ident, "null");
             }
             _ => {
                 eprintln!("[line {}] Error: Unexpected character: {}", line, ch);
@@ -174,10 +158,6 @@ pub fn run_tokenize(file_contents: String) {
             }
         }
     }
-
-    println!("EOF  null");
-
-    if error {
-        std::process::exit(65);
-    }
+    add_token!(TokenType::EOF, "", "null");
+    (tokens, error)
 }

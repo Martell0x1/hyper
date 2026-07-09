@@ -1,110 +1,157 @@
-pub fn run_parse(file_contents: String) {
-    let mut chars = file_contents.chars().peekable();
-    let mut unary_closes = 0; 
-    let mut curr_expr = String::new();
+use crate::scanner::{Token, TokenType};
+pub struct Parser {
+    tokens: Vec<Token>,
+    current: usize,
+}
 
-    while let Some(ch) = chars.next() {
-        match ch {
-            ' ' | '\t' | '\r' | '\n' => {}
-            '/' => {
-                if chars.peek() == Some(&'/') {
-                    while chars.peek() != Some(&'\n') && chars.peek().is_some() {
-                        chars.next();
-                    }
-                } else {
-                    curr_expr = format!("(/ {} ", curr_expr.trim());
-                    unary_closes += 1;
-                }
-            }
-            '*' => {
-                curr_expr = format!("(* {} ", curr_expr.trim());
-                unary_closes += 1;
-            }
-            '+' => {
-                curr_expr = format!("(+ {} ", curr_expr.trim());
-                unary_closes += 1;
-            }
-            '-' => {
-                if curr_expr.trim().is_empty() {
-                    curr_expr.push_str("(- ");
-                    unary_closes += 1;
-                } else {
-                    curr_expr = format!("(- {} ", curr_expr.trim());
-                    unary_closes += 1;
-                }
-            }
-            '(' => {
-                curr_expr.push_str("(group ");
-            }
-            ')' => {
-                curr_expr.push(')');
-                if unary_closes > 0 {
-                    curr_expr.push(')');
-                    unary_closes -= 1;
-                }
-            }
-            '!' => {
-                curr_expr.push_str("(! ");
-                unary_closes += 1;
-            }
-            '"' => {
-                let (str_val, is_terminated, _) = crate::scanner::str_literals(&mut chars);
-
-                if is_terminated {
-                    curr_expr.push_str(&str_val);
-                    
-                    while unary_closes > 0 {
-                        curr_expr.push(')');
-                        unary_closes -= 1;
-                    }
-                } else {
-                    std::process::exit(65);
-                }
-            }
-            '0'..='9' => {
-                let num_str = crate::scanner::num_literals(ch, &mut chars);
-                let num_val: f64 = num_str.parse().unwrap(); 
-
-                let formatted_num = if num_val.fract() == 0.0 {
-                    format!("{:.1}", num_val)
-                } else {
-                    format!("{}", num_val)
-                };
-
-                curr_expr.push_str(&formatted_num);
-
-                while unary_closes > 0 {
-                    curr_expr.push(')');
-                    unary_closes -= 1;
-                }
-            }
-            'a'..='z' | 'A'..='Z' | '_' => {
-                let mut ident_str = String::new();
-                ident_str.push(ch);
-
-                while let Some(&next_ch) = chars.peek() {
-                    if next_ch.is_ascii_alphanumeric() || next_ch == '_' {
-                        ident_str.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
-
-                match ident_str.as_str() {
-                    "true" => curr_expr.push_str("true"),
-                    "false" => curr_expr.push_str("false"),
-                    "nil" => curr_expr.push_str("nil"),
-                    _ => std::process::exit(65),
-                }
-
-                while unary_closes > 0 {
-                    curr_expr.push(')');
-                    unary_closes -= 1;
-                }
-            }
-            _ => std::process::exit(65),
-        }
+impl Parser {
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Parser { tokens, current: 0 }
     }
 
-    println!("{}", curr_expr.trim());
+    pub fn parse(&mut self) -> Result<String, ()> {
+        let result = self.expression()?;
+
+        if !self.is_at_end() && self.peek().token_type != TokenType::EOF {
+            let token = self.peek().clone();
+            eprintln!("[line {}] Error at '{}': Expect expression.", token.line, token.lexeme);
+            return Err(());
+        }
+        Ok(result)
+    }
+
+    fn expression(&mut self) -> Result<String, ()> {
+        self.equality()
+    }
+
+    fn equality(&mut self) -> Result<String, ()> {
+        let mut expr = self.comparison()?;
+        while self.match_types(&[TokenType::BangEqual, TokenType::EqualEqual]) {
+            let operator = self.previous().lexeme.clone();
+            let right = self.comparison()?;
+            expr = format!("({} {} {})", operator, expr, right);
+        }
+        Ok(expr)
+    }
+
+    fn comparison(&mut self) -> Result<String, ()> {
+        let mut expr = self.term()?;
+        while self.match_types(&[TokenType::Greater, TokenType::GreaterEqual, TokenType::Less, TokenType::LessEqual]) {
+            let operator = self.previous().lexeme.clone();
+            let right = self.term()?;
+            expr = format!("({} {} {})", operator, expr, right);
+        }
+        Ok(expr)
+    }
+
+    fn term(&mut self) -> Result<String, ()> {
+        let mut expr = self.factor()?;
+        while self.match_types(&[TokenType::Minus, TokenType::Plus]) {
+            let operator = self.previous().lexeme.clone();
+            let right = self.factor()?;
+            expr = format!("({} {} {})", operator, expr, right);
+        }
+        Ok(expr)
+    }
+
+    fn factor(&mut self) -> Result<String, ()> {
+        let mut expr = self.unary()?;
+        while self.match_types(&[TokenType::Slash, TokenType::Star]) {
+            let operator = self.previous().lexeme.clone();
+            let right = self.unary()?;
+            expr = format!("({} {} {})", operator, expr, right);
+        }
+        Ok(expr)
+    }
+
+    fn unary(&mut self) -> Result<String, ()> {
+        if self.match_types(&[TokenType::Bang, TokenType::Minus]) {
+            let operator = self.previous().lexeme.clone();
+            let right = self.unary()?;
+            return Ok(format!("({} {})", operator, right));
+        }
+        self.primary()
+    }
+
+    fn primary(&mut self) -> Result<String, ()> {
+        if self.match_types(&[TokenType::False]) { return Ok("false".to_string()); }
+        if self.match_types(&[TokenType::True]) { return Ok("true".to_string()); }
+        if self.match_types(&[TokenType::Nil]) { return Ok("nil".to_string()); }
+        
+        if self.match_types(&[TokenType::Number, TokenType::StringLit]) {
+            return Ok(self.previous().literal.clone());
+        }
+
+        if self.match_types(&[TokenType::LeftParen]) {
+            let expr = self.expression()?;
+            self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
+            return Ok(format!("(group {})", expr));
+        }
+
+        let token = self.peek().clone();
+        if token.token_type == TokenType::EOF {
+            eprintln!("[line {}] Error at end: Expect expression.", token.line);
+        } else {
+            eprintln!("[line {}] Error at '{}': Expect expression.", token.line, token.lexeme);
+        }
+        Err(())
+    }
+
+    fn match_types(&mut self, types: &[TokenType]) -> bool {
+        for t in types {
+            if self.check(t) {
+                self.advance();
+                return true;
+            }
+        }
+        false
+    }
+
+    fn check(&self, token_type: &TokenType) -> bool {
+        if self.is_at_end() { return false; }
+        &self.peek().token_type == token_type
+    }
+
+    fn advance(&mut self) -> &Token {
+        if !self.is_at_end() { self.current += 1; }
+        self.previous()
+    }
+
+    fn is_at_end(&self) -> bool {
+        self.peek().token_type == TokenType::EOF
+    }
+
+    fn peek(&self) -> &Token {
+        &self.tokens[self.current]
+    }
+
+    fn previous(&self) -> &Token {
+        &self.tokens[self.current - 1]
+    }
+
+    fn consume(&mut self, token_type: TokenType, message: &str) -> Result<&Token, ()> {
+        if self.check(&token_type) { return Ok(self.advance()); }
+        let token = self.peek();
+        eprintln!("[line {}] Error at '{}': {}", token.line, token.lexeme, message);
+        Err(())
+    }
+}
+
+pub fn run_parse(file_contents: String) {
+    let (tokens, error) = crate::scanner::scan_tokens(&file_contents);
+    
+    if error {
+        std::process::exit(65);
+    }
+
+    let mut parser = Parser::new(tokens);
+
+    match parser.parse() {
+        Ok(ast_string) => {
+            println!("{}", ast_string);
+        }
+        Err(_) => {
+            std::process::exit(65);
+        }
+    }
 }

@@ -21,7 +21,7 @@ fn main() {
 
     match command.as_str() {
         "tokenize" => {
-            scanner::run_tokenize(file_contents);
+            scanner::scan_tokens(&file_contents);
         }
         "parse" => {
             parser::run_parse(file_contents);
