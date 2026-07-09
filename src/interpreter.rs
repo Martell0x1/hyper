@@ -63,8 +63,15 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
     if cleaned.starts_with("(+ ") && cleaned.ends_with(')') {
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
-            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
-                return Some(LoxValue::Number(l + r));
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Number(l + r));
+                }
+                (Some(LoxValue::StringLit(l)), Some(LoxValue::StringLit(r))) => {
+                    let concatenated = format!("{}{}", l, r);
+                    return Some(LoxValue::StringLit(concatenated));
+                }
+                _ => return None,
             }
         }
     }
