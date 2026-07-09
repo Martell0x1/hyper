@@ -3,6 +3,7 @@ use std::fs;
 
 mod scanner;
 mod parser;
+mod interpreter;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -25,6 +26,9 @@ fn main() {
         }
         "parse" => {
             parser::run_parse(file_contents);
+        }
+        "evaluate" => {
+            interpreter::run_evaluate(file_contents);
         }
         _ => {
             println!("Unknown command: {}", command);
