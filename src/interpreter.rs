@@ -32,13 +32,53 @@ fn is_truthy(value: &LoxValue) -> bool {
     }
 }
 
+fn split_binary_args(inner: &str) -> Option<(String, String)> {
+    let mut bracket_count = 0;
+    let mut split_idx = None;
+    let chars: Vec<char> = inner.chars().collect();
+
+    for (i, &ch) in chars.iter().enumerate() {
+        if ch == '(' {
+            bracket_count += 1;
+        } else if ch == ')' {
+            bracket_count -= 1;
+        } else if ch == ' ' && bracket_count == 0 {
+            split_idx = Some(i);
+            break;  
+        }
+    }
+
+    if let Some(idx) = split_idx {
+        let left = chars[..idx].iter().collect::<String>();
+        let right = chars[idx + 1..].iter().collect::<String>();
+        Some((left, right))
+    } else {
+        None
+    }
+}
+
 fn evaluate_str(ast_string: String) -> Option<LoxValue> {
     let cleaned = clean_group_expressions(ast_string);
 
+    if cleaned.starts_with("(+ ") && cleaned.ends_with(')') {
+        let inner = &cleaned[3..cleaned.len() - 1];
+        if let Some((left_str, right_str)) = split_binary_args(inner) {
+            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
+                return Some(LoxValue::Number(l + r));
+            }
+        }
+    }
+
     if cleaned.starts_with("(- ") && cleaned.ends_with(')') {
-        let inner = cleaned[3..cleaned.len() - 1].to_string();
-        if let Some(LoxValue::Number(n)) = evaluate_str(inner) {
-            return Some(LoxValue::Number(-n));
+        let inner = &cleaned[3..cleaned.len() - 1];
+        if let Some((left_str, right_str)) = split_binary_args(inner) {
+            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
+                return Some(LoxValue::Number(l - r));
+            }
+        } else {
+            if let Some(LoxValue::Number(n)) = evaluate_str(inner.trim().to_string()) {
+                return Some(LoxValue::Number(-n));
+            }
         }
     }
 
@@ -46,6 +86,24 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
         let inner = cleaned[3..cleaned.len() - 1].to_string();
         if let Some(val) = evaluate_str(inner) {
             return Some(LoxValue::Boolean(!is_truthy(&val)));
+        }
+    }
+
+    if cleaned.starts_with("(* ") && cleaned.ends_with(')') {
+        let inner = &cleaned[3..cleaned.len() - 1];
+        if let Some((left_str, right_str)) = split_binary_args(inner) {
+            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
+                return Some(LoxValue::Number(l * r));
+            }
+        }
+    }
+
+    if cleaned.starts_with("(/ ") && cleaned.ends_with(')') {
+        let inner = &cleaned[3..cleaned.len() - 1];
+        if let Some((left_str, right_str)) = split_binary_args(inner) {
+            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
+                return Some(LoxValue::Number(l / r));
+            }
         }
     }
 
