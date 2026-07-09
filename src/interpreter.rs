@@ -151,6 +151,54 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
         }
     }
 
+    if cleaned.starts_with("(== ") && cleaned.ends_with(')') {
+        let inner = &cleaned[4..cleaned.len() - 1];
+        if let Some((left_str, right_str)) = split_binary_args(inner) {
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Boolean(l == r));
+                }
+                (Some(LoxValue::StringLit(l)), Some(LoxValue::StringLit(r))) => {
+                    return Some(LoxValue::Boolean(l == r));
+                }
+                (Some(LoxValue::Boolean(l)), Some(LoxValue::Boolean(r))) => {
+                    return Some(LoxValue::Boolean(l == r));
+                }
+                (Some(LoxValue::Nil), Some(LoxValue::Nil)) => {
+                    return Some(LoxValue::Boolean(true));
+                }
+                (Some(_), Some(_)) => {
+                    return Some(LoxValue::Boolean(false));
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    if cleaned.starts_with("(!= ") && cleaned.ends_with(')') {
+        let inner = &cleaned[4..cleaned.len() - 1];
+        if let Some((left_str, right_str)) = split_binary_args(inner) {
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Boolean(l != r));
+                }
+                (Some(LoxValue::StringLit(l)), Some(LoxValue::StringLit(r))) => {
+                    return Some(LoxValue::Boolean(l != r));
+                }
+                (Some(LoxValue::Boolean(l)), Some(LoxValue::Boolean(r))) => {
+                    return Some(LoxValue::Boolean(l != r));
+                }
+                (Some(LoxValue::Nil), Some(LoxValue::Nil)) => {
+                    return Some(LoxValue::Boolean(false));
+                }
+                (Some(_), Some(_)) => {
+                    return Some(LoxValue::Boolean(true));
+                }
+                _ => return None,
+            }
+        }
+    }
+
     match cleaned.as_str() {
         "true" => Some(LoxValue::Boolean(true)),
         "false" => Some(LoxValue::Boolean(false)),
