@@ -152,15 +152,17 @@ impl Parser {
     }
 
     fn print_statement(&mut self) -> Result<String, ()> {
+        let line = self.peek().line;
         let value = self.expression()?;
         self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
-        Ok(format!("(print {})", value))
+        Ok(format!("(print line:{} {})", line, value))
     }
 
     fn expression_statement(&mut self) -> Result<String, ()> {
+        let line = self.peek().line;
         let expr = self.expression()?;
         self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
-        Ok(format!("(expr {})", expr))
+        Ok(format!("(expr line:{} {})", line, expr))
     }
 }
 
