@@ -30,6 +30,9 @@ fn main() {
         "evaluate" => {
             interpreter::run_evaluate(file_contents);
         }
+        "run" => {
+            crate::interpreter::run_program(file_contents);
+        }
         _ => {
             println!("Unknown command: {}", command);
         }

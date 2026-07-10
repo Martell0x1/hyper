@@ -288,3 +288,33 @@ pub fn run_evaluate(file_contents: String) {
         }
     }
 }
+
+pub fn run_program(file_contents: String) {
+    let (tokens, error) = crate::scanner::scan_tokens(&file_contents);
+    if error {
+        std::process::exit(65);
+    }
+
+    let mut parser = crate::parser::Parser::new(tokens);
+
+    match parser.parse_statements() {
+        Ok(statements) => {
+            for stmt in statements {
+                if stmt.starts_with("(print ") && stmt.ends_with(')') {
+                    let inner_expr = &stmt[7..stmt.len() - 1];
+                    if let Some(result) = evaluate_str(inner_expr.to_string()) {
+                        println!("{}", result);
+                    } else {
+                        std::process::exit(70);
+                    }
+                } else if stmt.starts_with("(expr ") && stmt.ends_with(')') {
+                    let inner_expr = &stmt[6..stmt.len() - 1];
+                    evaluate_str(inner_expr.to_string());
+                }
+            }
+        }
+        Err(_) => {
+            std::process::exit(65);
+        }
+    }
+}

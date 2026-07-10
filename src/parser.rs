@@ -135,6 +135,33 @@ impl Parser {
         eprintln!("[line {}] Error at '{}': {}", token.line, token.lexeme, message);
         Err(())
     }
+
+    pub fn parse_statements(&mut self) -> Result<Vec<String>, ()> {
+        let mut statements = Vec::new();
+        while !self.is_at_end() && self.peek().token_type != TokenType::EOF {
+            statements.push(self.statement()?);
+        }
+        Ok(statements)
+    }
+
+    fn statement(&mut self) -> Result<String, ()> {
+        if self.match_types(&[TokenType::Print]) {
+            return self.print_statement();
+        }
+        self.expression_statement()
+    }
+
+    fn print_statement(&mut self) -> Result<String, ()> {
+        let value = self.expression()?;
+        self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
+        Ok(format!("(print {})", value))
+    }
+
+    fn expression_statement(&mut self) -> Result<String, ()> {
+        let expr = self.expression()?;
+        self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
+        Ok(format!("(expr {})", expr))
+    }
 }
 
 pub fn run_parse(file_contents: String) {
