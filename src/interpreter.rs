@@ -71,7 +71,10 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
                     let concatenated = format!("{}{}", l, r);
                     return Some(LoxValue::StringLit(concatenated));
                 }
-                _ => return None,
+                _ => {
+                    eprintln!("Operands must be two numbers or two strings.");
+                    std::process::exit(70);
+                }
             }
         }
     }
@@ -79,12 +82,24 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
     if cleaned.starts_with("(- ") && cleaned.ends_with(')') {
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
-            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
-                return Some(LoxValue::Number(l - r));
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Number(l - r));
+                }
+                _ => {
+                    eprintln!("Operand must be numbers.");
+                    std::process::exit(70);
+                }
             }
         } else {
-            if let Some(LoxValue::Number(n)) = evaluate_str(inner.trim().to_string()) {
-                return Some(LoxValue::Number(-n));
+            if let Some(val) = evaluate_str(inner.trim().to_string()) {
+                match val {
+                    LoxValue::Number(n) => return Some(LoxValue::Number(-n)),
+                    _ => {
+                        eprintln!("Operand must be a number.");
+                        std::process::exit(70);
+                    }
+                }
             }
         }
     }
@@ -99,8 +114,14 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
     if cleaned.starts_with("(* ") && cleaned.ends_with(')') {
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
-            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
-                return Some(LoxValue::Number(l * r));
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Number(l * r));
+                }
+                _ => {
+                    eprintln!("Operand must be numbers.");
+                    std::process::exit(70);
+                }
             }
         }
     }
@@ -108,8 +129,14 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
     if cleaned.starts_with("(/ ") && cleaned.ends_with(')') {
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
-            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
-                return Some(LoxValue::Number(l / r));
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Number(l / r));
+                }
+                _ => {
+                    eprintln!("Operand must be numbers.");
+                    std::process::exit(70);
+                }
             }
         }
     }
@@ -117,8 +144,14 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
     if cleaned.starts_with("(> ") && cleaned.ends_with(')') {
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
-            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
-                return Some(LoxValue::Boolean(l > r));
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Boolean(l > r));
+                }
+                _ => {
+                    eprintln!("Operand must be numbers.");
+                    std::process::exit(70);
+                }
             }
         }
     }
@@ -126,8 +159,14 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
     if cleaned.starts_with("(< ") && cleaned.ends_with(')') {
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
-            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
-                return Some(LoxValue::Boolean(l < r));
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Boolean(l < r));
+                }
+                _ => {
+                    eprintln!("Operand must be numbers.");
+                    std::process::exit(70);
+                }
             }
         }
     }
@@ -136,8 +175,14 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
     if cleaned.starts_with("(>= ") && cleaned.ends_with(')') {
         let inner = &cleaned[4..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
-            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
-                return Some(LoxValue::Boolean(l >= r));
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Boolean(l >= r));
+                }
+                _ => {
+                    eprintln!("Operand must be numbers.");
+                    std::process::exit(70);
+                }
             }
         }
     }
@@ -145,8 +190,14 @@ fn evaluate_str(ast_string: String) -> Option<LoxValue> {
     if cleaned.starts_with("(<= ") && cleaned.ends_with(')') {
         let inner = &cleaned[4..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
-            if let (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) = (evaluate_str(left_str), evaluate_str(right_str)) {
-                return Some(LoxValue::Boolean(l <= r));
+            match (evaluate_str(left_str), evaluate_str(right_str)) {
+                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => {
+                    return Some(LoxValue::Boolean(l <= r));
+                }
+                _ => {
+                    eprintln!("Operand must be numbers.");
+                    std::process::exit(70);
+                }
             }
         }
     }
