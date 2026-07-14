@@ -30,6 +30,16 @@ impl Environment {
             std::process::exit(70);
         }
     }
+
+    pub fn assign(&mut self, name: &str, value: LoxValue, line: u32) {
+        if self.values.contains_key(name) {
+            self.values.insert(name.to_string(), value);
+        } else {
+            eprintln!("Undefined variable '{}'.", name);
+            eprintln!("[line {}]", line);
+            std::process::exit(70);
+        }
+    }
 }
 
 impl std::fmt::Display for LoxValue {
@@ -83,12 +93,25 @@ fn split_binary_args(inner: &str) -> Option<(String, String)> {
     }
 }
 
-fn evaluate_str(ast_string: String, line: u32, env: &Environment) -> Option<LoxValue> {
+fn evaluate_str(ast_string: String, line: u32, env: &mut Environment) -> Option<LoxValue> {
     let cleaned = clean_group_expressions(ast_string);
 
     if cleaned.starts_with("var_ref:") {
         let var_name = &cleaned[8..];
         return  Some(env.get(var_name, line));
+    }
+
+    if cleaned.starts_with("(assign ") && cleaned.ends_with(')') {
+        let inner = &cleaned[8..cleaned.len() - 1];
+        if let Some(space_idx) = inner.find(' ') {
+            let var_name = &inner[..space_idx];
+            let value_expr = &inner[space_idx + 1..];
+    
+            if let Some(value) = evaluate_str(value_expr.to_string(), line, env) {
+                env.assign(var_name, value.clone(), line);
+                return Some(value);
+            }
+        }
     }
 
     if cleaned.starts_with("(+ ") && cleaned.ends_with(')') {
@@ -314,11 +337,11 @@ pub fn run_evaluate(file_contents: String) {
     }
 
     let mut parser = crate::parser::Parser::new(tokens);
+    let mut env = Environment::new();
 
     match parser.parse() {
         Ok(ast_string) => {
-            let env = Environment::new();
-            if let Some(result) = evaluate_str(ast_string, 1, &env) {
+            if let Some(result) = evaluate_str(ast_string, 1, &mut env) {
                 println!("{}", result);
             } else {
                 std::process::exit(65);
@@ -337,13 +360,11 @@ pub fn run_program(file_contents: String) {
     }
 
     let mut parser = crate::parser::Parser::new(tokens);
+    let mut env = Environment::new();
 
     match parser.parse_statements() {
         Ok(statements) => {
-            let mut env = Environment::new();
-
             for stmt in statements {
-                
                 if stmt.starts_with("(var line:") {
                     let trimmed = &stmt[10..&stmt.len() - 1];
                     let parts: Vec<&str> = trimmed.splitn(3, ' ').collect();
@@ -356,7 +377,7 @@ pub fn run_program(file_contents: String) {
                         let value = if initializer_expr == "nil" {
                             LoxValue::Nil
                         } else {
-                            match evaluate_str(initializer_expr, line_num, &env) {
+                            match evaluate_str(initializer_expr, line_num, &mut env) {
                                 Some(val) => val,
                                 None => LoxValue::Nil,
                             }
@@ -370,14 +391,14 @@ pub fn run_program(file_contents: String) {
                     let line_num: u32 = rest[..space_idx].parse().unwrap();
                     let inner_expr = &rest[space_idx + 1..rest.len() - 1];
 
-                    evaluate_str(inner_expr.to_string(), line_num, &env);
+                    evaluate_str(inner_expr.to_string(), line_num, &mut env);
                 } else if stmt.starts_with("(print line:") {
                     let rest = &stmt[12..];
                     let space_idx = rest.find(' ').unwrap();
                     let line_num: u32 = rest[..space_idx].parse().unwrap();
                     let inner_expr = &rest[space_idx + 1..rest.len() - 1];
 
-                    if let Some(result) = evaluate_str(inner_expr.to_string(), line_num, &env) {
+                    if let Some(result) = evaluate_str(inner_expr.to_string(), line_num, &mut env) {
                         println!("{}", result);
                     } else {
                         std::process::exit(70);

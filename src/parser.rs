@@ -22,7 +22,20 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Result<String, ()> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<String, ()> {
+        let expr = self.equality()?;
+        if self.match_types(&[TokenType::Equal]) {
+            let value = self.assignment()?;
+
+            if expr.starts_with("var_ref:") {
+                let var_name = &expr[8..];
+                return  Ok(format!("(assign {} {}", var_name, value));
+            }
+        }
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<String, ()> {
