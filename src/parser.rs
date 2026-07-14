@@ -1,4 +1,5 @@
 use crate::scanner::{Token, TokenType};
+
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
@@ -77,6 +78,10 @@ impl Parser {
         if self.match_types(&[TokenType::False]) { return Ok("false".to_string()); }
         if self.match_types(&[TokenType::True]) { return Ok("true".to_string()); }
         if self.match_types(&[TokenType::Nil]) { return Ok("nil".to_string()); }
+
+        if self.match_types(&[TokenType::Identifier]) {
+            return Ok(format!("var_ref:{}", self.previous().lexeme));
+        }
         
         if self.match_types(&[TokenType::Number, TokenType::StringLit]) {
             return Ok(self.previous().literal.clone());
@@ -139,9 +144,30 @@ impl Parser {
     pub fn parse_statements(&mut self) -> Result<Vec<String>, ()> {
         let mut statements = Vec::new();
         while !self.is_at_end() && self.peek().token_type != TokenType::EOF {
-            statements.push(self.statement()?);
+            statements.push(self.declaration()?);
         }
         Ok(statements)
+    }
+
+    fn declaration(&mut self) -> Result<String, ()> {
+        if self.match_types(&[TokenType::Var]) {
+            return self.var_declaration();
+        }
+        self.statement()
+    }
+
+    fn var_declaration(&mut self) -> Result<String, ()> {
+        let line = self.peek().line;
+        let name_token = self.consume(TokenType::Identifier, "Expect variable name.")?.clone();
+        let var_name = name_token.lexeme;
+
+        let mut initializer = "nil".to_string();
+        if self.match_types(&[TokenType::Equal]) {
+            initializer = self.expression()?;
+        }
+
+        self.consume(TokenType::Semicolon, "Expect ';' after variable declaration")?;
+        Ok(format!("(var line:{} {} {})", line, var_name, initializer))
     }
 
     fn statement(&mut self) -> Result<String, ()> {
