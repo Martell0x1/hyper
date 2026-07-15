@@ -93,6 +93,31 @@ fn split_binary_args(inner: &str) -> Option<(String, String)> {
     }
 }
 
+fn split_block_statements(inner: &str) -> Vec<String> {
+    let mut stmts = Vec::new();
+    let mut current = String::new();
+    let mut bracket_count = 0;
+
+    for ch in inner.chars() {
+        if ch == '(' {
+            bracket_count += 1;
+        } else if ch == ')' {
+            bracket_count -= 1;
+        }
+
+        current.push(ch);
+
+        if bracket_count == 0 {
+            let trimmed = current.trim();
+            if !trimmed.is_empty() {
+                stmts.push(trimmed.to_string());
+            }
+            current.clear();
+        }
+    }
+    stmts
+}
+
 fn evaluate_str(ast_string: String, line: u32, env: &mut Environment) -> Option<LoxValue> {
     let cleaned = clean_group_expressions(ast_string);
 
@@ -330,6 +355,54 @@ fn evaluate_str(ast_string: String, line: u32, env: &mut Environment) -> Option<
     }
 }
 
+fn execute_statement(stmt: &str, env: &mut Environment) {
+    if stmt.starts_with("(var line:") {
+        let trimmed = &stmt[10..&stmt.len() - 1];
+        let parts: Vec<&str> = trimmed.splitn(3, ' ').collect();
+
+        if parts.len() == 3 {
+            let line_num: u32 = parts[0].parse().unwrap();
+            let var_name = parts[1].to_string();
+            let initializer_expr = parts[2].to_string();
+
+            let value = if initializer_expr == "nil" {
+                LoxValue::Nil
+            } else {
+                match evaluate_str(initializer_expr, line_num, env) {
+                    Some(val) => val,
+                    None => LoxValue::Nil,
+                }
+            };
+
+            env.define(var_name, value);
+        }
+    } else if stmt.starts_with("(expr line:") {
+        let rest = &stmt[11..];
+        let space_idx = rest.find(' ').unwrap();
+        let line_num: u32 = rest[..space_idx].parse().unwrap();
+        let inner_expr = &rest[space_idx + 1..rest.len() - 1];
+
+        evaluate_str(inner_expr.to_string(), line_num, env);
+    } else if stmt.starts_with("(print line:") {
+        let rest = &stmt[12..];
+        let space_idx = rest.find(' ').unwrap();
+        let line_num: u32 = rest[..space_idx].parse().unwrap();
+        let inner_expr = &rest[space_idx + 1..rest.len() - 1];
+
+        if let Some(result) = evaluate_str(inner_expr.to_string(), line_num, env) {
+            println!("{}", result);
+        } else {
+            std::process::exit(70);
+        }
+    } else if stmt.starts_with("(block ") && stmt.ends_with(')') {
+        let inner = &stmt[7..stmt.len() - 1];
+        let sub_statements = split_block_statements(inner);
+        for sub_stmt in sub_statements {
+            execute_statement(&sub_stmt, env);
+        }
+    }
+}
+
 pub fn run_evaluate(file_contents: String) {
     let (tokens, error) = crate::scanner::scan_tokens(&file_contents);
     if error {
@@ -365,45 +438,7 @@ pub fn run_program(file_contents: String) {
     match parser.parse_statements() {
         Ok(statements) => {
             for stmt in statements {
-                if stmt.starts_with("(var line:") {
-                    let trimmed = &stmt[10..&stmt.len() - 1];
-                    let parts: Vec<&str> = trimmed.splitn(3, ' ').collect();
-
-                    if parts.len() == 3 {
-                        let line_num: u32 = parts[0].parse().unwrap();
-                        let var_name = parts[1].to_string();
-                        let initializer_expr = parts[2].to_string();
-
-                        let value = if initializer_expr == "nil" {
-                            LoxValue::Nil
-                        } else {
-                            match evaluate_str(initializer_expr, line_num, &mut env) {
-                                Some(val) => val,
-                                None => LoxValue::Nil,
-                            }
-                        };
-
-                        env.define(var_name, value);
-                    }
-                } else if stmt.starts_with("(expr line:") {
-                    let rest = &stmt[11..];
-                    let space_idx = rest.find(' ').unwrap();
-                    let line_num: u32 = rest[..space_idx].parse().unwrap();
-                    let inner_expr = &rest[space_idx + 1..rest.len() - 1];
-
-                    evaluate_str(inner_expr.to_string(), line_num, &mut env);
-                } else if stmt.starts_with("(print line:") {
-                    let rest = &stmt[12..];
-                    let space_idx = rest.find(' ').unwrap();
-                    let line_num: u32 = rest[..space_idx].parse().unwrap();
-                    let inner_expr = &rest[space_idx + 1..rest.len() - 1];
-
-                    if let Some(result) = evaluate_str(inner_expr.to_string(), line_num, &mut env) {
-                        println!("{}", result);
-                    } else {
-                        std::process::exit(70);
-                    }
-                }
+                execute_statement(&stmt, &mut env);
             }
         }
         Err(_) => {
