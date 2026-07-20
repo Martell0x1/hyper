@@ -9,6 +9,7 @@ pub enum HyperValue {
     Number(f64),
     StringLit(String),
     NativeFunction(String),
+    Function{name: String, body: String}
 }
 
 pub struct Environment {
@@ -68,6 +69,7 @@ impl std::fmt::Display for HyperValue {
             HyperValue::Number(n) => write!(f, "{}", n),
             HyperValue::StringLit(s) => write!(f, "{}", s),
             HyperValue::NativeFunction(name) => write!(f, "<native fn {}>", name),
+            HyperValue::Function { name, .. } => write!(f, "<fn {}>", name),
         }
     }
 }

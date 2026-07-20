@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-
 use crate::environment::{Environment, HyperValue};
 
 fn clean_group_expressions(mut input: String) -> String {
@@ -120,6 +119,12 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                             .unwrap();
                         return Some(HyperValue::Number(duration.as_secs_f64()));
                     }
+                }
+                HyperValue::Function { name: _, body } => {
+                    let closure_env = Rc::new(std::cell::RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+                    execute_statement(&body, closure_env);
+                    
+                    return Some(HyperValue::Nil);
                 }
                 _=> {
                     eprintln!("Can only call functions and classes.");
@@ -363,6 +368,17 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
                 }
             }
         }
+    } else if stmt.starts_with("(fun ") {
+        let tokens: Vec<&str> = stmt.split_whitespace().collect();
+        let func_name = tokens[1].to_string();
+
+        let start_idx = 5 + func_name.len() + 1;
+        let func_body = stmt[start_idx..stmt.len() - 1].to_string();
+
+        env.borrow_mut().define(
+            func_name.clone(),
+            HyperValue::Function { name: func_name, body: func_body }
+        );
     }
 }
 
