@@ -326,6 +326,22 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
                 }
             }
         }
+    } else if stmt.starts_with("(while ") && stmt.ends_with(')') {
+        let inner = &stmt[7 ..stmt.len() - 1];
+
+        if let Some((cond_str, body_str)) = split_binary_args(inner) {
+            loop {
+                if let Some(cond_val) = evaluate_str(cond_str.clone(), 1, Rc::clone(&env)) {
+                    if is_truthy(&cond_val) {
+                        execute_statement(&body_str, Rc::clone(&env));
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
     }
 }
 
