@@ -109,6 +109,27 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         }
     }
 
+    if cleaned.starts_with("(call ") && cleaned.ends_with(')') {
+        let inner = &cleaned[6..cleaned.len() - 1];
+        if let Some(call_val) = evaluate_str(inner.to_string(), line, Rc::clone(&env)) {
+            match call_val {
+                HyperValue::NativeFunction(name) => {
+                    if name == "clock" {
+                        let duration = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap();
+                        return Some(HyperValue::Number(duration.as_secs_f64()));
+                    }
+                }
+                _=> {
+                    eprintln!("Can only call functions and classes.");
+                    std::process::exit(70);
+                }
+            }
+        }
+        return None;
+    }
+
     if cleaned.starts_with("(+ ") && cleaned.ends_with(')') {
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
@@ -370,6 +391,7 @@ pub fn run_program(file_contents: String) {
 
     let mut parser = crate::parser::Parser::new(tokens);
     let env = Rc::new(RefCell::new(Environment::new()));
+    env.borrow_mut().define("clock".to_string(), HyperValue::NativeFunction("clock".to_string()));
 
     match parser.parse_statements() {
         Ok(statements) => {
