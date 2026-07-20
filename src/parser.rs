@@ -26,14 +26,32 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> Result<String, ()> {
-        let expr = self.equality()?;
+        let expr = self.or_expr()?;
         if self.match_types(&[TokenType::Equal]) {
             let value = self.assignment()?;
 
             if expr.starts_with("var_ref:") {
                 let var_name = &expr[8..];
-                return  Ok(format!("(assign {} {}", var_name, value));
+                return  Ok(format!("(assign {} {})", var_name, value));
             }
+        }
+        Ok(expr)
+    }
+
+    fn or_expr(&mut self) -> Result<String, ()> {
+        let mut expr = self.and_expr()?;
+        while self.match_types(&[TokenType::Or]) {
+            let right = self.and_expr()?;
+            expr = format!("(or {} {})", expr, right);
+        }
+        Ok(expr)
+    }
+
+    fn and_expr(&mut self) -> Result<String, ()> {
+        let mut expr = self.equality()?;
+        while self.match_types(&[TokenType::And]) {
+            let right = self.equality()?;
+            expr = format!("(and {} {})", expr, right);
         }
         Ok(expr)
     }
@@ -150,7 +168,12 @@ impl Parser {
     fn consume(&mut self, token_type: TokenType, message: &str) -> Result<&Token, ()> {
         if self.check(&token_type) { return Ok(self.advance()); }
         let token = self.peek();
-        eprintln!("[line {}] Error at '{}': {}", token.line, token.lexeme, message);
+
+        if token.token_type == TokenType::EOF {
+            eprintln!("[line {}] Error at end: {}", token.line, message);
+        } else {
+            eprintln!("[line {}] Error at '{}': {}", token.line, token.lexeme, message);
+        }
         Err(())
     }
 
@@ -192,14 +215,90 @@ impl Parser {
             return self.block();
         }
 
+        if self.match_types(&[TokenType::If]) {
+            return self.if_statement();
+        }
+
+        if self.match_types(&[TokenType::While]) {
+            return self.while_statement();
+        }
+
+        if self.match_types(&[TokenType::For]) {
+            return self.for_statement();
+        }
+
         self.expression_statement()
+    }
+
+    fn if_statement(&mut self) -> Result<String, ()> {
+        self.consume(TokenType::LeftParen, "Expect '(' after 'if'.")?;
+        let condition = self.expression()?;
+        self.consume(TokenType::RightParen, "Expect ')' after if condition.")?;
+
+        let then_branch = self.statement()?;
+        if self.match_types(&[TokenType::Else]) {
+            let else_branch = self.statement()?;
+            Ok(format!("(if {} {} {})", condition, then_branch, else_branch))
+        } else {
+            Ok(format!("(if {} {})", condition, then_branch))
+        }
+    }
+
+    fn while_statement(&mut self) -> Result<String, ()> {
+        self.consume(TokenType::LeftParen, "Expect '(' after 'while'.")?;
+        let condition = self.expression()?;
+        self.consume(TokenType::RightParen, "Expect ')' after 'while'.")?;
+        let body = self.statement()?;
+
+        Ok(format!("(while {} {})", condition, body))
+    }
+
+    fn for_statement(&mut self) -> Result<String, ()> {
+        let for_line = self.previous().line;
+        self.consume(TokenType::LeftParen, "Expect '(' after 'for'.")?;
+
+        let initializer = if self.match_types(&[TokenType::Semicolon]) {
+            None
+        } else if self.match_types(&[TokenType::Var]) {
+            Some(self.var_declaration()?)
+        } else {
+            Some(self.expression_statement()?)
+        };
+
+        let condition = if !self.check(&TokenType::Semicolon) {
+            self.expression()?
+        } else {
+            "true".to_string()
+        };
+        self.consume(TokenType::Semicolon, "Expect ';' after loop condition.")?;
+
+        let increment = if !self.check(&TokenType::RightParen) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+        self.consume(TokenType::RightParen, "Expect ')' after for clauses.")?;
+
+        let mut body = self.statement()?;
+
+        if let Some(incr_expr) = increment {
+            body = format!("(block {} (expr line:{} {}))", body, for_line, incr_expr);
+        }
+
+        body = format!("(while {} {})", condition, body);
+
+        if let Some(init_stmt) = initializer {
+            body = format!("(block {} {})", init_stmt, body);
+        }
+
+        Ok(body)
     }
 
     fn block(&mut self) -> Result<String, ()> {
         let mut statements = Vec::new();
 
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
-            statements.push(self.statement()?);
+            statements.push(self.declaration()?);
         }
 
         self.consume(TokenType::RightBrace, "Expect '}' after block.")?;
