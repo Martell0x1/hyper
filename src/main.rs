@@ -3,6 +3,7 @@ use std::fs;
 
 mod scanner;
 mod parser;
+mod environment;
 mod interpreter;
 
 fn main() {
