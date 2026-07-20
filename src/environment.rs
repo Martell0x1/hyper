@@ -9,7 +9,7 @@ pub enum HyperValue {
     Number(f64),
     StringLit(String),
     NativeFunction(String),
-    Function{name: String, body: String}
+    Function{name: String, params: Vec<String> , body: String}
 }
 
 pub struct Environment {

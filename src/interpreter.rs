@@ -109,8 +109,17 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
     }
 
     if cleaned.starts_with("(call ") && cleaned.ends_with(')') {
-        let inner = &cleaned[6..cleaned.len() - 1];
-        if let Some(call_val) = evaluate_str(inner.to_string(), line, Rc::clone(&env)) {
+        let inner = cleaned[6..cleaned.len() - 1].trim();
+
+        // Funksiya sarlavhasi (callee) va uning argumentlarini ajratamiz
+        let (callee_str, args_str) = if let Some((left, right)) = split_binary_args(inner) {
+            (left, Some(right))
+        } else {
+            (inner.to_string(), None)
+        };
+
+        // inner.to_string() o'rniga callee_str berildi! 🌟
+        if let Some(call_val) = evaluate_str(callee_str, line, Rc::clone(&env)) {
             match call_val {
                 HyperValue::NativeFunction(name) => {
                     if name == "clock" {
@@ -120,8 +129,30 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                         return Some(HyperValue::Number(duration.as_secs_f64()));
                     }
                 }
-                HyperValue::Function { name: _, body } => {
+                HyperValue::Function { name: _, params, body } => {
+                    let mut evaluated_args = Vec::new();
+                    if let Some(args_raw) = args_str {
+                        let mut current_args = args_raw;
+                        while let Some((arg, rest)) = split_binary_args(&current_args) {
+                            if let Some(val) = evaluate_str(arg, line, Rc::clone(&env)) {
+                                evaluated_args.push(val);
+                            }
+                            current_args = rest;
+                        }
+
+                        if !current_args.trim().is_empty() {
+                            if let Some(val) = evaluate_str(current_args.trim().to_string(), line, Rc::clone(&env)) {
+                                evaluated_args.push(val);
+                            }
+                        }
+                    }
+
+                    // Funksiya chaqirilganda yangi yopiq muhit (scope) yaratiladi
                     let closure_env = Rc::new(std::cell::RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+
+                    for (param_name, arg_value) in params.iter().zip(evaluated_args.iter()) {
+                        closure_env.borrow_mut().define(param_name.clone(), arg_value.clone());
+                    }
                     execute_statement(&body, closure_env);
                     
                     return Some(HyperValue::Nil);
@@ -369,15 +400,24 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
             }
         }
     } else if stmt.starts_with("(fun ") {
-        let tokens: Vec<&str> = stmt.split_whitespace().collect();
-        let func_name = tokens[1].to_string();
+        let trimmed = &stmt[5..stmt.len() - 1];
+        let space_idx = trimmed.find(' ').unwrap();
+        let func_name = trimmed[..space_idx].to_string();
+        let rest = &trimmed[&space_idx + 1..];
 
-        let start_idx = 5 + func_name.len() + 1;
-        let func_body = stmt[start_idx..stmt.len() - 1].to_string();
+        let params_start = rest.find("(params ").unwrap() + 8;
+        let params_end = rest.find(')').unwrap();
+        let params_str = &rest[params_start..params_end];
+        let params: Vec<String> = params_str
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+
+        let body_str = rest[params_end + 2..].to_string();
 
         env.borrow_mut().define(
             func_name.clone(),
-            HyperValue::Function { name: func_name, body: func_body }
+            HyperValue::Function { name: func_name, params , body: body_str }
         );
     }
 }

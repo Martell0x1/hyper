@@ -186,10 +186,40 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Result<String, ()> {
+        if self.match_types(&[TokenType::Fun]) {
+            return self.function_declaration();
+        }
         if self.match_types(&[TokenType::Var]) {
             return self.var_declaration();
         }
         self.statement()
+    }
+
+    fn function_declaration(&mut self) -> Result<String, ()> {
+        let name_token = self.consume(TokenType::Identifier, "Expect function name.")?.clone();
+        let func_name = name_token.lexeme;
+
+        self.consume(TokenType::LeftParen, "Expect '(' after function name.")?;
+
+        let mut params = Vec::new();
+        if !self.check(&TokenType::RightParen) {
+            loop {
+                let param = self.consume(TokenType::Identifier, "Expect parameter name.")?.clone();
+                params.push(param.lexeme);
+
+                if !self.match_types(&[TokenType::Comma]) {
+                    break;
+                }
+            }
+        }   
+        self.consume(TokenType::RightParen, "Expect ')' after parameters.")?;
+
+        self.consume(TokenType::LeftBrace, "Expect '{' before function body.")?;
+        let body = self.block()?;
+
+        let params_str = params.join(" ");
+
+        Ok(format!("(fun {} (params {}) {})", func_name, params_str, body))
     }
 
     fn var_declaration(&mut self) -> Result<String, ()> {
