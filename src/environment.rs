@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
-pub enum LoxValue {
+pub enum HyperValue {
     Boolean(bool),
     Nil,
     Number(f64),
@@ -11,7 +11,7 @@ pub enum LoxValue {
 }
 
 pub struct Environment {
-    values: HashMap<String, LoxValue>,
+    values: HashMap<String, HyperValue>,
     enclosing: Option<Rc<RefCell<Environment>>>,
 }
 
@@ -30,11 +30,11 @@ impl Environment {
         }
     }
 
-    pub fn define(&mut self, name: String, value: LoxValue) {
+    pub fn define(&mut self, name: String, value: HyperValue) {
         self.values.insert(name, value);
     }
 
-    pub fn get(&self, name: &str, line: u32) -> LoxValue {
+    pub fn get(&self, name: &str, line: u32) -> HyperValue {
         if let Some(value) = self.values.get(name) {
             value.clone()
         } else if let Some(ref enclosing) = self.enclosing {
@@ -46,7 +46,7 @@ impl Environment {
         }
     }
 
-    pub fn assign(&mut self, name: &str, value: LoxValue, line: u32) {
+    pub fn assign(&mut self, name: &str, value: HyperValue, line: u32) {
         if self.values.contains_key(name) {
             self.values.insert(name.to_string(), value);
         } else if let Some(ref enclosing) = self.enclosing {
@@ -59,13 +59,13 @@ impl Environment {
     }
 }
 
-impl std::fmt::Display for LoxValue {
+impl std::fmt::Display for HyperValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LoxValue::Boolean(b) => write!(f, "{}", b),
-            LoxValue::Nil => write!(f, "nil"),
-            LoxValue::Number(n) => write!(f, "{}", n),
-            LoxValue::StringLit(s) => write!(f, "{}", s),
+            HyperValue::Boolean(b) => write!(f, "{}", b),
+            HyperValue::Nil => write!(f, "nil"),
+            HyperValue::Number(n) => write!(f, "{}", n),
+            HyperValue::StringLit(s) => write!(f, "{}", s),
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::environment::{Environment, LoxValue};
+use crate::environment::{Environment, HyperValue};
 
 fn clean_group_expressions(mut input: String) -> String {
     while input.starts_with("(group ") && input.ends_with(')') {
@@ -10,10 +10,10 @@ fn clean_group_expressions(mut input: String) -> String {
     input
 }
 
-fn is_truthy(value: &LoxValue) -> bool {
+fn is_truthy(value: &HyperValue) -> bool {
     match value {
-        LoxValue::Nil => false,
-        LoxValue::Boolean(b) => *b,
+        HyperValue::Nil => false,
+        HyperValue::Boolean(b) => *b,
         _ => true,
     }
 }
@@ -68,7 +68,7 @@ fn split_block_statements(inner: &str) -> Vec<String> {
     stmts
 }
 
-fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) -> Option<LoxValue> {
+fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) -> Option<HyperValue> {
     let cleaned = clean_group_expressions(ast_string);
 
     if cleaned.starts_with("var_ref:") {
@@ -93,9 +93,9 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Number(l + r)),
-                (Some(LoxValue::StringLit(l)), Some(LoxValue::StringLit(r))) => {
-                    return Some(LoxValue::StringLit(format!("{}{}", l, r)));
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Number(l + r)),
+                (Some(HyperValue::StringLit(l)), Some(HyperValue::StringLit(r))) => {
+                    return Some(HyperValue::StringLit(format!("{}{}", l, r)));
                 }
                 _ => {
                     eprintln!("Operands must be two numbers or two strings.");
@@ -109,7 +109,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Number(l - r)),
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Number(l - r)),
                 _ => {
                     eprintln!("Operand must be numbers.");
                     std::process::exit(70);
@@ -118,7 +118,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         } else {
             if let Some(val) = evaluate_str(inner.trim().to_string(), line, Rc::clone(&env)) {
                 match val {
-                    LoxValue::Number(n) => return Some(LoxValue::Number(-n)),
+                    HyperValue::Number(n) => return Some(HyperValue::Number(-n)),
                     _ => {
                         eprintln!("Operand must be a number.");
                         std::process::exit(70);
@@ -131,7 +131,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
     if cleaned.starts_with("(! ") && cleaned.ends_with(')') {
         let inner = cleaned[3..cleaned.len() - 1].to_string();
         if let Some(val) = evaluate_str(inner, line, Rc::clone(&env)) {
-            return Some(LoxValue::Boolean(!is_truthy(&val)));
+            return Some(HyperValue::Boolean(!is_truthy(&val)));
         }
     }
 
@@ -139,7 +139,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Number(l * r)),
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Number(l * r)),
                 _ => { eprintln!("Operand must be numbers."); std::process::exit(70); }
             }
         }
@@ -149,7 +149,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Number(l / r)),
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Number(l / r)),
                 _ => { eprintln!("Operand must be numbers."); std::process::exit(70); }
             }
         }
@@ -159,7 +159,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Boolean(l > r)),
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Boolean(l > r)),
                 _ => { eprintln!("Operand must be numbers."); std::process::exit(70); }
             }
         }
@@ -169,7 +169,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Boolean(l < r)),
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Boolean(l < r)),
                 _ => { eprintln!("Operand must be numbers."); std::process::exit(70); }
             }
         }
@@ -179,7 +179,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[4..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Boolean(l >= r)),
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Boolean(l >= r)),
                 _ => { eprintln!("Operand must be numbers."); std::process::exit(70); }
             }
         }
@@ -189,7 +189,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[4..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Boolean(l <= r)),
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Boolean(l <= r)),
                 _ => { eprintln!("Operand must be numbers."); std::process::exit(70); }
             }
         }
@@ -199,11 +199,11 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[4..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Boolean(l == r)),
-                (Some(LoxValue::StringLit(l)), Some(LoxValue::StringLit(r))) => return Some(LoxValue::Boolean(l == r)),
-                (Some(LoxValue::Boolean(l)), Some(LoxValue::Boolean(r))) => return Some(LoxValue::Boolean(l == r)),
-                (Some(LoxValue::Nil), Some(LoxValue::Nil)) => return Some(LoxValue::Boolean(true)),
-                (Some(_), Some(_)) => return Some(LoxValue::Boolean(false)),
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Boolean(l == r)),
+                (Some(HyperValue::StringLit(l)), Some(HyperValue::StringLit(r))) => return Some(HyperValue::Boolean(l == r)),
+                (Some(HyperValue::Boolean(l)), Some(HyperValue::Boolean(r))) => return Some(HyperValue::Boolean(l == r)),
+                (Some(HyperValue::Nil), Some(HyperValue::Nil)) => return Some(HyperValue::Boolean(true)),
+                (Some(_), Some(_)) => return Some(HyperValue::Boolean(false)),
                 _ => return None,
             }
         }
@@ -213,26 +213,26 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         let inner = &cleaned[4..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
             match (evaluate_str(left_str, line, Rc::clone(&env)), evaluate_str(right_str, line, Rc::clone(&env))) {
-                (Some(LoxValue::Number(l)), Some(LoxValue::Number(r))) => return Some(LoxValue::Boolean(l != r)),
-                (Some(LoxValue::StringLit(l)), Some(LoxValue::StringLit(r))) => return Some(LoxValue::Boolean(l != r)),
-                (Some(LoxValue::Boolean(l)), Some(LoxValue::Boolean(r))) => return Some(LoxValue::Boolean(l != r)),
-                (Some(LoxValue::Nil), Some(LoxValue::Nil)) => return Some(LoxValue::Boolean(false)),
-                (Some(_), Some(_)) => return Some(LoxValue::Boolean(true)),
+                (Some(HyperValue::Number(l)), Some(HyperValue::Number(r))) => return Some(HyperValue::Boolean(l != r)),
+                (Some(HyperValue::StringLit(l)), Some(HyperValue::StringLit(r))) => return Some(HyperValue::Boolean(l != r)),
+                (Some(HyperValue::Boolean(l)), Some(HyperValue::Boolean(r))) => return Some(HyperValue::Boolean(l != r)),
+                (Some(HyperValue::Nil), Some(HyperValue::Nil)) => return Some(HyperValue::Boolean(false)),
+                (Some(_), Some(_)) => return Some(HyperValue::Boolean(true)),
                 _ => return None,
             }
         }
     }
 
     match cleaned.as_str() {
-        "true" => Some(LoxValue::Boolean(true)),
-        "false" => Some(LoxValue::Boolean(false)),
-        "nil" => Some(LoxValue::Nil),
+        "true" => Some(HyperValue::Boolean(true)),
+        "false" => Some(HyperValue::Boolean(false)),
+        "nil" => Some(HyperValue::Nil),
         _ => {
             if let Ok(num) = cleaned.parse::<f64>() {
-                Some(LoxValue::Number(num))
+                Some(HyperValue::Number(num))
             } else if cleaned.starts_with('"') && cleaned.ends_with('"') {
                 let clean_str = &cleaned[1..cleaned.len() - 1];
-                Some(LoxValue::StringLit(clean_str.to_string()))
+                Some(HyperValue::StringLit(clean_str.to_string()))
             } else {
                 None
             }
@@ -251,11 +251,11 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
             let initializer_expr = parts[2].to_string();
 
             let value = if initializer_expr == "nil" {
-                LoxValue::Nil
+                HyperValue::Nil
             } else {
                 match evaluate_str(initializer_expr, line_num, Rc::clone(&env)) {
                     Some(val) => val,
-                    None => LoxValue::Nil,
+                    None => HyperValue::Nil,
                 }
             };
 
