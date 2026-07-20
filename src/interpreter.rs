@@ -455,6 +455,9 @@ pub fn run_program(file_contents: String) {
                 execute_statement(&stmt, Rc::clone(&env));
             }
         }
-        Err(_) => { std::process::exit(65); }
+        Err(_) => {
+            eprintln!("[line 1] Syntax error in function declaration."); 
+            std::process::exit(65);
+        }
     }
 }
