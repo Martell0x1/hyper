@@ -288,6 +288,24 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
         for sub_stmt in sub_statements {
             execute_statement(&sub_stmt, Rc::clone(&block_env));
         }
+    } else if stmt.starts_with("(if ") && stmt.ends_with(')') {
+        let inner = &stmt[4 ..stmt.len() - 1];
+
+        if let Some((cond_str, rest)) = split_binary_args(inner) {
+            if let Some(cond_val) = evaluate_str(cond_str, 1, Rc::clone(&env)) {
+                if let Some((then_str, else_str)) = split_binary_args(&rest) {
+                    if is_truthy(&cond_val) {
+                        execute_statement(&then_str, Rc::clone(&env));
+                    } else {
+                        execute_statement(&else_str, Rc::clone(&env));
+                    }
+                } else {
+                    if is_truthy(&cond_val) {
+                        execute_statement(&rest, Rc::clone(&env));
+                    }
+                }
+            }
+        }
     }
 }
 
