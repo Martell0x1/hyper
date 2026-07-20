@@ -89,6 +89,26 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         }
     }
 
+    let is_or = cleaned.starts_with("(or ");
+    let is_and = cleaned.starts_with("(and ");
+
+    if (is_or || is_and) && cleaned.ends_with(')') {
+        let offset = if is_or {4} else {5};
+        let inner = &cleaned[offset..cleaned.len() - 1];
+
+        if let Some((left_str, right_str)) = split_binary_args(inner) {
+            if let Some(left_val) = evaluate_str(left_str, line, Rc::clone(&env)) {
+                let left_truthy = is_truthy(&left_val);
+
+                if (is_or && left_truthy) || (is_and && !left_truthy) {
+                    return Some(left_val);
+                }
+
+                return evaluate_str(right_str, line, Rc::clone(&env));
+            }
+        }
+    }
+
     if cleaned.starts_with("(+ ") && cleaned.ends_with(')') {
         let inner = &cleaned[3..cleaned.len() - 1];
         if let Some((left_str, right_str)) = split_binary_args(inner) {
