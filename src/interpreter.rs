@@ -132,7 +132,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                         return Some(HyperValue::Number(duration.as_secs_f64()));
                     }
                 }
-                HyperValue::Function { name: _, params, body } => {
+                HyperValue::Function { name: _, params, body, closure } => {
                     let mut evaluated_args = Vec::new();
                     if let Some(args_raw) = args_str {
                         let mut current_args = args_raw;
@@ -150,7 +150,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                         }
                     }
 
-                    let closure_env = Rc::new(std::cell::RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+                    let closure_env = Rc::new(std::cell::RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
 
                     for (param_name, arg_value) in params.iter().zip(evaluated_args.iter()) {
                         closure_env.borrow_mut().define(param_name.clone(), arg_value.clone());
@@ -431,7 +431,12 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
 
         env.borrow_mut().define(
             func_name.clone(),
-            HyperValue::Function { name: func_name, params , body: body_str }
+            HyperValue::Function {
+                name: func_name,
+                params,
+                body: body_str,
+                closure: Rc::clone(&env),
+            }
         );
     } else if stmt.starts_with("(return line:") {
         let rest = &stmt[13..stmt.len() - 1];

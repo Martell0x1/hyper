@@ -9,9 +9,14 @@ pub enum HyperValue {
     Number(f64),
     StringLit(String),
     NativeFunction(String),
-    Function{name: String, params: Vec<String> , body: String}
+    Function {
+        name: String,
+        params: Vec<String>,
+        body: String,
+        closure: Rc<RefCell<Environment>>,
+    }
 }
-
+#[derive(Debug, Clone)]
 pub struct Environment {
     values: HashMap<String, HyperValue>,
     enclosing: Option<Rc<RefCell<Environment>>>,
