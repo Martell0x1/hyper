@@ -126,6 +126,11 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
             match call_val {
                 HyperValue::NativeFunction(name) => {
                     if name == "clock" {
+                        if args_str.is_some() && !args_str.as_ref().unwrap().trim().is_empty() {
+                            eprintln!("Expected 0 arguments but got more.");
+                            eprintln!("[line {}]", line);
+                            std::process::exit(70);
+                        }
                         let duration = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap();
@@ -150,6 +155,12 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                         }
                     }
 
+                    if evaluated_args.len() != params.len() {
+                        eprintln!("Expected {} arguments but got {}.", params.len(), evaluated_args.len());
+                        eprintln!("[line {}]", line);
+                        std::process::exit(70);
+                    }
+
                     let closure_env = Rc::new(std::cell::RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
 
                     for (param_name, arg_value) in params.iter().zip(evaluated_args.iter()) {
@@ -164,6 +175,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                 }
                 _=> {
                     eprintln!("Can only call functions and classes.");
+                    eprintln!("[line {}]", line);
                     std::process::exit(70);
                 }
             }
