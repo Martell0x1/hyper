@@ -2,6 +2,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use crate::environment::{Environment, HyperValue};
 
+pub enum ExecResult {
+    Ok,
+    Return(HyperValue),
+}
+
 fn clean_group_expressions(mut input: String) -> String {
     while input.starts_with("(group ") && input.ends_with(')') {
         input = input[7..input.len() - 1].to_string();
@@ -111,14 +116,12 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
     if cleaned.starts_with("(call ") && cleaned.ends_with(')') {
         let inner = cleaned[6..cleaned.len() - 1].trim();
 
-        // Funksiya sarlavhasi (callee) va uning argumentlarini ajratamiz
         let (callee_str, args_str) = if let Some((left, right)) = split_binary_args(inner) {
             (left, Some(right))
         } else {
             (inner.to_string(), None)
         };
 
-        // inner.to_string() o'rniga callee_str berildi! 🌟
         if let Some(call_val) = evaluate_str(callee_str, line, Rc::clone(&env)) {
             match call_val {
                 HyperValue::NativeFunction(name) => {
@@ -147,15 +150,17 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                         }
                     }
 
-                    // Funksiya chaqirilganda yangi yopiq muhit (scope) yaratiladi
                     let closure_env = Rc::new(std::cell::RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
 
                     for (param_name, arg_value) in params.iter().zip(evaluated_args.iter()) {
                         closure_env.borrow_mut().define(param_name.clone(), arg_value.clone());
                     }
-                    execute_statement(&body, closure_env);
                     
-                    return Some(HyperValue::Nil);
+                    let res = execute_statement(&body, closure_env);
+                    match res {
+                        ExecResult::Return(val) => return Some(val),
+                        ExecResult::Ok => return Some(HyperValue::Nil),
+                    }
                 }
                 _=> {
                     eprintln!("Can only call functions and classes.");
@@ -317,7 +322,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
     }
 }
 
-fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
+fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
     if stmt.starts_with("(var line:") {
         let trimmed = &stmt[10..&stmt.len() - 1];
         let parts: Vec<&str> = trimmed.splitn(3, ' ').collect();
@@ -363,7 +368,10 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
         let block_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
 
         for sub_stmt in sub_statements {
-            execute_statement(&sub_stmt, Rc::clone(&block_env));
+            let res = execute_statement(&sub_stmt, Rc::clone(&block_env));
+            if let ExecResult::Return(val) = res {
+                return ExecResult::Return(val);
+            }
         }
     } else if stmt.starts_with("(if ") && stmt.ends_with(')') {
         let inner = &stmt[4 ..stmt.len() - 1];
@@ -372,13 +380,16 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
             if let Some(cond_val) = evaluate_str(cond_str, 1, Rc::clone(&env)) {
                 if let Some((then_str, else_str)) = split_binary_args(&rest) {
                     if is_truthy(&cond_val) {
-                        execute_statement(&then_str, Rc::clone(&env));
+                        let res = execute_statement(&then_str, Rc::clone(&env));
+                        if let ExecResult::Return(val) = res { return ExecResult::Return(val); }
                     } else {
-                        execute_statement(&else_str, Rc::clone(&env));
+                        let res = execute_statement(&else_str, Rc::clone(&env));
+                        if let ExecResult::Return(val) = res { return ExecResult::Return(val); }
                     }
                 } else {
                     if is_truthy(&cond_val) {
-                        execute_statement(&rest, Rc::clone(&env));
+                        let res = execute_statement(&rest, Rc::clone(&env));
+                        if let ExecResult::Return(val) = res { return ExecResult::Return(val); }
                     }
                 }
             }
@@ -390,7 +401,10 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
             loop {
                 if let Some(cond_val) = evaluate_str(cond_str.clone(), 1, Rc::clone(&env)) {
                     if is_truthy(&cond_val) {
-                        execute_statement(&body_str, Rc::clone(&env));
+                        let res = execute_statement(&body_str, Rc::clone(&env));
+                        if let ExecResult::Return(val) = res {
+                            return ExecResult::Return(val);
+                        }
                     } else {
                         break;
                     }
@@ -419,7 +433,24 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) {
             func_name.clone(),
             HyperValue::Function { name: func_name, params , body: body_str }
         );
+    } else if stmt.starts_with("(return line:") {
+        let rest = &stmt[13..stmt.len() - 1];
+        let space_idx = rest.find(' ').unwrap();
+        let line_num: u32 = rest[..space_idx].parse().unwrap();
+        let inner_expr = &rest[space_idx + 1..];
+
+        let value = if inner_expr == "nil" {
+            HyperValue::Nil
+        } else {
+            match evaluate_str(inner_expr.to_string(), line_num, Rc::clone(&env)) {
+                Some(val) => val,
+                None => HyperValue::Nil,
+            }
+        };
+        return ExecResult::Return(value);
     }
+
+    ExecResult::Ok
 }
 
 pub fn run_evaluate(file_contents: String) {

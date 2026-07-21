@@ -237,6 +237,10 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<String, ()> {
+        if self.match_types(&[TokenType::Return]) {
+            return self.return_statement();
+        }
+
         if self.match_types(&[TokenType::Print]) {
             return self.print_statement();
         }
@@ -258,6 +262,25 @@ impl Parser {
         }
 
         self.expression_statement()
+    }
+
+    fn return_statement(&mut self) -> Result<String, ()> {
+        let line = self.previous().line;
+        let mut value = "nil".to_string();
+
+        if !self.check(&TokenType::Semicolon) {
+            value = self.expression()?;
+        }
+
+        self.consume(TokenType::Semicolon, "Expect ';' after return value.")?;
+        Ok(format!("(return line:{} {})", line, value))
+    }
+
+    fn print_statement(&mut self) -> Result<String, ()> {
+        let line = self.peek().line;
+        let value = self.expression()?;
+        self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
+        Ok(format!("(print line:{} {})", line, value))
     }
 
     fn if_statement(&mut self) -> Result<String, ()> {
@@ -335,13 +358,6 @@ impl Parser {
         
         let inner_stmts = statements.join(" ");
         Ok(format!("(block {})", inner_stmts))
-    }
-
-    fn print_statement(&mut self) -> Result<String, ()> {
-        let line = self.peek().line;
-        let value = self.expression()?;
-        self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
-        Ok(format!("(print line:{} {})", line, value))
     }
 
     fn expression_statement(&mut self) -> Result<String, ()> {
