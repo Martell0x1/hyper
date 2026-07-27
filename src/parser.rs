@@ -108,7 +108,7 @@ impl Parser {
     fn primary(&mut self) -> Result<String, ()> {
         if self.match_types(&[TokenType::False]) { return Ok("false".to_string()); }
         if self.match_types(&[TokenType::True]) { return Ok("true".to_string()); }
-        if self.match_types(&[TokenType::Nil]) { return Ok("nil".to_string()); }
+        if self.match_types(&[TokenType::None]) { return Ok("nil".to_string()); }
 
         if self.match_types(&[TokenType::Identifier]) {
             return Ok(format!("var_ref:{}", self.previous().lexeme));
