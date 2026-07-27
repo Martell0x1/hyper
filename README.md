@@ -25,4 +25,4 @@ Hyper is being developed to solve the trade-off between developer efficiency and
 * **Safety First:** Aiming to introduce memory and type safety mechanisms to prevent common runtime errors.
 * **Modern Conception:** Created as an open exploration into building efficient, high-level developer tools for modern systems.
 
-> ⚠️ **Development Status:** Hyper is in its early stages of active development. Syntax features, core functionality, and performance optimizations are still under design and subject to change.
+> **Development Status:** Hyper is in its early stages of active development. Syntax features, core functionality, and performance optimizations are still under design and subject to change.
