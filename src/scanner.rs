@@ -3,13 +3,53 @@ use std::str::Chars;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
-    LeftParen, RightParen, LeftBrace, RightBrace,
-    Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
-    Bang, BangEqual, Equal, EqualEqual,
-    Greater, GreaterEqual, Less, LessEqual,
-    Identifier, StringLit, Number,
-    And, Class, Else, False, Fun, For, If, Nil, Or,
-    Print, Return, Super, This, True, Var, While, EOF,
+    LeftParen, 
+    RightParen, 
+    LeftBrace, 
+    RightBrace,
+    
+    Comma, 
+    Dot, 
+    Minus, 
+    Plus, 
+    Semicolon, 
+    Slash, 
+    Star,
+
+    Bang, 
+    BangEqual, 
+    Equal, 
+    EqualEqual,
+    Greater, 
+    GreaterEqual, 
+    Less, 
+    LessEqual,
+
+    TypeI8, TypeI16, TypeI32, TypeI64,
+    TypeU8, TypeU16, TypeU32, TypeU64,
+    TypeF32, TypeF64,
+    TypeString, TypeBool,
+    
+    Identifier, 
+    StringLit, 
+    Number,
+    None, 
+
+    True,
+    False,
+    And, 
+    Or,
+
+    Else,  
+    Fun, 
+    While, 
+    For, 
+    If, 
+    Print, 
+    Return,  
+
+    Var,
+    EOF,
 }
 
 #[derive(Debug, Clone)]
@@ -143,12 +183,34 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
                 }
 
                 let t_type = match ident.as_str() {
-                    "and" => TokenType::And, "class" => TokenType::Class, "else" => TokenType::Else,
-                    "false" => TokenType::False, "for" => TokenType::For, "fun" => TokenType::Fun,
-                    "if" => TokenType::If, "nil" => TokenType::Nil, "or" => TokenType::Or,
-                    "print" => TokenType::Print, "return" => TokenType::Return, "super" => TokenType::Super,
-                    "this" => TokenType::This, "true" => TokenType::True, "var" => TokenType::Var,
-                    "while" => TokenType::While, _ => TokenType::Identifier,
+                    "true" => TokenType::True,
+                    "false" => TokenType::False,
+                    "and" => TokenType::And,
+                    "or" => TokenType::Or,
+                    "None" => TokenType::None,
+                    "else" => TokenType::Else,
+                    "while" => TokenType::While,
+                    "for" => TokenType::For,
+                    "fun" => TokenType::Fun,
+                    "if" => TokenType::If,
+                    "print" => TokenType::Print,
+                    "return" => TokenType::Return,
+                    "var" => TokenType::Var, 
+
+                    "i8" => TokenType::TypeI8,
+                    "i16" => TokenType::TypeI16,
+                    "i32" => TokenType::TypeI32,
+                    "i64" => TokenType::TypeI64,
+                    "u8" => TokenType::TypeU8,
+                    "u16" => TokenType::TypeU16,
+                    "u32" => TokenType::TypeU32,
+                    "u64" => TokenType::TypeU64,
+                    "f32" => TokenType::TypeF32,
+                    "f64" => TokenType::TypeF64,
+                    "string" => TokenType::TypeString,
+                    "bool" => TokenType::TypeBool,
+                
+                    _ => TokenType::Identifier,
                 };
                 add_token!(t_type, ident, "null");
             }
