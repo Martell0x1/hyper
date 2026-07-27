@@ -2,12 +2,26 @@ use std::collections::HashMap;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum HyperValue {
-    Boolean(bool),
-    Nil,
-    Number(f64),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+
+    F32(f32),
+    F64(f64),
+
     StringLit(String),
+    Boolean(bool),
+    None,
+
     NativeFunction(String),
     Function {
         name: String,
@@ -16,7 +30,74 @@ pub enum HyperValue {
         closure: Rc<RefCell<Environment>>,
     }
 }
-#[derive(Debug, Clone)]
+
+macro_rules! impl_binary_op {
+    ($self:expr, $other:expr, $op:tt) => {
+        match ($self, $other) {
+            (HyperValue::I8(a), HyperValue::I8(b)) => Some(HyperValue::I8(a $op b)),
+            (HyperValue::I16(a), HyperValue::I16(b)) => Some(HyperValue::I16(a $op b)),
+            (HyperValue::I32(a), HyperValue::I32(b)) => Some(HyperValue::I32(a $op b)),
+            (HyperValue::I64(a), HyperValue::I64(b)) => Some(HyperValue::I64(a $op b)),
+            (HyperValue::U8(a), HyperValue::U8(b)) => Some(HyperValue::U8(a $op b)),
+            (HyperValue::U16(a), HyperValue::U16(b)) => Some(HyperValue::U16(a $op b)),
+            (HyperValue::U32(a), HyperValue::U32(b)) => Some(HyperValue::U32(a $op b)),
+            (HyperValue::U64(a), HyperValue::U64(b)) => Some(HyperValue::U64(a $op b)),
+            (HyperValue::F32(a), HyperValue::F32(b)) => Some(HyperValue::F32(a $op b)),
+            (HyperValue::F64(a), HyperValue::F64(b)) => Some(HyperValue::F64(a $op b)),
+            _ => None,
+        }
+    };
+}
+
+macro_rules! impl_cmp_op {
+    ($self:expr, $other:expr, $op:tt) => {
+        match ($self, $other) {
+            (HyperValue::I8(a), HyperValue::I8(b)) => Some(HyperValue::Boolean(a $op b)),
+            (HyperValue::I16(a), HyperValue::I16(b)) => Some(HyperValue::Boolean(a $op b)),
+            (HyperValue::I32(a), HyperValue::I32(b)) => Some(HyperValue::Boolean(a $op b)),
+            (HyperValue::I64(a), HyperValue::I64(b)) => Some(HyperValue::Boolean(a $op b)),
+            (HyperValue::U8(a), HyperValue::U8(b)) => Some(HyperValue::Boolean(a $op b)),
+            (HyperValue::U16(a), HyperValue::U16(b)) => Some(HyperValue::Boolean(a $op b)),
+            (HyperValue::U32(a), HyperValue::U32(b)) => Some(HyperValue::Boolean(a $op b)),
+            (HyperValue::U64(a), HyperValue::U64(b)) => Some(HyperValue::Boolean(a $op b)),
+            (HyperValue::F32(a), HyperValue::F32(b)) => Some(HyperValue::Boolean(a $op b)),
+            (HyperValue::F64(a), HyperValue::F64(b)) => Some(HyperValue::Boolean(a $op b)),
+            _ => None,
+        }
+    };
+}
+
+impl HyperValue {
+    pub fn add(&self, other: &Self) -> Option<HyperValue> {
+        if let (HyperValue::StringLit(a), HyperValue::StringLit(b)) = (self, other) {
+            return Some(HyperValue::StringLit(format!("{}{}", a, b)));
+        }
+        impl_binary_op!(self, other, +)
+    }
+
+    pub fn sub(&self, other: &Self) -> Option<HyperValue> { impl_binary_op!(self, other, -) }
+    pub fn mul(&self, other: &Self) -> Option<HyperValue> { impl_binary_op!(self, other, *) }
+    pub fn div(&self, other: &Self) -> Option<HyperValue> { impl_binary_op!(self, other, /) }
+
+    pub fn greater(&self, other: &Self) -> Option<HyperValue> { impl_cmp_op!(self, other, >) }
+    pub fn less(&self, other: &Self) -> Option<HyperValue> { impl_cmp_op!(self, other, <) }
+    pub fn greater_equal(&self, other: &Self) -> Option<HyperValue> { impl_cmp_op!(self, other, >=) }
+    pub fn less_equal(&self, other: &Self) -> Option<HyperValue> { impl_cmp_op!(self, other, <=) }
+
+    pub fn negate(&self) -> Option<HyperValue> {
+        match self {
+            HyperValue::I8(n) => Some(HyperValue::I8(-n)),
+            HyperValue::I16(n) => Some(HyperValue::I16(-n)),
+            HyperValue::I32(n) => Some(HyperValue::I32(-n)),
+            HyperValue::I64(n) => Some(HyperValue::I64(-n)),
+            HyperValue::F32(n) => Some(HyperValue::F32(-n)),
+            HyperValue::F64(n) => Some(HyperValue::F64(-n)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
     values: HashMap<String, HyperValue>,
     enclosing: Option<Rc<RefCell<Environment>>>,
@@ -69,10 +150,23 @@ impl Environment {
 impl std::fmt::Display for HyperValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            HyperValue::I8(n) => write!(f, "{}", n),
+            HyperValue::I16(n) => write!(f, "{}", n),
+            HyperValue::I32(n) => write!(f, "{}", n),
+            HyperValue::I64(n) => write!(f, "{}", n),
+
+            HyperValue::U8(n) => write!(f, "{}", n),
+            HyperValue::U16(n) => write!(f, "{}", n),
+            HyperValue::U32(n) => write!(f, "{}", n),
+            HyperValue::U64(n) => write!(f, "{}", n),
+
+            HyperValue::F32(n) => write!(f, "{}", n),
+            HyperValue::F64(n) => write!(f, "{}", n),
+
             HyperValue::Boolean(b) => write!(f, "{}", b),
-            HyperValue::Nil => write!(f, "nil"),
-            HyperValue::Number(n) => write!(f, "{}", n),
             HyperValue::StringLit(s) => write!(f, "{}", s),
+            HyperValue::None => write!(f, "None"),
+
             HyperValue::NativeFunction(name) => write!(f, "<native fn {}>", name),
             HyperValue::Function { name, .. } => write!(f, "<fn {}>", name),
         }
