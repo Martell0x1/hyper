@@ -1,7 +1,7 @@
 <div align="center">
   <picture>
     <img alt="hyperlang"
-         src="https://github.com/user-attachments/assets/9e0e5527-9f3d-41f5-aaa2-48e100b5ef0d"
+         src="https://github.com/user-attachments/assets/14a913f2-56a3-42ea-bfbc-26a3e075cbaf"
          width="50%">
   </picture>
 
