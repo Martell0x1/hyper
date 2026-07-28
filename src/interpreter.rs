@@ -165,6 +165,8 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         if cleaned.starts_with("(+ ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.add(b)); }
         if cleaned.starts_with("(* ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.mul(b)); }
         if cleaned.starts_with("(/ ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.div(b)); }
+        if cleaned.starts_with("(% ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.rem(b)); }
+        if cleaned.starts_with("(** ") { return eval_binary_op(&cleaned[4..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.pow(b)); }
         if cleaned.starts_with("(> ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.greater(b)); }
         if cleaned.starts_with("(< ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.less(b)); }
         if cleaned.starts_with("(>= ") { return eval_binary_op(&cleaned[4..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.greater_equal(b)); }
