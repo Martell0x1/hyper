@@ -249,11 +249,29 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
         let rest = &stmt[12..];
         let space_idx = rest.find(' ').unwrap();
         let line_num: u32 = rest[..space_idx].parse().unwrap();
-        if let Some(result) = evaluate_str(rest[space_idx + 1..rest.len() - 1].to_string(), line_num, Rc::clone(&env)) {
-            println!("{}", result);
+        let exprs_str = rest[space_idx + 1..rest.len() - 1].to_string();
+        let mut evaluated_results = Vec::new();
+
+        if exprs_str.contains(' ') {
+            let mut current_exprs = exprs_str;
+            while let Some((left, right)) = split_binary_args(&current_exprs) {
+                if let Some(val) = evaluate_str(left, line_num, Rc::clone(&env)) {
+                    evaluated_results.push(val.to_string());
+                }
+                current_exprs = right;
+            }
+            if !current_exprs.trim().is_empty() {
+                if let Some(val) = evaluate_str(current_exprs.trim().to_string(), line_num, Rc::clone(&env)) {
+                    evaluated_results.push(val.to_string());
+                }
+            }
         } else {
-            std::process::exit(70);
+            if let Some(val) = evaluate_str(exprs_str, line_num, Rc::clone(&env)) {
+                evaluated_results.push(val.to_string());
+            }
         }
+
+        println!("{}", evaluated_results.join(" "));
     } else if stmt.starts_with("(block ") && stmt.ends_with(')') {
         let inner = &stmt[7..stmt.len() - 1];
         let block_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
