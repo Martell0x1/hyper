@@ -48,7 +48,8 @@ pub enum TokenType {
     Print, 
     Return,  
 
-    Var,
+    Let,
+    Mut,
     EOF,
 }
 
@@ -195,7 +196,8 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
                     "if" => TokenType::If,
                     "print" => TokenType::Print,
                     "return" => TokenType::Return,
-                    "var" => TokenType::Var, 
+                    "let" => TokenType::Let,
+                    "mut" => TokenType::Mut, 
 
                     "i8" => TokenType::TypeI8,
                     "i16" => TokenType::TypeI16,
