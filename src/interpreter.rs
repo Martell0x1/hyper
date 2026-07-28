@@ -184,8 +184,8 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
             }
         }
 
-        if cleaned.starts_with("(! ") {
-            let inner = cleaned[3..cleaned.len() - 1].to_string();
+        if cleaned.starts_with("(not ") {
+            let inner = cleaned[5..cleaned.len() - 1].to_string();
             let val = evaluate_str(inner, line, Rc::clone(&env))?;
             return Some(HyperValue::Boolean(!is_truthy(&val)));
         }
