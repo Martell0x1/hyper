@@ -98,9 +98,15 @@ impl HyperValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Variable {
+    pub value: HyperValue,
+    pub is_mutable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
-    values: HashMap<String, HyperValue>,
-    enclosing: Option<Rc<RefCell<Environment>>>,
+    pub values: HashMap<String, Variable>,
+    pub enclosing: Option<Rc<RefCell<Environment>>>,
 }
 
 impl Environment {
@@ -118,13 +124,13 @@ impl Environment {
         }
     }
 
-    pub fn define(&mut self, name: String, value: HyperValue) {
-        self.values.insert(name, value);
+    pub fn define(&mut self, name: String, value: HyperValue, is_mutable: bool) {
+        self.values.insert(name, Variable { value, is_mutable });
     }
 
     pub fn get(&self, name: &str, line: u32) -> HyperValue {
-        if let Some(value) = self.values.get(name) {
-            value.clone()
+        if let Some(let_entry) = self.values.get(name) {
+            let_entry.value.clone()
         } else if let Some(ref enclosing) = self.enclosing {
             enclosing.borrow().get(name, line)
         } else {
@@ -135,15 +141,22 @@ impl Environment {
     }
 
     pub fn assign(&mut self, name: &str, value: HyperValue, line: u32) {
-        if self.values.contains_key(name) {
-            self.values.insert(name.to_string(), value);
-        } else if let Some(ref enclosing) = self.enclosing {
-            enclosing.borrow_mut().assign(name, value, line);
-        } else {
-            eprintln!("Undefined variable '{}'.", name);
-            eprintln!("[line {}]", line);
-            std::process::exit(70);
+        if let Some(let_entry) = self.values.get_mut(name) {
+            if !let_entry.is_mutable {
+                eprintln!("[line {}] Error: Cannot reassign immutable variable '{}'. Use 'let mut' to make it mutable.", line, name);
+                std::process::exit(70);
+            }
+            let_entry.value = value;
+            return;
         }
+
+        if let Some(ref enclosing) = self.enclosing {
+            enclosing.borrow_mut().assign(name, value, line);
+            return;
+        }
+
+        eprintln!("[line {}] Error: Undefined variable '{}'.", line, name);
+        std::process::exit(70);
     }
 }
 
