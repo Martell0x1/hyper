@@ -39,6 +39,7 @@ pub enum TokenType {
     False,
     And, 
     Or,
+    Not,
 
     Else,  
     Fun, 
@@ -188,6 +189,7 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
                     "false" => TokenType::False,
                     "and" => TokenType::And,
                     "or" => TokenType::Or,
+                    "not" => TokenType::Not,
                     "None" => TokenType::None,
                     "else" => TokenType::Else,
                     "while" => TokenType::While,
