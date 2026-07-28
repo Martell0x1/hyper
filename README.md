@@ -1,8 +1,9 @@
 <div align="center">
-
-![The Hyper Programming Language](https://github.com/user-attachments/assets/0427f9c4-be17-4784-a3e5-8ac388b9ee9b#gh-light-mode-only)
-![The Hyper Programming Language](https://github.com/user-attachments/assets/c3edacd4-1094-4e7d-91d4-8b42a439debf#gh-dark-mode-only)
-
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/c3edacd4-1094-4e7d-91d4-8b42a439debf">
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/0427f9c4-be17-4784-a3e5-8ac388b9ee9b">
+    <img alt="The Hyper Programming Language" src="https://github.com/user-attachments/assets/0427f9c4-be17-4784-a3e5-8ac388b9ee9b" width="50%">
+  </picture>
 </div>
 
 This is the main source code repository for **Hyper**. It currently contains the official interpreter implementation and documentation.
