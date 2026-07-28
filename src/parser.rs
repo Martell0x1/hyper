@@ -30,9 +30,9 @@ impl Parser {
         if self.match_types(&[TokenType::Equal]) {
             let value = self.assignment()?;
 
-            if expr.starts_with("var_ref:") {
-                let var_name = &expr[8..];
-                return  Ok(format!("(assign {} {})", var_name, value));
+            if expr.starts_with("let_ref:") {
+                let let_name = &expr[8..];
+                return  Ok(format!("(assign {} {})", let_name, value));
             }
         }
         Ok(expr)
@@ -108,10 +108,10 @@ impl Parser {
     fn primary(&mut self) -> Result<String, ()> {
         if self.match_types(&[TokenType::False]) { return Ok("false".to_string()); }
         if self.match_types(&[TokenType::True]) { return Ok("true".to_string()); }
-        if self.match_types(&[TokenType::None]) { return Ok("nil".to_string()); }
+        if self.match_types(&[TokenType::None]) { return Ok("None".to_string()); }
 
         if self.match_types(&[TokenType::Identifier]) {
-            return Ok(format!("var_ref:{}", self.previous().lexeme));
+            return Ok(format!("let_ref:{}", self.previous().lexeme));
         }
         
         if self.match_types(&[TokenType::Number, TokenType::StringLit]) {
@@ -189,8 +189,8 @@ impl Parser {
         if self.match_types(&[TokenType::Fun]) {
             return self.function_declaration();
         }
-        if self.match_types(&[TokenType::Var]) {
-            return self.var_declaration();
+        if self.match_types(&[TokenType::Let]) {
+            return self.let_declaration();
         }
         self.statement()
     }
@@ -222,18 +222,22 @@ impl Parser {
         Ok(format!("(fun {} (params {}) {})", func_name, params_str, body))
     }
 
-    fn var_declaration(&mut self) -> Result<String, ()> {
+    fn let_declaration(&mut self) -> Result<String, ()> {
         let line = self.peek().line;
-        let name_token = self.consume(TokenType::Identifier, "Expect variable name.")?.clone();
-        let var_name = name_token.lexeme;
+        let is_mutable = self.match_types(&[TokenType::Mut]);
 
-        let mut initializer = "nil".to_string();
+        let name_token = self.consume(TokenType::Identifier, "Expect variable name.")?.clone();
+        let let_name = name_token.lexeme;
+
+        let mut initializer = "None".to_string();
         if self.match_types(&[TokenType::Equal]) {
             initializer = self.expression()?;
         }
 
-        self.consume(TokenType::Semicolon, "Expect ';' after variable declaration")?;
-        Ok(format!("(var line:{} {} {})", line, var_name, initializer))
+        self.consume(TokenType::Semicolon, "Expect ';' after variable declaration.")?;
+
+        let mut_str = if is_mutable { "mut" } else { "immut" };
+        Ok(format!("(let line:{} {} {} {})", line, mut_str, let_name, initializer))
     }
 
     fn statement(&mut self) -> Result<String, ()> {
@@ -266,7 +270,7 @@ impl Parser {
 
     fn return_statement(&mut self) -> Result<String, ()> {
         let line = self.previous().line;
-        let mut value = "nil".to_string();
+        let mut value = "None".to_string();
 
         if !self.check(&TokenType::Semicolon) {
             value = self.expression()?;
@@ -312,8 +316,8 @@ impl Parser {
 
         let initializer = if self.match_types(&[TokenType::Semicolon]) {
             None
-        } else if self.match_types(&[TokenType::Var]) {
-            Some(self.var_declaration()?)
+        } else if self.match_types(&[TokenType::Let]) {
+            Some(self.let_declaration()?)
         } else {
             Some(self.expression_statement()?)
         };
