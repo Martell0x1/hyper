@@ -76,17 +76,17 @@ where
 fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) -> Option<HyperValue> {
     let cleaned = clean_group_expressions(ast_string);
 
-    if cleaned.starts_with("var_ref:") {
+    if cleaned.starts_with("let_ref:") {
         return Some(env.borrow().get(&cleaned[8..], line));
     }
 
     if cleaned.starts_with("(assign ") && cleaned.ends_with(')') {
         let inner = &cleaned[8..cleaned.len() - 1];
         if let Some(space_idx) = inner.find(' ') {
-            let var_name = &inner[..space_idx];
+            let let_name = &inner[..space_idx];
             let value_expr = &inner[space_idx + 1..];
             if let Some(value) = evaluate_str(value_expr.to_string(), line, Rc::clone(&env)) {
-                env.borrow_mut().assign(var_name, value.clone(), line);
+                env.borrow_mut().assign(let_name, value.clone(), line);
                 return Some(value);
             }
         }
@@ -144,7 +144,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
 
                     let closure_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
                     for (param_name, arg_value) in params.iter().zip(evaluated_args) {
-                        closure_env.borrow_mut().define(param_name.clone(), arg_value);
+                        closure_env.borrow_mut().define(param_name.clone(), arg_value, false);
                     }
 
                     match execute_statement(&body, closure_env) {
@@ -222,20 +222,21 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
 }
 
 fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
-    if stmt.starts_with("(var line:") {
+    if stmt.starts_with("(let line:") {
         let trimmed = &stmt[10..stmt.len() - 1];
-        let parts: Vec<&str> = trimmed.splitn(3, ' ').collect();
-        if parts.len() == 3 {
+        let parts: Vec<&str> = trimmed.splitn(4, ' ').collect();
+        if parts.len() == 4 {
             let line_num: u32 = parts[0].parse().unwrap();
-            let var_name = parts[1].to_string();
-            let initializer_expr = parts[2].to_string();
+            let is_mutable = parts[1] == "mut";
+            let let_name = parts[2].to_string();
+            let initializer_expr = parts[3].to_string();
 
             let value = if initializer_expr == "None" {
                 HyperValue::None
             } else {
                 evaluate_str(initializer_expr, line_num, Rc::clone(&env)).unwrap_or(HyperValue::None)
             };
-            env.borrow_mut().define(var_name, value);
+            env.borrow_mut().define(let_name, value, is_mutable);
         }
     } else if stmt.starts_with("(expr line:") {
         let rest = &stmt[11..];
@@ -299,7 +300,8 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
 
         env.borrow_mut().define(
             func_name.clone(),
-            HyperValue::Function { name: func_name, params, body: body_str, closure: Rc::clone(&env) }
+            HyperValue::Function { name: func_name, params, body: body_str, closure: Rc::clone(&env) },
+            false,
         );
     } else if stmt.starts_with("(return line:") {
         let rest = &stmt[13..stmt.len() - 1];
@@ -343,7 +345,7 @@ pub fn run_program(file_contents: String) {
 
     let mut parser = crate::parser::Parser::new(tokens);
     let env = Rc::new(RefCell::new(Environment::new()));
-    env.borrow_mut().define("clock".to_string(), HyperValue::NativeFunction("clock".to_string()));
+    env.borrow_mut().define("clock".to_string(), HyperValue::NativeFunction("clock".to_string()), false);
 
     match parser.parse_statements() {
         Ok(statements) => {
