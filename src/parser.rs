@@ -281,10 +281,17 @@ impl Parser {
     }
 
     fn print_statement(&mut self) -> Result<String, ()> {
-        let line = self.peek().line;
-        let value = self.expression()?;
-        self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
-        Ok(format!("(print line:{} {})", line, value))
+        let line = self.previous().line;
+        let mut value_exprs = Vec::new();
+
+        value_exprs.push(self.expression()?);
+
+        while self.match_types(&[TokenType::Comma]) {
+            value_exprs.push(self.expression()?);
+        }
+
+        self.consume(TokenType::Semicolon, "Expect ';' after print statement.")?;
+        Ok(format!("(print line:{} {})", line, value_exprs.join(" ")))
     }
 
     fn if_statement(&mut self) -> Result<String, ()> {
