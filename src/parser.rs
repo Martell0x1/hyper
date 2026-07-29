@@ -284,13 +284,19 @@ impl Parser {
         let line = self.previous().line;
         let mut value_exprs = Vec::new();
 
-        value_exprs.push(self.expression()?);
+        self.consume(TokenType::LeftParen, "Expect '(' after 'print'.")?;
 
         while self.match_types(&[TokenType::Comma]) {
             value_exprs.push(self.expression()?);
+
+            while self.match_types(&[TokenType::Comma]) {
+                value_exprs.push(self.expression()?);
+            }
         }
 
+        self.consume(TokenType::RightParen, "Expect ')' after print arguments.")?;
         self.consume(TokenType::Semicolon, "Expect ';' after print statement.")?;
+        
         Ok(format!("(print line:{} {})", line, value_exprs.join(" ")))
     }
 
