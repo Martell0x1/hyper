@@ -234,8 +234,6 @@ impl Parser {
             initializer = self.expression()?;
         }
 
-        self.consume(TokenType::Semicolon, "Expect ';' after variable declaration.")?;
-
         let mut_str = if is_mutable { "mut" } else { "immut" };
         Ok(format!("(let line:{} {} {} {})", line, mut_str, let_name, initializer))
     }
@@ -272,11 +270,10 @@ impl Parser {
         let line = self.previous().line;
         let mut value = "None".to_string();
 
-        if !self.check(&TokenType::Semicolon) {
+        if !self.check(&TokenType::EOF) {
             value = self.expression()?;
         }
 
-        self.consume(TokenType::Semicolon, "Expect ';' after return value.")?;
         Ok(format!("(return line:{} {})", line, value))
     }
 
@@ -286,7 +283,7 @@ impl Parser {
 
         self.consume(TokenType::LeftParen, "Expect '(' after 'print'.")?;
 
-        while self.match_types(&[TokenType::Comma]) {
+        while self.match_types(&[TokenType::RightParen]) {
             value_exprs.push(self.expression()?);
 
             while self.match_types(&[TokenType::Comma]) {
@@ -295,8 +292,6 @@ impl Parser {
         }
 
         self.consume(TokenType::RightParen, "Expect ')' after print arguments.")?;
-        self.consume(TokenType::Semicolon, "Expect ';' after print statement.")?;
-        
         Ok(format!("(print line:{} {})", line, value_exprs.join(" ")))
     }
 
@@ -380,7 +375,6 @@ impl Parser {
     fn expression_statement(&mut self) -> Result<String, ()> {
         let line = self.peek().line;
         let expr = self.expression()?;
-        self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
         Ok(format!("(expr line:{} {})", line, expr))
     }
 }
