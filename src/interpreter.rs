@@ -284,14 +284,16 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
         let inner = &stmt[4..stmt.len() - 1];
         if let Some((cond_str, rest)) = split_binary_args(inner) {
             if let Some(cond_val) = evaluate_str(cond_str, 1, Rc::clone(&env)) {
-                if let Some((then_str, else_str)) = split_binary_args(&rest) {
-                    let target = if is_truthy(&cond_val) { then_str } else { else_str };
-                    if let ExecResult::Return(val) = execute_statement(&target, Rc::clone(&env)) {
-                        return ExecResult::Return(val);
-                    }
-                } else if is_truthy(&cond_val) {
-                    if let ExecResult::Return(val) = execute_statement(&rest, Rc::clone(&env)) {
-                        return ExecResult::Return(val);
+                let target = if is_truthy(&cond_val) {
+                    split_binary_args(&rest).map(|(then_s, _)| then_s).unwrap_or(rest.clone())
+                } else {
+                    split_binary_args(&rest).map(|(_, else_s)| else_s).unwrap_or_default()
+                };
+    
+                if !target.trim().is_empty() {
+                    let res = execute_statement(&target, Rc::clone(&env));
+                    if matches!(res, ExecResult::Return(_)) {
+                        return res;
                     }
                 }
             }
