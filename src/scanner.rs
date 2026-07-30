@@ -3,11 +3,16 @@ use std::str::Chars;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
+    Indent,
+    Dedent,
+    Newline,
+
     LeftParen, 
     RightParen, 
     LeftBrace, 
     RightBrace,
     
+    Colon,
     Comma, 
     Dot, 
     Minus, 
@@ -41,11 +46,12 @@ pub enum TokenType {
     Or,
     Not,
 
+    If,
+    Elif,
     Else,  
     Fun, 
     While, 
-    For, 
-    If, 
+    For,  
     Print, 
     Return,  
 
@@ -96,134 +102,219 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
     let mut error = false;
     let mut line = 1;
 
+    let mut indent_stack = vec![0];
+    let mut at_line_start = true;
+
     macro_rules! add_token {
         ($t:expr, $lex:expr, $lit:expr) => {
-            tokens.push(Token { token_type: $t, lexeme: $lex.to_string(), literal: $lit.to_string(), line })
+            tokens.push(Token {
+                token_type: $t,
+                lexeme: $lex.to_string(),
+                literal: $lit.to_string(),
+                line,
+            })
         };
     }
 
     while let Some(ch) = chars.next() {
-        match ch {
-            ' ' | '\t' | '\r' => {}
-            '\n' => { line += 1; } 
+        if at_line_start {
+            let mut indent_level = 0;
+            let mut current_ch = Some(ch);
 
-            '(' => add_token!(TokenType::LeftParen, "(", "null"),
-            ')' => add_token!(TokenType::RightParen, ")", "null"),
-            '{' => add_token!(TokenType::LeftBrace, "{", "null"),
-            '}' => add_token!(TokenType::RightBrace, "}", "null"),
-            '.' => add_token!(TokenType::Dot, ".", "null"),
-            ',' => add_token!(TokenType::Comma, ",", "null"),
-            '-' => add_token!(TokenType::Minus, "-", "null"),
-            '+' => add_token!(TokenType::Plus, "+", "null"),
-            ';' => add_token!(TokenType::Semicolon, ";", "null"),
-            '*' => add_token!(TokenType::Star, "*", "null"),
-            '=' => {
-                if chars.peek() == Some(&'=') {
-                    chars.next();
-                    add_token!(TokenType::EqualEqual, "==", "null");
+            while let Some(c) = current_ch {
+                if c == ' ' {
+                    indent_level += 1;
+                } else if c == '\t' {
+                    indent_level += 4;
                 } else {
-                    add_token!(TokenType::Equal, "=", "null");
+                    break;
                 }
+                current_ch = chars.next();
             }
-            '!' => {
-                if chars.peek() == Some(&'=') {
+
+            if current_ch == Some('\n') {
+                line += 1;
+                continue;
+            } else if current_ch == Some('/') && chars.peek() == Some(&'/') {
+                while chars.peek() != Some(&'\n') && chars.peek().is_some() {
                     chars.next();
-                    add_token!(TokenType::BangEqual, "!=", "null");
-                } else {
-                    add_token!(TokenType::Bang, "!", "null");
                 }
+                line += 1;
+                continue;
             }
-            '<' => {
-                if chars.peek() == Some(&'=') {
-                    chars.next();
-                    add_token!(TokenType::LessEqual, "<=", "null");
-                } else {
-                    add_token!(TokenType::Less, "<", "null");
-                }
-            }
-            '>' => {
-                if chars.peek() == Some(&'=') {
-                    chars.next();
-                    add_token!(TokenType::GreaterEqual, ">=", "null");
-                } else {
-                    add_token!(TokenType::Greater, ">", "null");
-                }
-            }
-            '/' => {
-                if chars.peek() == Some(&'/') {
-                    while chars.peek() != Some(&'\n') && chars.peek().is_some() {
-                        chars.next();
+
+            if let Some(c) = current_ch {
+                let current_indent = *indent_stack.last().unwrap();
+
+                if indent_level > current_indent {
+                    indent_stack.push(indent_level);
+                    add_token!(TokenType::Indent, "INDENT", "null");
+                } else if indent_level < current_indent {
+                    while *indent_stack.last().unwrap() > indent_level {
+                        indent_stack.pop();
+                        add_token!(TokenType::Dedent, "DEDENT", "null");
                     }
-                } else {
-                    add_token!(TokenType::Slash, "/", "null");
                 }
-            }
-            '"' => {
-                if let Some(str_val) = str_literals(&mut chars, &mut line) {
-                    add_token!(TokenType::StringLit, format!("\"{}\"", str_val), str_val);
-                } else {
-                    eprint!("[line {}] Error: Unterminated string.", line);
-                    error = true;
-                }
-            }
-            '0'..='9' => {
-                let num_str = num_literals(ch, &mut chars);
-                let num_val: f64 = num_str.parse().unwrap(); 
+                at_line_start = false;
 
-                let lit = if num_val.fract() == 0.0 {
-                    format!("{:.1}", num_val)
-                } else {
-                    num_val.to_string()
-                };
-
-                add_token!(TokenType::Number, num_str, lit);
+                match_char(c, &mut chars, &mut tokens, &mut line, &mut error, &mut at_line_start);
             }
-            'a'..='z' | 'A'..='Z' | '_' => {
-                let mut ident = String::from(ch);
-                while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
-                    ident.push(chars.next().unwrap());
-                }
-
-                let t_type = match ident.as_str() {
-                    "true" => TokenType::True,
-                    "false" => TokenType::False,
-                    "and" => TokenType::And,
-                    "or" => TokenType::Or,
-                    "not" => TokenType::Not,
-                    "None" => TokenType::None,
-                    "else" => TokenType::Else,
-                    "while" => TokenType::While,
-                    "for" => TokenType::For,
-                    "fun" => TokenType::Fun,
-                    "if" => TokenType::If,
-                    "print" => TokenType::Print,
-                    "return" => TokenType::Return,
-                    "let" => TokenType::Let,
-                    "mut" => TokenType::Mut, 
-
-                    "i8" => TokenType::TypeI8,
-                    "i16" => TokenType::TypeI16,
-                    "i32" => TokenType::TypeI32,
-                    "i64" => TokenType::TypeI64,
-                    "u8" => TokenType::TypeU8,
-                    "u16" => TokenType::TypeU16,
-                    "u32" => TokenType::TypeU32,
-                    "u64" => TokenType::TypeU64,
-                    "f32" => TokenType::TypeF32,
-                    "f64" => TokenType::TypeF64,
-                    "string" => TokenType::TypeString,
-                    "bool" => TokenType::TypeBool,
-                
-                    _ => TokenType::Identifier,
-                };
-                add_token!(t_type, ident, "null");
-            }
-            _ => {
-                eprintln!("[line {}] Error: Unexpected character: {}", line, ch);
-                error = true;
-            }
+            continue;
         }
+        match_char(ch, &mut chars, &mut tokens, &mut line, &mut error, &mut at_line_start)
     }
+
+    while indent_stack.len() > 1 {
+        indent_stack.pop();
+        add_token!(TokenType::Dedent, "Dedent", "null");
+    }
+
     add_token!(TokenType::EOF, "", "null");
     (tokens, error)
+}   
+
+fn match_char (
+    ch: char,
+    chars: &mut Peekable<Chars>,
+    tokens: &mut Vec<Token>,
+    line: &mut usize,
+    error: &mut bool,
+    at_line_start: &mut bool,
+) {
+    macro_rules! add_token {
+        ($t:expr, $lex:expr, $lit:expr) => {
+            tokens.push(Token {
+                token_type: $t,
+                lexeme: $lex.to_string(),
+                literal: $lit.to_string(),
+                line: *line,
+            })
+        };
+    }
+
+    match ch {
+        ' ' | '\t' | '\r' => {}
+        '\n' => {
+            *line += 1;
+            *at_line_start = true;
+            add_token!(TokenType::Newline, "\\n", "null");
+        } 
+
+        '(' => add_token!(TokenType::LeftParen, "(", "null"),
+        ')' => add_token!(TokenType::RightParen, ")", "null"),
+        '{' => add_token!(TokenType::LeftBrace, "{", "null"),
+        '}' => add_token!(TokenType::RightBrace, "}", "null"),
+        '.' => add_token!(TokenType::Dot, ".", "null"),
+        ',' => add_token!(TokenType::Comma, ",", "null"),
+        '-' => add_token!(TokenType::Minus, "-", "null"),
+        '+' => add_token!(TokenType::Plus, "+", "null"),
+        ';' => add_token!(TokenType::Semicolon, ";", "null"),
+        '*' => add_token!(TokenType::Star, "*", "null"),
+        '=' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                add_token!(TokenType::EqualEqual, "==", "null");
+            } else {
+                add_token!(TokenType::Equal, "=", "null");
+            }
+        }
+        '!' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                add_token!(TokenType::BangEqual, "!=", "null");
+            } else {
+                add_token!(TokenType::Bang, "!", "null");
+            }
+        }
+        '<' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                add_token!(TokenType::LessEqual, "<=", "null");
+            } else {
+                add_token!(TokenType::Less, "<", "null");
+            }
+        }
+        '>' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                add_token!(TokenType::GreaterEqual, ">=", "null");
+            } else {
+                add_token!(TokenType::Greater, ">", "null");
+            }
+        }
+        '/' => {
+            if chars.peek() == Some(&'/') {
+                while chars.peek() != Some(&'\n') && chars.peek().is_some() {
+                    chars.next();
+                }
+            } else {
+                add_token!(TokenType::Slash, "/", "null");
+            }
+        }
+        '"' => {
+            if let Some(str_val) = str_literals(chars, line) {
+                add_token!(TokenType::StringLit, format!("\"{}\"", str_val), str_val);
+            } else {
+                eprint!("[line {}] Error: Unterminated string.", line);
+                *error = true;
+            }
+        }
+        '0'..='9' => {
+            let num_str = num_literals(ch, chars);
+            let num_val: f64 = num_str.parse().unwrap(); 
+
+            let lit = if num_val.fract() == 0.0 {
+                format!("{:.1}", num_val)
+            } else {
+                num_val.to_string()
+            };
+
+            add_token!(TokenType::Number, num_str, lit);
+        }
+        'a'..='z' | 'A'..='Z' | '_' => {
+            let mut ident = String::from(ch);
+            while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
+                ident.push(chars.next().unwrap());
+            }
+
+            let t_type = match ident.as_str() {
+                "true" => TokenType::True,
+                "false" => TokenType::False,
+                "and" => TokenType::And,
+                "or" => TokenType::Or,
+                "not" => TokenType::Not,
+                "None" => TokenType::None,
+                "if" => TokenType::If,
+                "elif" => TokenType::Elif,
+                "else" => TokenType::Else,
+                "while" => TokenType::While,
+                "for" => TokenType::For,
+                "fun" => TokenType::Fun,
+                "print" => TokenType::Print,
+                "return" => TokenType::Return,
+                "let" => TokenType::Let,
+                "mut" => TokenType::Mut, 
+
+                "i8" => TokenType::TypeI8,
+                "i16" => TokenType::TypeI16,
+                "i32" => TokenType::TypeI32,
+                "i64" => TokenType::TypeI64,
+                "u8" => TokenType::TypeU8,
+                "u16" => TokenType::TypeU16,
+                "u32" => TokenType::TypeU32,
+                "u64" => TokenType::TypeU64,
+                "f32" => TokenType::TypeF32,
+                "f64" => TokenType::TypeF64,
+                "string" => TokenType::TypeString,
+                "bool" => TokenType::TypeBool,
+            
+                _ => TokenType::Identifier,
+            };
+            add_token!(t_type, ident, "null");
+        }
+        _ => {
+            eprintln!("[line {}] Error: Unexpected character: {}", line, ch);
+            *error = true;
+        }
+    }
 }
