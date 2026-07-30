@@ -1,4 +1,4 @@
-use crate::scanner::{Token, TokenType};
+use crate::scanner::{Token, TokenType::{self}};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -247,6 +247,10 @@ impl Parser {
             return self.print_statement();
         }
 
+        if self.match_types(&[TokenType::Indent]) {
+            return self.block();
+        }
+
         if self.match_types(&[TokenType::LeftBrace]) {
             return self.block();
         }
@@ -296,14 +300,23 @@ impl Parser {
     }
 
     fn if_statement(&mut self) -> Result<String, ()> {
-        self.consume(TokenType::LeftParen, "Expect '(' after 'if'.")?;
         let condition = self.expression()?;
-        self.consume(TokenType::RightParen, "Expect ')' after if condition.")?;
+
+        if self.check(&TokenType::Colon) {
+            self.advance();
+        }
 
         let then_branch = self.statement()?;
-        if self.match_types(&[TokenType::Else]) {
-            let else_branch = self.statement()?;
+
+        if self.match_types(&[TokenType::Elif]) {
+            let else_branch = self.if_statement()?;
             Ok(format!("(if {} {} {})", condition, then_branch, else_branch))
+        } else if self.match_types(&[TokenType::Else]) {
+            if self.check(&TokenType::Colon) {
+                self.advance();
+            }
+            let else_branch = self.statement()?;
+            Ok(format!("(if {} {} {})", condition, then_branch, else_branch)) 
         } else {
             Ok(format!("(if {} {})", condition, then_branch))
         }
@@ -362,11 +375,13 @@ impl Parser {
     fn block(&mut self) -> Result<String, ()> {
         let mut statements = Vec::new();
 
-        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+        self.consume(TokenType::Indent, "Expect indentation at start of block.")?;
+
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
             statements.push(self.declaration()?);
         }
 
-        self.consume(TokenType::RightBrace, "Expect '}' after block.")?;
+        self.consume(TokenType::Dedent, "Expect dedent at end of block.")?;
         
         let inner_stmts = statements.join(" ");
         Ok(format!("(block {})", inner_stmts))
