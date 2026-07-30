@@ -1,4 +1,4 @@
-use crate::scanner::{Token, TokenType::{self}};
+use crate::scanner::{Token, TokenType};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -26,15 +26,36 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> Result<String, ()> {
-        let expr = self.or_expr()?;
+        let expr = self.ternary()?;
+
         if self.match_types(&[TokenType::Equal]) {
             let value = self.assignment()?;
 
             if expr.starts_with("let_ref:") {
                 let let_name = &expr[8..];
-                return  Ok(format!("(assign {} {})", let_name, value));
+                return Ok(format!("(assign {} {})", let_name, value));
             }
         }
+        Ok(expr)
+    }
+
+    // Python-style Ternary Operator: <expr_true> if <cond> else <expr_false>
+    fn ternary(&mut self) -> Result<String, ()> {
+        let mut expr = self.or_expr()?;
+
+        if self.match_types(&[TokenType::If]) {
+            let condition = self.or_expr()?;
+
+            if !self.match_types(&[TokenType::Else]) {
+                let line = self.peek().line;
+                eprintln!("[line {}] Error: Expected 'else' in ternary expression.", line);
+                return Err(());
+            }
+
+            let else_expr = self.ternary()?;
+            expr = format!("(if {} {} {})", condition, expr, else_expr);
+        }
+
         Ok(expr)
     }
 
@@ -247,11 +268,7 @@ impl Parser {
             return self.print_statement();
         }
 
-        if self.match_types(&[TokenType::Indent]) {
-            return self.block();
-        }
-
-        if self.match_types(&[TokenType::LeftBrace]) {
+        if self.match_types(&[TokenType::Indent, TokenType::LeftBrace]) {
             return self.block();
         }
 
@@ -287,11 +304,12 @@ impl Parser {
 
         self.consume(TokenType::LeftParen, "Expect '(' after 'print'.")?;
 
-        while self.match_types(&[TokenType::RightParen]) {
-            value_exprs.push(self.expression()?);
-
-            while self.match_types(&[TokenType::Comma]) {
+        if !self.check(&TokenType::RightParen) {
+            loop {
                 value_exprs.push(self.expression()?);
+                if !self.match_types(&[TokenType::Comma]) {
+                    break;
+                }
             }
         }
 
