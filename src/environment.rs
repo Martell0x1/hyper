@@ -127,10 +127,24 @@ pub struct Environment {
 
 impl Environment {
     pub fn new() -> Self {
-        Environment {
+        let mut env = Environment {
             values: HashMap::new(),
             enclosing: None,
-        }
+        };
+
+        env.define(
+            "clock".to_string(),
+            HyperValue::NativeFunction("clock".to_string()),
+            false
+        );
+
+        env.define(
+            "input".to_string(), 
+            HyperValue::NativeFunction("input".to_string()), 
+            false
+        );
+
+        env
     }
 
     pub fn new_with_enclosing(enclosing: Rc<RefCell<Environment>>) -> Self {
