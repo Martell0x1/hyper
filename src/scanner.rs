@@ -52,7 +52,8 @@ pub enum TokenType {
     Fun, 
     While, 
     For,  
-    Print, 
+    Print,
+    Input, 
     Return,  
 
     Let,
@@ -291,6 +292,7 @@ fn match_char (
                 "for" => TokenType::For,
                 "fun" => TokenType::Fun,
                 "print" => TokenType::Print,
+                "input" => TokenType::Input,
                 "return" => TokenType::Return,
                 "let" => TokenType::Let,
                 "mut" => TokenType::Mut, 
