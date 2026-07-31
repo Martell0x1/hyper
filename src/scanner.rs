@@ -36,7 +36,7 @@ pub enum TokenType {
     TypeString, TypeBool,
     
     Identifier, 
-    StringLit, 
+    String, 
     Number,
     None, 
 
@@ -254,7 +254,7 @@ fn match_char (
         }
         '"' => {
             if let Some(str_val) = str_literals(chars, line) {
-                add_token!(TokenType::StringLit, format!("\"{}\"", str_val), str_val);
+                add_token!(TokenType::String, format!("\"{}\"", str_val), str_val);
             } else {
                 eprint!("[line {}] Error: Unterminated string.", line);
                 *error = true;

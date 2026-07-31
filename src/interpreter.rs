@@ -128,7 +128,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                     let mut input_buffer = String::new();
                     if io::stdin().read_line(&mut input_buffer).is_ok() {
                         let trimmed = input_buffer.trim_end_matches(&['\r', '\n'][..]).to_string();
-                        return Some(HyperValue::StringLit(trimmed));
+                        return Some(HyperValue::String(trimmed));
                     } else {
                         eprintln!("[line {}] Error: Failed to read  line from stdin.", line);
                         std::process::exit(70);
@@ -235,7 +235,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
             } else if let Ok(num) = cleaned.parse::<f64>() {
                 Some(HyperValue::F64(num))
             } else if cleaned.starts_with('"') && cleaned.ends_with('"') {
-                Some(HyperValue::StringLit(cleaned[1..cleaned.len() - 1].to_string()))
+                Some(HyperValue::String(cleaned[1..cleaned.len() - 1].to_string()))
             } else {
                 None
             }

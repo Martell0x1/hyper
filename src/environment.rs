@@ -18,7 +18,7 @@ pub enum HyperValue {
     F32(f32),
     F64(f64),
 
-    StringLit(String),
+    String(String),
     Boolean(bool),
     None,
 
@@ -69,8 +69,8 @@ macro_rules! impl_cmp_op {
 
 impl HyperValue {
     pub fn add(&self, other: &Self) -> Option<HyperValue> {
-        if let (HyperValue::StringLit(a), HyperValue::StringLit(b)) = (self, other) {
-            return Some(HyperValue::StringLit(format!("{}{}", a, b)));
+        if let (HyperValue::String(a), HyperValue::String(b)) = (self, other) {
+            return Some(HyperValue::String(format!("{}{}", a, b)));
         }
         impl_binary_op!(self, other, +)
     }
@@ -207,7 +207,7 @@ impl std::fmt::Display for HyperValue {
             HyperValue::F64(n) => write!(f, "{}", n),
 
             HyperValue::Boolean(b) => write!(f, "{}", b),
-            HyperValue::StringLit(s) => write!(f, "{}", s),
+            HyperValue::String(s) => write!(f, "{}", s),
             HyperValue::None => write!(f, "None"),
 
             HyperValue::NativeFunction(name) => write!(f, "<native fn {}>", name),

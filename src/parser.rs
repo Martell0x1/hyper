@@ -135,7 +135,7 @@ impl Parser {
             return Ok(format!("let_ref:{}", self.previous().lexeme));
         }
         
-        if self.match_types(&[TokenType::Number, TokenType::StringLit]) {
+        if self.match_types(&[TokenType::Number, TokenType::String]) {
             return Ok(self.previous().literal.clone());
         }
 
