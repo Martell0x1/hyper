@@ -1,4 +1,5 @@
-use std::cell::RefCell;
+use std::io::Write;
+use std::{cell::RefCell, io};
 use std::rc::Rc;
 use crate::environment::{Environment, HyperValue};
 
@@ -114,6 +115,25 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
 
         if let Some(call_val) = evaluate_str(callee_str, line, Rc::clone(&env)) {
             match call_val {
+                HyperValue::NativeFunction(name) if name == "input" => {
+                    if let Some(args_raw) = args_str {
+                        if !args_raw.trim().is_empty() {
+                            if let Some(prompt_val) = evaluate_str(args_raw.trim().to_string(), line, Rc::clone(&env)) {
+                                println!("{}", prompt_val);
+                                let _ = io::stdout().flush();
+                            }
+                        }
+                    }
+
+                    let mut input_buffer = String::new();
+                    if io::stdin().read_line(&mut input_buffer).is_ok() {
+                        let trimmed = input_buffer.trim_end_matches(&['\r', '\n'][..]).to_string();
+                        return Some(HyperValue::StringLit(trimmed));
+                    } else {
+                        eprintln!("[line {}] Error: Failed to read  line from stdin.", line);
+                        std::process::exit(70);
+                    }
+                }
                 HyperValue::NativeFunction(name) if name == "clock" => {
                     if args_str.as_ref().map_or(false, |s| !s.trim().is_empty()) {
                         eprintln!("Expected 0 arguments but got more.\n[line {}]", line);
