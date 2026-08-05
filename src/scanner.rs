@@ -52,10 +52,13 @@ pub enum TokenType {
     Fun, 
     While, 
     For,  
+    In,
+    Range,
     Print,
     Input, 
     Return,  
 
+    At,
     Let,
     Mut,
     EOF,
@@ -72,7 +75,10 @@ pub struct Token {
 pub fn num_literals(ch: char, chars: &mut Peekable<Chars>) -> String {
     let mut num_str = String::from(ch);
     while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
-        num_str.push(chars.next().unwrap());
+        let n = chars.next().unwrap();
+        if n != '_' {
+            num_str.push(n);
+        }
     }
     if chars.peek() == Some(&'.') {
         let mut clone = chars.clone();
@@ -205,6 +211,7 @@ fn match_char (
         ')' => add_token!(TokenType::RightParen, ")", "null"),
         '{' => add_token!(TokenType::LeftBrace, "{", "null"),
         '}' => add_token!(TokenType::RightBrace, "}", "null"),
+        '@' => add_token!(TokenType::At, "@", "null"),
         '.' => add_token!(TokenType::Dot, ".", "null"),
         ',' => add_token!(TokenType::Comma, ",", "null"),
         '-' => add_token!(TokenType::Minus, "-", "null"),
@@ -290,6 +297,8 @@ fn match_char (
                 "else" => TokenType::Else,
                 "while" => TokenType::While,
                 "for" => TokenType::For,
+                "in" => TokenType::In,
+                "range" => TokenType::Range,
                 "fun" => TokenType::Fun,
                 "print" => TokenType::Print,
                 "input" => TokenType::Input,
