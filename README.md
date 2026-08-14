@@ -10,7 +10,7 @@ This is the main source code repository for **Hyper**. It currently contains the
 
 ## What is Hyper?
 
-**Hyper** is an experimental programming language designed to combine Python-like syntax with a focus on execution speed and memory safety. 
+**Hyper** is a compiled programming language designed for maximum execution speed and memory safety without the overhead of an interpreter.
 
 The project aims to explore how modern programming language design can retain developer productivity and code readability while addressing the performance overhead and safety limitations often found in dynamic languages.
 
