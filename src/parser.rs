@@ -39,7 +39,6 @@ impl Parser {
         Ok(expr)
     }
 
-    // Python-style Ternary Operator: <expr_true> if <cond> else <expr_false>
     fn ternary(&mut self) -> Result<String, ()> {
         let mut expr = self.or_expr()?;
 
@@ -207,12 +206,36 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Result<String, ()> {
+        let mut is_parallel = false;
+        let mut is_vectorized = false;
+
+        while self.match_types(&[TokenType::At]) {
+            let dec_token = self.consume(TokenType::Identifier, "Expect decorator name after '@'.")?.clone();
+            match dec_token.lexeme.as_str() {
+                "parallel" => is_parallel = true,
+                "vectorize" => is_vectorized = true,
+                _=> {
+                    eprintln!("[line {}] Unknown decorator '@{}'.", dec_token.line, dec_token.lexeme);
+                    return Err(());
+                }
+            }
+            if self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+
         if self.match_types(&[TokenType::Fun]) {
             return self.function_declaration();
         }
+
         if self.match_types(&[TokenType::Let]) {
             return self.let_declaration();
         }
+
+        if self.match_types(&[TokenType::For]) {
+            return self.for_statement(is_parallel, is_vectorized);
+        }
+
         self.statement()
     }
 
@@ -281,40 +304,10 @@ impl Parser {
         }
 
         if self.match_types(&[TokenType::For]) {
-            return self.for_statement();
+            return self.for_statement(false, false);
         }
 
         self.expression_statement()
-    }
-
-    fn return_statement(&mut self) -> Result<String, ()> {
-        let line = self.previous().line;
-        let mut value = "None".to_string();
-
-        if !self.check(&TokenType::EOF) {
-            value = self.expression()?;
-        }
-
-        Ok(format!("(return line:{} {})", line, value))
-    }
-
-    fn print_statement(&mut self) -> Result<String, ()> {
-        let line = self.previous().line;
-        let mut value_exprs = Vec::new();
-
-        self.consume(TokenType::LeftParen, "Expect '(' after 'print'.")?;
-
-        if !self.check(&TokenType::RightParen) {
-            loop {
-                value_exprs.push(self.expression()?);
-                if !self.match_types(&[TokenType::Comma]) {
-                    break;
-                }
-            }
-        }
-
-        self.consume(TokenType::RightParen, "Expect ')' after print arguments.")?;
-        Ok(format!("(print line:{} {})", line, value_exprs.join(" ")))
     }
 
     fn if_statement(&mut self) -> Result<String, ()> {
@@ -349,45 +342,80 @@ impl Parser {
         Ok(format!("(while {} {})", condition, body))
     }
 
-    fn for_statement(&mut self) -> Result<String, ()> {
-        let for_line = self.previous().line;
-        self.consume(TokenType::LeftParen, "Expect '(' after 'for'.")?;
+    fn for_statement(&mut self, is_parallel: bool, is_vectorized: bool) -> Result<String, ()> {
+        let line = self.previous().line;
+        let var_token = self.consume(TokenType::Identifier, "Expect variable name after 'for'.")?.clone();
+        let var_name = var_token.lexeme;
 
-        let initializer = if self.match_types(&[TokenType::Semicolon]) {
-            None
-        } else if self.match_types(&[TokenType::Let]) {
-            Some(self.let_declaration()?)
+        self.consume(TokenType::In, "Expect 'in' after loop variable.")?;
+
+        let mut start_expr = "0".to_string();
+        let mut end_expr = "0".to_string();
+        
+        if self.match_types(&[TokenType::Range]) {
+            self.consume(TokenType::LeftParen, "Expect '(' after 'range'.")?;
+            let first_arg = self.expression()?;
+
+            if self.match_types(&[TokenType::Comma]) {
+                start_expr = first_arg;
+                end_expr = self.expression()?;
+            } else {
+                end_expr = first_arg;
+            }
+
+            self.consume(TokenType::RightParen, "Expect ')' after range arguments.")?;
         } else {
-            Some(self.expression_statement()?)
-        };
-
-        let condition = if !self.check(&TokenType::Semicolon) {
-            self.expression()?
-        } else {
-            "true".to_string()
-        };
-        self.consume(TokenType::Semicolon, "Expect ';' after loop condition.")?;
-
-        let increment = if !self.check(&TokenType::RightParen) {
-            Some(self.expression()?)
-        } else {
-            None
-        };
-        self.consume(TokenType::RightParen, "Expect ')' after for clauses.")?;
-
-        let mut body = self.statement()?;
-
-        if let Some(incr_expr) = increment {
-            body = format!("(block {} (expr line:{} {}))", body, for_line, incr_expr);
+            end_expr = self.expression()?;
         }
 
-        body = format!("(while {} {})", condition, body);
-
-        if let Some(init_stmt) = initializer {
-            body = format!("(block {} {})", init_stmt, body);
+        if self.check(&TokenType::Colon) {
+            self.advance();
         }
 
-        Ok(body)
+        if self.check(&TokenType::Newline) {
+            self.advance();
+        }
+
+        let body = self.statement()?;
+
+        let loop_tag = match (is_parallel, is_vectorized) {
+            (true, true) => "for_par_vec",
+            (true, false) => "for_par",
+            (false, true) => "for_vec",
+            (false, false) => "for_seq",
+        };
+
+        Ok(format!("({} line:{} {} {} {} {})", loop_tag, line, var_name, start_expr, end_expr, body))
+    }
+
+    fn return_statement(&mut self) -> Result<String, ()> {
+        let line = self.previous().line;
+        let mut value = "None".to_string();
+
+        if !self.check(&TokenType::EOF) {
+            value = self.expression()?;
+        }
+
+        Ok(format!("(return line:{} {})", line, value))
+    }
+
+    fn print_statement(&mut self) -> Result<String, ()> {
+        let line = self.previous().line;
+        let mut value_exprs = Vec::new();
+
+        self.consume(TokenType::LeftParen, "Expect '(' after 'print'.")?;
+
+        if !self.check(&TokenType::RightParen) {
+            loop {
+                value_exprs.push(self.expression()?);
+                if !self.match_types(&[TokenType::Comma]) {
+                    break;
+                }
+            }
+        }
+
+        self.consume(TokenType::RightParen, "Expect ')' after print arguments.")?;
+        Ok(format!("(print line:{} {})", line, value_exprs.join(" ")))
     }
 
     fn block(&mut self) -> Result<String, ()> {
