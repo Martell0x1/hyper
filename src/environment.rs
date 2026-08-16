@@ -22,6 +22,8 @@ pub enum HyperValue {
     Boolean(bool),
     None,
 
+    List(Vec<HyperValue>),
+
     NativeFunction(String),
     Function {
         name: String,
@@ -210,6 +212,11 @@ impl std::fmt::Display for HyperValue {
             HyperValue::String(s) => write!(f, "{}", s),
             HyperValue::None => write!(f, "None"),
 
+            HyperValue::List(items) => {
+                let items_str: Vec<String> = items.iter().map(|item| item.to_string()).collect();
+                write!(f, "[{}]", items_str.join(", "))
+            }
+            
             HyperValue::NativeFunction(name) => write!(f, "<native fn {}>", name),
             HyperValue::Function { name, .. } => write!(f, "<fn {}>", name),
         }
