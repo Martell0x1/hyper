@@ -131,19 +131,43 @@ impl Parser {
         if self.match_types(&[TokenType::None]) { return Ok("None".to_string()); }
 
         if self.match_types(&[TokenType::LeftBrace]) {
-            let mut elements = Vec::new();
+            let mut entries = Vec::new();
 
             if !self.check(&TokenType::RightBrace) {
-                loop {
-                    elements.push(self.expression()?);
-                    if !self.match_types(&[TokenType::Comma]) {
-                        break;
+                let first_key = self.expression()?;
+                
+                if self.match_types(&[TokenType::Colon]) {
+                    let first_val = self.expression()?;
+                    entries.push(format!("{}:{}", first_key, first_val));
+
+                    while self.match_types(&[TokenType::Comma]) {
+                        if self.check(&TokenType::RightBrace) {
+                            break;
+                        }
+                        let key = self.expression()?;
+                        self.consume(TokenType::Colon, "Expect ':' after dictionary key.")?;
+                        let value = self.expression()?;
+                        entries.push(format!("{}:{}", key, value));
                     }
+                    
+                    self.consume(TokenType::RightBrace, "Expect '}' after dictionary entries.")?;
+                    return Ok(format!("(dict {})", entries.join(" ")));
+                } else {
+                    entries.push(first_key);
+                    while self.match_types(&[TokenType::Comma]) {
+                        if self.check(&TokenType::RightBrace) {
+                            break;
+                        }
+                        entries.push(self.expression()?);
+                    }
+                    
+                    self.consume(TokenType::RightBrace, "Expect '}' after elements.")?;
+                    return Ok(format!("(list {})", entries.join(" ")));
                 }
             }
 
-            self.consume(TokenType::RightBrace, "Expect ']' after list elements.")?;
-            return Ok(format!("(list {})", elements.join(" ")));
+            self.consume(TokenType::RightBrace, "Expect '}' after empty braces.")?;
+            return Ok("(list)".to_string());
         }
 
         if self.match_types(&[TokenType::Input]) {
@@ -310,6 +334,15 @@ impl Parser {
                 self.advance();
                 self.consume(TokenType::RightBrace, "Expect ']' after array type.")?;
                 type_annotation = format!("Array[{}]", inner_type);
+            } else if self.match_types(&[TokenType::Dict]) {
+                self.consume(TokenType::LeftBrace, "Expect '[' after 'Dict'.")?;
+                let key_type = self.peek().lexeme.clone();
+                self.advance();
+                self.consume(TokenType::Comma, "Expect ',' between dictionary key and value types.")?;
+                let val_type = self.peek().lexeme.clone();
+                self.advance();
+                self.consume(TokenType::RightBrace, "Expect ']' after dictionary types.")?;
+                type_annotation = format!("Dict[{}, {}]", key_type, val_type);
             } else {
                 let type_token = self.peek().clone();
                 self.advance();
