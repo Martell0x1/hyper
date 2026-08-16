@@ -130,6 +130,22 @@ impl Parser {
         if self.match_types(&[TokenType::True]) { return Ok("true".to_string()); }
         if self.match_types(&[TokenType::None]) { return Ok("None".to_string()); }
 
+        if self.match_types(&[TokenType::LeftBrace]) {
+            let mut elements = Vec::new();
+
+            if !self.check(&TokenType::RightBrace) {
+                loop {
+                    elements.push(self.expression()?);
+                    if !self.match_types(&[TokenType::Comma]) {
+                        break;
+                    }
+                }
+            }
+
+            self.consume(TokenType::RightBrace, "Expect ']' after list elements.")?;
+            return Ok(format!("(list {})", elements.join(" ")));
+        }
+
         if self.match_types(&[TokenType::Input]) {
             let line = self.previous().line;
             let mut prompt_expr = "None".to_string();
