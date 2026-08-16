@@ -38,6 +38,7 @@ pub enum HyperValue {
         name: String,
         params: Vec<String>,
         body: String,
+        is_strict: bool,
         closure: Rc<RefCell<Environment>>,
     }
 }
