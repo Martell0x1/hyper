@@ -11,7 +11,7 @@ pub enum ExecResult {
 fn clean_group_expressions(mut input: String) -> String {
     while input.starts_with("(group ") && input.ends_with(')') {
         input = input[7..input.len() - 1].to_string();
-    }
+    } 
     input
 }
 
@@ -327,6 +327,82 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
                         return ExecResult::Return(val);
                     }
                 } else { break; }
+            }
+        }
+    } else if stmt.starts_with("(for_seq line:") || stmt.starts_with("(for_par line:") || stmt.starts_with("(for_vec line:") || stmt.starts_with("(for_par_vec line:") {
+        let is_parallel = stmt.starts_with("(for_par ") || stmt.starts_with("(for_par_vec ");
+        let is_vectorized = stmt.starts_with("(for_vec ") || stmt.starts_with("(for_par_vec ");
+
+        let tag_len = if stmt.starts_with("(for_seq line:") { 14 }
+                      else if stmt.starts_with("(for_par line:") { 14 }
+                      else if stmt.starts_with("(for_vec line:") { 14 }
+                      else { 18 };
+
+        let rest = &stmt[tag_len..stmt.len() - 1];
+        let parts: Vec<&str> = rest.splitn(5, ' ').collect();
+        if parts.len() == 5 {
+            let line_num: u32 = parts[0].parse().unwrap_or(1);
+            let var_name = parts[1].to_string();
+            let start_expr = parts[2].to_string();
+            let end_expr = parts[3].to_string();
+            let body_str = parts[4].to_string();
+
+            let parse_to_i64 = |expr: &str| -> i64 {
+                match evaluate_str(expr.to_string(), line_num, Rc::clone(&env)) {
+                    Some(HyperValue::I64(val)) => val,
+                    Some(HyperValue::F64(val)) => val as i64,
+                    Some(HyperValue::I32(val)) => val as i64,
+                     _ => 0,
+                }
+            }; 
+            
+            let start_val = parse_to_i64(&start_expr);
+            let end_val = parse_to_i64(&end_expr);
+
+            if is_parallel && is_vectorized {
+                let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+                let total_items = (end_val - start_val).max(0);
+                if total_items > 0 {
+                    let chunk_size = (total_items + num_threads as i64 - 1) / num_threads as i64;
+                    
+                    std::thread::scope(|s| {
+                        for t in 0..num_threads {
+                            let t_start = start_val + t as i64 * chunk_size;
+                            let t_end = (t_start + chunk_size).min(end_val);
+                            if t_start >= end_val { break; }
+                            
+                            let var_n = var_name.clone();
+                            let b_str = body_str.clone();
+
+                            s.spawn(move || {
+                                let thread_local_env = Environment::new();         
+                                let thread_local_rc = Rc::new(RefCell::new(thread_local_env));
+                                let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(thread_local_rc)));
+            
+                                for i in t_start..t_end {
+                                    loop_env.borrow_mut().define(var_n.clone(), HyperValue::I64(i), true);
+                                    execute_statement(&b_str, Rc::clone(&loop_env));
+                                }
+                            });
+                        }
+                    });
+                }
+            } else if is_vectorized {
+                for i in (start_val..end_val).step_by(1) {
+                    let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+                    loop_env.borrow_mut().define(var_name.clone(), HyperValue::I64(i), true);
+                    if let ExecResult::Return(val) = execute_statement(&body_str, loop_env) {
+                        return ExecResult::Return(val);
+                    }
+                }
+            } else {
+                for i in start_val..end_val {
+                    let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+                    loop_env.borrow_mut().define(var_name.clone(), HyperValue::I64(i), true);
+                    if let ExecResult::Return(val) = execute_statement(&body_str, loop_env) {
+                        return ExecResult::Return(val);
+                    }
+                } 
             }
         }
     } else if stmt.starts_with("(fun ") {
