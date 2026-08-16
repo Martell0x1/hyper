@@ -277,7 +277,7 @@ impl Parser {
             }
         }
 
-        if self.match_types(&[TokenType::Fun]) {
+        if self.match_types(&[TokenType::Fn]) {
             return self.function_declaration();
         }
 
@@ -293,30 +293,48 @@ impl Parser {
     }
 
     fn function_declaration(&mut self) -> Result<String, ()> {
+        let is_strict = self.match_types(&[TokenType::Fn]);
+        if !is_strict {
+            self.consume(TokenType::Def, "Expect 'def' or 'fn' for function declaration.")?;
+        }
+
         let name_token = self.consume(TokenType::Identifier, "Expect function name.")?.clone();
-        let func_name = name_token.lexeme;
+        let fn_name = name_token.lexeme;
 
         self.consume(TokenType::LeftParen, "Expect '(' after function name.")?;
-
+        
         let mut params = Vec::new();
         if !self.check(&TokenType::RightParen) {
             loop {
-                let param = self.consume(TokenType::Identifier, "Expect parameter name.")?.clone();
-                params.push(param.lexeme);
+                let is_ref = self.match_types(&[TokenType::Ref]);
+                let param_token = self.consume(TokenType::Identifier, "Expect parameter name.")?;
+                let param_name = param_token.lexeme.clone();
+                
+                let mut param_type = "any".to_string();
+                if self.match_types(&[TokenType::Colon]) {
+                    param_type = self.peek().lexeme.clone();
+                    self.advance();
+                }
+
+                let ref_str = if is_ref { "ref" } else { "val" };
+                params.push(format!("{}:{} ({})", param_name, param_type, ref_str));
 
                 if !self.match_types(&[TokenType::Comma]) {
                     break;
                 }
             }
-        }   
+        }
         self.consume(TokenType::RightParen, "Expect ')' after parameters.")?;
 
-        self.consume(TokenType::LeftBrace, "Expect '{' before function body.")?;
-        let body = self.block()?;
+        let mut return_type = "None".to_string();
+        if self.match_types(&[TokenType::Arrow]) {
+            return_type = self.peek().lexeme.clone();
+            self.advance();
+        }
 
-        let params_str = params.join(" ");
+        self.consume(TokenType::Colon, "Expect ':' before function body.")?;
 
-        Ok(format!("(fun {} (params {}) {})", func_name, params_str, body))
+        Ok(format!("(fn {} strict:{} returns:{} params:[{}])", fn_name, is_strict, return_type, params.join(", ")))
     }
 
     fn let_declaration(&mut self) -> Result<String, ()> {
