@@ -23,6 +23,15 @@ pub enum HyperValue {
     None,
 
     List(Vec<HyperValue>),
+    Array {
+        element_type: String,
+        elements: Vec<HyperValue>,
+    },
+    Dict {
+        key_type: String,
+        val_type: String,
+        entries: HashMap<String, HyperValue>,
+    },
 
     NativeFunction(String),
     Function {
@@ -215,6 +224,14 @@ impl std::fmt::Display for HyperValue {
             HyperValue::List(items) => {
                 let items_str: Vec<String> = items.iter().map(|item| item.to_string()).collect();
                 write!(f, "[{}]", items_str.join(", "))
+            }
+            HyperValue::Array { elements, .. } => {
+                let items_str: Vec<String> = elements.iter().map(|item| item.to_string()).collect();
+                write!(f, "[{}]", items_str.join(", "))
+            }
+            HyperValue::Dict { entries, .. } => {
+                let entries_str: Vec<String> = entries.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                write!(f, "{{{}}}", entries_str.join(", "))
             }
             
             HyperValue::NativeFunction(name) => write!(f, "<native fn {}>", name),
