@@ -445,6 +445,9 @@ pub fn run_evaluate(file_contents: String) {
     let mut parser = crate::parser::Parser::new(tokens);
     let env = Rc::new(RefCell::new(Environment::new()));
 
+    env.borrow_mut().define("input".to_string(), HyperValue::NativeFunction("input".to_string()), false);
+    env.borrow_mut().define("clock".to_string(), HyperValue::NativeFunction("clock".to_string()), false);
+
     match parser.parse() {
         Ok(ast_string) => {
             if let Some(result) = evaluate_str(ast_string, 1, Rc::clone(&env)) {
@@ -463,6 +466,9 @@ pub fn run_program(file_contents: String) {
 
     let mut parser = crate::parser::Parser::new(tokens);
     let env = Rc::new(RefCell::new(Environment::new()));
+    env.borrow_mut().define("clock".to_string(), HyperValue::NativeFunction("clock".to_string()), false);
+
+    env.borrow_mut().define("input".to_string(), HyperValue::NativeFunction("input".to_string()), false);
     env.borrow_mut().define("clock".to_string(), HyperValue::NativeFunction("clock".to_string()), false);
 
     match parser.parse_statements() {
