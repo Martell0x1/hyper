@@ -302,13 +302,28 @@ impl Parser {
         let name_token = self.consume(TokenType::Identifier, "Expect variable name.")?.clone();
         let let_name = name_token.lexeme;
 
+        let mut type_annotation = "None".to_string();
+        if self.match_types(&[TokenType::Colon]) {
+            if self.match_types(&[TokenType::Array]) {
+                self.consume(TokenType::LeftBrace, "Expect '[' after 'Array'.")?;
+                let inner_type = self.peek().lexeme.clone();
+                self.advance();
+                self.consume(TokenType::RightBrace, "Expect ']' after array type.")?;
+                type_annotation = format!("Array[{}]", inner_type);
+            } else {
+                let type_token = self.peek().clone();
+                self.advance();
+                type_annotation = type_token.lexeme;
+            }
+        }
+
         let mut initializer = "None".to_string();
         if self.match_types(&[TokenType::Equal]) {
             initializer = self.expression()?;
         }
 
         let mut_str = if is_mutable { "mut" } else { "immut" };
-        Ok(format!("(let line:{} {} {} {})", line, mut_str, let_name, initializer))
+        Ok(format!("(let line:{} {} {} type:{} {})", line, mut_str, let_name, type_annotation, initializer))
     }
 
     fn statement(&mut self) -> Result<String, ()> {
