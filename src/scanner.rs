@@ -57,7 +57,8 @@ pub enum TokenType {
     Print,
     Input, 
     Return,
-    Array,  
+    Array,
+    Dict,  
 
     At,
     Let,
@@ -305,6 +306,7 @@ fn match_char (
                 "input" => TokenType::Input,
                 "return" => TokenType::Return,
                 "array" => TokenType::Array,
+                "dict" => TokenType::Dict,
                 "let" => TokenType::Let,
                 "mut" => TokenType::Mut, 
 
