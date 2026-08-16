@@ -130,6 +130,19 @@ impl Parser {
         if self.match_types(&[TokenType::True]) { return Ok("true".to_string()); }
         if self.match_types(&[TokenType::None]) { return Ok("None".to_string()); }
 
+        if self.match_types(&[TokenType::Input]) {
+            let line = self.previous().line;
+            let mut prompt_expr = "None".to_string();
+
+            self.consume(TokenType::LeftParen, "Expect '(' after input.")?;
+            if !self.check(&TokenType::RightParen) {
+                prompt_expr = self.expression()?;
+            }
+            self.consume(TokenType::RightParen, "Expect ')' after input argument.")?;
+
+            return Ok(format!("input line:{} {}", line, prompt_expr));
+        }
+
         if self.match_types(&[TokenType::Identifier]) {
             return Ok(format!("let_ref:{}", self.previous().lexeme));
         }
