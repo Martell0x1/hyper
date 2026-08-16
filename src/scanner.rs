@@ -49,7 +49,10 @@ pub enum TokenType {
     If,
     Elif,
     Else,  
-    Fun, 
+    Def,
+    Fn, 
+    Ref,
+    Arrow,
     While, 
     For,  
     In,
@@ -216,7 +219,14 @@ fn match_char (
         '@' => add_token!(TokenType::At, "@", "null"),
         '.' => add_token!(TokenType::Dot, ".", "null"),
         ',' => add_token!(TokenType::Comma, ",", "null"),
-        '-' => add_token!(TokenType::Minus, "-", "null"),
+        '-' => {
+            if chars.peek() == Some(&'>') {
+                chars.next();
+                add_token!(TokenType::Arrow, "->", "null");
+            } else {
+                add_token!(TokenType::Minus, "-", "null");
+            }
+        }
         '+' => add_token!(TokenType::Plus, "+", "null"),
         ';' => add_token!(TokenType::Semicolon, ";", "null"),
         '*' => add_token!(TokenType::Star, "*", "null"),
@@ -301,7 +311,9 @@ fn match_char (
                 "for" => TokenType::For,
                 "in" => TokenType::In,
                 "range" => TokenType::Range,
-                "fun" => TokenType::Fun,
+                "def" => TokenType::Def,
+                "fn" => TokenType::Fn,
+                "ref" => TokenType::Ref,
                 "print" => TokenType::Print,
                 "input" => TokenType::Input,
                 "return" => TokenType::Return,
