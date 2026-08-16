@@ -435,11 +435,13 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
                 } 
             }
         }
-    } else if stmt.starts_with("(fun ") {
+    } else if stmt.starts_with("(fn ") {
         let trimmed = &stmt[5..stmt.len() - 1];
         let space_idx = trimmed.find(' ').unwrap();
         let func_name = trimmed[..space_idx].to_string();
         let rest = &trimmed[space_idx + 1..];
+
+        let is_strict = rest.starts_with("strict:true");
 
         let params_start = rest.find("(params ").unwrap() + 8;
         let params_end = rest.find(')').unwrap();
@@ -448,7 +450,13 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
 
         env.borrow_mut().define(
             func_name.clone(),
-            HyperValue::Function { name: func_name, params, body: body_str, closure: Rc::clone(&env) },
+            HyperValue::Function { 
+                name: func_name, 
+                params, 
+                body: body_str, 
+                is_strict, 
+                closure: Rc::clone(&env) 
+            },
             false,
         );
     } else if stmt.starts_with("(return line:") {
