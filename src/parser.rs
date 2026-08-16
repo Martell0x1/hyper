@@ -334,12 +334,20 @@ impl Parser {
     }
 
     fn while_statement(&mut self) -> Result<String, ()> {
-        self.consume(TokenType::LeftParen, "Expect '(' after 'while'.")?;
+        let line = self.previous().line;
         let condition = self.expression()?;
-        self.consume(TokenType::RightParen, "Expect ')' after 'while'.")?;
+
+        if self.check(&TokenType::Colon) {
+            self.advance();
+        }
+
+        if self.check(&TokenType::Newline) {
+            self.advance();
+        }
+
         let body = self.statement()?;
 
-        Ok(format!("(while {} {})", condition, body))
+        Ok(format!("(while line:{} {} {})", line, condition, body))
     }
 
     fn for_statement(&mut self, is_parallel: bool, is_vectorized: bool) -> Result<String, ()> {
