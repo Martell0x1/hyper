@@ -81,6 +81,26 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         return Some(env.borrow().get(&cleaned[8..], line));
     }
 
+    if cleaned.starts_with("(list ") && cleaned.ends_with(')') {
+        let inner = &cleaned[6..cleaned.len() - 1];
+        let mut elements = Vec::new();
+        if !inner.trim().is_empty() {
+            let mut current_elements = inner.to_string();
+            while let Some((left, right)) = split_binary_args(&current_elements) {
+                if let Some(val) = evaluate_str(left, line, Rc::clone(&env)) {
+                    elements.push(val);
+                }
+                current_elements = right;
+            }
+            if !current_elements.trim().is_empty() {
+                if let Some(val) = evaluate_str(current_elements.trim().to_string(), line, Rc::clone(&env)) {
+                    elements.push(val);
+                }
+            }
+        }
+        return Some(HyperValue::List(elements));
+    }
+
     if cleaned.starts_with("(assign ") && cleaned.ends_with(')') {
         let inner = &cleaned[8..cleaned.len() - 1];
         if let Some(space_idx) = inner.find(' ') {
