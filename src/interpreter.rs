@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::{cell::RefCell, io};
 use std::rc::Rc;
@@ -99,6 +100,15 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
             }
         }
         return Some(HyperValue::List(elements));
+    }
+
+    if cleaned.starts_with("(dict ") && cleaned.ends_with(')') {
+        let entries = HashMap::new();
+        return Some(HyperValue::Dict {
+            key_type: "string".to_string(),
+            val_type: "any".to_string(),
+            entries,
+        });
     }
 
     if cleaned.starts_with("(assign ") && cleaned.ends_with(')') {
