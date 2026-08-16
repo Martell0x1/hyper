@@ -349,8 +349,8 @@ impl Parser {
 
         self.consume(TokenType::In, "Expect 'in' after loop variable.")?;
 
-        let mut start_expr = "0".to_string();
-        let mut end_expr = "0".to_string();
+        let start_expr;
+        let end_expr ;
         
         if self.match_types(&[TokenType::Range]) {
             self.consume(TokenType::LeftParen, "Expect '(' after 'range'.")?;
@@ -360,11 +360,13 @@ impl Parser {
                 start_expr = first_arg;
                 end_expr = self.expression()?;
             } else {
+                start_expr = "0".to_string();
                 end_expr = first_arg;
             }
 
             self.consume(TokenType::RightParen, "Expect ')' after range arguments.")?;
         } else {
+            start_expr = "0".to_string();
             end_expr = self.expression()?;
         }
 
