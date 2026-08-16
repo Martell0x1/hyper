@@ -119,7 +119,7 @@ pub struct Variable {
     pub is_mutable: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)] 
 pub struct Environment {
     pub values: HashMap<String, Variable>,
     pub enclosing: Option<Rc<RefCell<Environment>>>,
