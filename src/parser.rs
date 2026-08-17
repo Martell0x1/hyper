@@ -184,7 +184,28 @@ impl Parser {
         }
 
         if self.match_types(&[TokenType::Identifier]) {
-            return Ok(format!("let_ref:{}", self.previous().lexeme));
+            let name = self.previous().lexeme.clone();
+            
+            if self.match_types(&[TokenType::Dot]) {
+                let method_token = self.consume(TokenType::Identifier, "Expect method name after '.'")?.clone();
+                let method_name = method_token.lexeme;
+        
+                self.consume(TokenType::LeftParen, "Expect '(' after method name.")?;
+                let mut args = Vec::new();
+                if !self.check(&TokenType::RightParen) {
+                    loop {
+                        args.push(self.expression()?);
+                        if !self.match_types(&[TokenType::Comma]) {
+                            break;
+                        }
+                    }
+                }
+                self.consume(TokenType::RightParen, "Expect ')' after arguments.")?;
+        
+                return Ok(format!("(call_method {} {} [{}])", name, method_name, args.join(" ")));
+            }
+        
+            return Ok(format!("let_ref:{}", name));
         }
         
         if self.match_types(&[TokenType::Number, TokenType::String]) {
