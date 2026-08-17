@@ -82,6 +82,40 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         return Some(env.borrow().get(&cleaned[8..], line));
     }
 
+    if cleaned.starts_with("(call_method ") && cleaned.ends_with(')') {
+        let inner = &cleaned[13..cleaned.len() - 1];
+        
+        let parts: Vec<&str> = inner.splitn(3, ' ').collect();
+        if parts.len() >= 2 {
+            let var_name = parts[0];
+            let method_name = parts[1];
+            let args_raw = if parts.len() == 3 { parts[2] } else { "[]" };
+
+            let target_val = env.borrow().get(var_name, line);
+
+            let mut evaluated_args = Vec::new();
+            let args_trimmed = args_raw.trim();
+            if args_trimmed.starts_with('[') && args_trimmed.ends_with(']') && args_trimmed.len() > 2 {
+                let args_inner = &args_trimmed[1..args_trimmed.len() - 1];
+                let mut current_args = args_inner.to_string();
+                
+                while let Some((left, right)) = split_binary_args(&current_args) {
+                    if let Some(val) = evaluate_str(left, line, Rc::clone(&env)) {
+                        evaluated_args.push(val);
+                    }
+                    current_args = right;
+                }
+                if !current_args.trim().is_empty() {
+                    if let Some(val) = evaluate_str(current_args.trim().to_string(), line, Rc::clone(&env)) {
+                        evaluated_args.push(val);
+                    }
+                }
+            }
+
+            return target_val.call_method(method_name, &evaluated_args, line);
+        }
+    }
+
     if cleaned.starts_with("(list ") && cleaned.ends_with(')') {
         let inner = &cleaned[6..cleaned.len() - 1];
         let mut elements = Vec::new();
@@ -442,7 +476,7 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
         let rest = &trimmed[space_idx + 1..];
 
         let is_strict = rest.starts_with("strict:true");
-
+ 
         let params_start = rest.find("(params ").unwrap() + 8;
         let params_end = rest.find(')').unwrap();
         let params = rest[params_start..params_end].split_whitespace().map(|s| s.to_string()).collect();
