@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs::File;
 use std::io::Write;
 use std::{cell::RefCell, io};
 use std::rc::Rc;
@@ -505,6 +506,36 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
             evaluate_str(inner_expr.to_string(), line_num, Rc::clone(&env)).unwrap_or(HyperValue::None)
         };
         return ExecResult::Return(value);
+    } else if stmt.starts_with("(with_mmap line:") {
+        let rest = &stmt[16..stmt.len() - 1];
+        let parts: Vec<&str> = rest.splitn(3, ' ').collect();
+        if parts.len() == 3 {
+            let line_num: u32 = parts[0].parse().unwrap();
+            let path_expr = parts[1].to_string();
+            let rest_inner = parts[2];
+    
+            let path_val = evaluate_str(path_expr, line_num, Rc::clone(&env)).unwrap_or(HyperValue::None);
+            let file_path = match path_val {
+                HyperValue::String(s) => s,
+                _ => "".to_string(),
+            };
+    
+            let space_idx = rest_inner.find(' ').unwrap();
+            let var_name = rest_inner[..space_idx].to_string();
+            let body_str = rest_inner[space_idx + 1..].to_string();
+    
+            if let Ok(file) = File::open(&file_path) {
+                let mmap_val = HyperValue::MmapFile {
+                    file: Rc::new(RefCell::new(file)),
+                    path: file_path,
+                };
+                let block_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+                block_env.borrow_mut().define(var_name, mmap_val, false);
+                execute_statement(&body_str, block_env);
+            } else {
+                eprintln!("[line {}] Error: Could not open file '{}'", line_num, file_path);
+            }
+        }
     }
 
     ExecResult::Ok
