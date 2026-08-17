@@ -399,6 +399,10 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<String, ()> {
+        if self.match_types(&[TokenType::With]) {
+            return self.with_mmap_statement();
+        }
+
         if self.match_types(&[TokenType::Return]) {
             return self.return_statement();
         }
@@ -424,6 +428,24 @@ impl Parser {
         }
 
         self.expression_statement()
+    }
+
+    fn with_mmap_statement(&mut self) -> Result<String, ()> {
+        let line = self.previous().line;
+        self.consume(TokenType::OpenMmap, "Expect 'open_mmap after 'with'.")?;
+        self.consume(TokenType::LeftParen, "Expect '(' after open_mmap.")?;
+        let path_expr = self.expression()?;
+        self.consume(TokenType::RightParen, "Expect ')' after path.")?;
+        
+        self.consume(TokenType::As, "Expect 'as' in mmap block.")?;
+        let var_token = self.consume(TokenType::Identifier, "Expect variable name after 'as'.")?.clone();
+        let var_name = var_token.lexeme;
+
+        if self.check(&TokenType::Colon) { self.advance(); }
+        if self.check(&TokenType::Newline) { self.advance(); }
+
+        let body = self.statement()?;
+        Ok(format!("(with_mmap line:{} {} {} {})", line, path_expr, var_name, body))
     }
 
     fn if_statement(&mut self) -> Result<String, ()> {
