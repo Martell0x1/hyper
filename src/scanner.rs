@@ -60,8 +60,14 @@ pub enum TokenType {
     Print,
     Input, 
     Return,
+
     Array,
     Dict,  
+
+    With,
+    As,
+    OpenMmap,
+    ReadChunk,
 
     At,
     Let,
@@ -316,6 +322,12 @@ fn match_char (
                 "return" => TokenType::Return,
                 "array" => TokenType::Array,
                 "dict" => TokenType::Dict,
+
+                "with" => TokenType::With,
+                "as" => TokenType::As,
+                "open_mmap" => TokenType::OpenMmap,
+                "read_chunk" => TokenType::ReadChunk,
+                
                 "let" => TokenType::Let,
                 "mut" => TokenType::Mut, 
 
