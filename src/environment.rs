@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::cell::RefCell;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::rc::Rc;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum HyperValue {
     I8(i8),
@@ -32,6 +34,10 @@ pub enum HyperValue {
         val_type: String,
         entries: HashMap<String, HyperValue>,
     },
+    MmapFile {
+        file: Rc<RefCell<File>>,
+        path: String,
+    },
 
     NativeFunction(String),
     Function {
@@ -40,6 +46,39 @@ pub enum HyperValue {
         body: String,
         is_strict: bool,
         closure: Rc<RefCell<Environment>>,
+    },
+}
+
+impl PartialEq for HyperValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (HyperValue::I8(a), HyperValue::I8(b)) => a == b,
+            (HyperValue::I16(a), HyperValue::I16(b)) => a == b,
+            (HyperValue::I32(a), HyperValue::I32(b)) => a == b,
+            (HyperValue::I64(a), HyperValue::I64(b)) => a == b,
+            (HyperValue::U8(a), HyperValue::U8(b)) => a == b,
+            (HyperValue::U16(a), HyperValue::U16(b)) => a == b,
+            (HyperValue::U32(a), HyperValue::U32(b)) => a == b,
+            (HyperValue::U64(a), HyperValue::U64(b)) => a == b,
+            (HyperValue::F32(a), HyperValue::F32(b)) => a == b,
+            (HyperValue::F64(a), HyperValue::F64(b)) => a == b,
+            (HyperValue::String(a), HyperValue::String(b)) => a == b,
+            (HyperValue::Boolean(a), HyperValue::Boolean(b)) => a == b,
+            (HyperValue::None, HyperValue::None) => true,
+            (HyperValue::List(a), HyperValue::List(b)) => a == b,
+            (HyperValue::Array { element_type: et1, elements: el1 }, HyperValue::Array { element_type: et2, elements: el2 }) => {
+                et1 == et2 && el1 == el2
+            }
+            (HyperValue::Dict { key_type: kt1, val_type: vt1, entries: e1 }, HyperValue::Dict { key_type: kt2, val_type: vt2, entries: e2 }) => {
+                kt1 == kt2 && vt1 == vt2 && e1 == e2
+            }
+            (HyperValue::MmapFile { path: a, .. }, HyperValue::MmapFile { path: b, .. }) => a == b,
+            (HyperValue::NativeFunction(a), HyperValue::NativeFunction(b)) => a == b,
+            (HyperValue::Function { name: n1, params: p1, body: b1, is_strict: s1, .. }, HyperValue::Function { name: n2, params: p2, body: b2, is_strict: s2, .. }) => {
+                n1 == n2 && p1 == p2 && b1 == b2 && s1 == s2
+            }
+            _ => false,
+        }
     }
 }
 
@@ -256,13 +295,51 @@ impl HyperValue {
                     }
                 }
             }
+            HyperValue::MmapFile { file, .. } => {
+                match method_name {
+                    "read_chunk" => {
+                        if args.len() != 2 {
+                            eprintln!("[line {}] TypeError: read_chunk expects 2 arguments (offset, size).", line);
+                            std::process::exit(70);
+                        }
+                        let offset = match args[0] {
+                            HyperValue::I64(n) => n,
+                            HyperValue::I32(n) => n as i64,
+                            _ => 0,
+                        };
+                        let size = match args[1] {
+                            HyperValue::I64(n) => n as usize,
+                            HyperValue::I32(n) => n as usize,
+                            _ => 0,
+                        };
+            
+                        let mut f = file.borrow_mut();
+                        if f.seek(SeekFrom::Start(offset as u64)).is_err() {
+                            return Some(HyperValue::String("".to_string()));
+                        }
+                        let mut buffer = vec![0u8; size];
+                        match f.read(&mut buffer) {
+                            Ok(n) => {
+                                buffer.truncate(n);
+                                let chunk_str = String::from_utf8_lossy(&buffer).to_string();
+                                Some(HyperValue::String(chunk_str))
+                            }
+                            Err(_) => Some(HyperValue::String("".to_string())),
+                        }
+                    }
+                    _ => {
+                        eprintln!("[line {}] Type Error: MmapFile has no method '{}'", line, method_name);
+                        std::process::exit(70);
+                    }
+                }
+            }
             _ => {
                 eprintln!("[line {}] Type Error: Method calls are only supported on strings.", line);
                 std::process::exit(70);
             }
         }
     }
-    
+
     pub fn add(&self, other: &Self) -> Option<HyperValue> {
         if let (HyperValue::String(a), HyperValue::String(b)) = (self, other) {
             return Some(HyperValue::String(format!("{}{}", a, b)));
@@ -417,6 +494,7 @@ impl std::fmt::Display for HyperValue {
                 let entries_str: Vec<String> = entries.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", entries_str.join(", "))
             }
+            HyperValue::MmapFile { path, .. } => write!(f, "<mmap file {}>", path),
             
             HyperValue::NativeFunction(name) => write!(f, "<native fn {}>", name),
             HyperValue::Function { name, .. } => write!(f, "<fn {}>", name),
