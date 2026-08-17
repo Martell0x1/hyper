@@ -147,7 +147,7 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
             if current_ch == Some('\n') {
                 line += 1;
                 continue;
-            } else if current_ch == Some('/') && chars.peek() == Some(&'/') {
+            } else if current_ch == Some('#') {
                 while chars.peek() != Some(&'\n') && chars.peek().is_some() {
                     chars.next();
                 }
@@ -262,13 +262,10 @@ fn match_char (
                 add_token!(TokenType::Greater, ">", "null");
             }
         }
-        '/' => {
-            if chars.peek() == Some(&'/') {
-                while chars.peek() != Some(&'\n') && chars.peek().is_some() {
-                    chars.next();
-                }
-            } else {
-                add_token!(TokenType::Slash, "/", "null");
+        '/' => add_token!(TokenType::Slash, "/", "null"),
+        '#' => {
+            while chars.peek() != Some(&'\n') && chars.peek().is_some() {
+                chars.next();
             }
         }
         '"' => {
