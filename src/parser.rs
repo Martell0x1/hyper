@@ -183,6 +183,12 @@ impl Parser {
             return Ok(format!("input line:{} {}", line, prompt_expr));
         }
 
+        if self.match_types(&[TokenType::FString]) {
+            let f_content = self.previous().literal.clone();
+            let line = self.previous().line;
+            return self.parse_f_string(&f_content, line);
+        }
+
         if self.match_types(&[TokenType::Identifier]) {
             let name = self.previous().lexeme.clone();
             
@@ -446,6 +452,95 @@ impl Parser {
 
         let body = self.statement()?;
         Ok(format!("(with_mmap line:{} {} {} {})", line, path_expr, var_name, body))
+    }
+
+    fn parse_f_string(&mut self, content: &str, line: usize) -> Result<String, ()> {
+        let mut parts = Vec::new();
+        let mut chars = content.chars().peekable();
+        let mut current_text = String::new();
+
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                if let Some(next_ch) = chars.next() {
+                    current_text.push('\\');
+                    current_text.push(next_ch);
+                } else {
+                    current_text.push('\\');
+                }
+            } else if ch == '{' {
+                if chars.peek() == Some(&'{') {
+                    chars.next();
+                    current_text.push('{');
+                    continue;
+                }
+
+                if !current_text.is_empty() {
+                    parts.push(format!("\"{}\"", current_text));
+                    current_text.clear();
+                }
+
+                let mut expr_str = String::new();
+                let mut brace_depth = 1;
+                let mut in_string = false;
+                let mut string_char = ' ';
+
+                while let Some(c) = chars.next() {
+                    if in_string {
+                        expr_str.push(c);
+                        if c == string_char {
+                            in_string = false;
+                        }
+                    } else {
+                        if c == '"' || c == '\'' {
+                            in_string = true;
+                            string_char = c;
+                            expr_str.push(c);
+                        } else if c == '{' {
+                            brace_depth += 1;
+                            expr_str.push(c);
+                        } else if c == '}' {
+                            brace_depth -= 1;
+                            if brace_depth == 0 {
+                                break;
+                            } else {
+                                expr_str.push(c);
+                            }
+                        } else {
+                            expr_str.push(c);
+                        }
+                    }
+                }
+
+                if brace_depth > 0 {
+                    eprintln!("[line {}] Error: Unterminated expression in f-string.", line);
+                    return Err(());
+                }
+
+                let (sub_tokens, err) = crate::scanner::scan_tokens(&expr_str);
+                if err {
+                    eprintln!("[line {}] Error: Failed to parse expression inside f-string: '{}'.", line, expr_str);
+                    return Err(());
+                }
+                let mut sub_parser = Parser::new(sub_tokens);
+                let sub_ast = sub_parser.expression()?;
+                parts.push(sub_ast);
+            } else if ch == '}' {
+                if chars.peek() == Some(&'}') {
+                    chars.next();
+                    current_text.push('}');
+                    continue;
+                }
+                current_text.push('}');
+            } else {
+                current_text.push(ch);
+            }
+        }
+
+        if !current_text.is_empty() {
+            parts.push(format!("\"{}\"", current_text));
+        }
+
+        Ok(format!("(f_string line:{} [{}])", line, parts.join(" ")))
     }
 
     fn if_statement(&mut self) -> Result<String, ()> {
