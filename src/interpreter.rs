@@ -83,6 +83,37 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         return Some(env.borrow().get(&cleaned[8..], line));
     }
 
+    if cleaned.starts_with("(f_string line:") && cleaned.ends_with(')') {
+        let space_idx = cleaned.find(' ').unwrap();
+        let rest = &cleaned[space_idx + 1..cleaned.len() - 1];
+        let line_space_idx = rest.find(' ').unwrap();
+        let line_num: u32 = rest[5..line_space_idx].parse().unwrap_or(1);
+        let brackets_content = rest[line_space_idx + 1..].trim();
+        
+        let inner = if brackets_content.starts_with('[') && brackets_content.ends_with(']') {
+            &brackets_content[1..brackets_content.len() - 1]
+        } else {
+            brackets_content
+        };
+
+        let mut evaluated_string = String::new();
+        if !inner.trim().is_empty() {
+            let mut current_parts = inner.to_string();
+            while let Some((left, right)) = split_binary_args(&current_parts) {
+                if let Some(val) = evaluate_str(left, line_num, Rc::clone(&env)) {
+                    evaluated_string.push_str(&val.to_string());
+                }
+                current_parts = right;
+            }
+            if !current_parts.trim().is_empty() {
+                if let Some(val) = evaluate_str(current_parts.trim().to_string(), line_num, Rc::clone(&env)) {
+                    evaluated_string.push_str(&val.to_string());
+                }
+            }
+        }
+        return Some(HyperValue::String(evaluated_string));
+    }
+
     if cleaned.starts_with("(call_method ") && cleaned.ends_with(')') {
         let inner = &cleaned[13..cleaned.len() - 1];
         
