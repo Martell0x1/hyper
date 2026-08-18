@@ -1,5 +1,6 @@
 site_name: Hyper Programming Language
 site_description: Official documentation for the Hyper programming language
+docs_dir: doc
 
 theme:
   name: material
