@@ -95,7 +95,7 @@ pub fn num_literals(ch: char, chars: &mut Peekable<Chars>) -> String {
     if chars.peek() == Some(&'.') {
         let mut clone = chars.clone();
         clone.next();
-        if chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+        if clone.peek().map_or(false, |c| c.is_ascii_digit()) {
             num_str.push(chars.next().unwrap());
             while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
                 num_str.push(chars.next().unwrap());
@@ -108,9 +108,28 @@ pub fn num_literals(ch: char, chars: &mut Peekable<Chars>) -> String {
 pub fn str_literals(chars: &mut Peekable<Chars>, line: &mut usize) -> Option<String> {
     let mut str_val = String::new();
     while let Some(next_ch) = chars.next() {
-        if next_ch == '"' { return Some(str_val); }
-        if next_ch == '\n' { *line += 1; }
-        str_val.push(next_ch);
+        match next_ch {
+            '\\' => {
+                if let Some(escaped) = chars.next() {
+                    match escaped {
+                        'n' => str_val.push('\n'),
+                        't' => str_val.push('\t'),
+                        '"' => str_val.push('"'),
+                        '\\' => str_val.push('\\'),
+                        _ => {
+                            str_val.push('\\');
+                            str_val.push(escaped);
+                        }
+                    }
+                }
+            }
+            '"' => return Some(str_val),
+            '\n' => {
+                *line += 1;
+                str_val.push('\n');
+            }
+            _ => str_val.push(next_ch),
+        }
     }
     None
 }
