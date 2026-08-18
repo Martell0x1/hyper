@@ -1,0 +1,22 @@
+site_name: Hyper Programming Language
+site_description: Official documentation for the Hyper programming language
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
+  features:
+    - navigation.tabs
+    - content.code.copy
+
+nav:
+  - Introduction: index.md
