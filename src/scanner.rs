@@ -37,6 +37,7 @@ pub enum TokenType {
     
     Identifier, 
     String, 
+    FString,
     Number,
     None, 
 
@@ -295,6 +296,17 @@ fn match_char (
             add_token!(TokenType::Number, num_str, lit);
         }
         'a'..='z' | 'A'..='Z' | '_' => {
+            if (ch == 'f' || ch == 'F') && chars.peek() == Some(&'"') {
+                chars.next();
+                if let Some(str_val) = str_literals(chars, line) {
+                    add_token!(TokenType::FString, format!("f\"{}\"", str_val), str_val);
+                } else {
+                    eprintln!("[line {}] Error: Unterminated f-string.", line);
+                    *error = true;
+                }
+                return;
+            }
+
             let mut ident = String::from(ch);
             while chars.peek().map_or(false, |c| c.is_ascii_alphanumeric() || *c == '_') {
                 ident.push(chars.next().unwrap());
