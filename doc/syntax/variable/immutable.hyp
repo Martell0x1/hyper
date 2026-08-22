@@ -1,0 +1,4 @@
+# By default, the variable is immutable.
+let x = 0
+
+# syntax
