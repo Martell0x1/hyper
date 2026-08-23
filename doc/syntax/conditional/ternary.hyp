@@ -1,0 +1,4 @@
+let age = 18
+let status = "Adult" if age >= 18 else "Minor"
+
+# syntax

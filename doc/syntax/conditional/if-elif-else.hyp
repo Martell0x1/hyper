@@ -1,0 +1,10 @@
+let x = 10
+
+if x > 15:
+    print("Greater than 15")
+elif x == 10:
+    print("Equal to 10")
+else:
+    print("Less than 10")
+
+# syntax
