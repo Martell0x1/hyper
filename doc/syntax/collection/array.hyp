@@ -1,0 +1,4 @@
+# Statically typed array
+arr: Array[int32] = [10, 20, 30, 40]
+
+# syntax

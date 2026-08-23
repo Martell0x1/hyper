@@ -1,0 +1,7 @@
+# Statically typed dictionary created by Dict keyword
+scores: Dict[string, int32] = {
+    "math": 100,
+    "physics": 95
+}
+
+# syntax
