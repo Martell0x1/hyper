@@ -1,6 +1,0 @@
-fn check_value(val: i32) -> bool:
-    if val > 0:
-        return true
-    return false
-
-# syntax
