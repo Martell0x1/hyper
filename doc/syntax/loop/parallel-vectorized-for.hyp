@@ -1,0 +1,7 @@
+# Maximum speed: Simultaneously Parallel and Vectorized
+@parallel
+@vectorize
+for i in range(10_000_000):
+    matrix[i] *= 2.0
+
+# syntax

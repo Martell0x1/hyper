@@ -1,0 +1,6 @@
+# Multi-threading: Engages all CPU cores
+@parallel
+for i in range(1_000_000):
+    process_data(i)
+
+# syntax

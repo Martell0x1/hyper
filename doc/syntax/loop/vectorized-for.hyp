@@ -1,0 +1,6 @@
+# SIMD Vectorization: Accelerates within CPU vector registers
+@vectorize
+for i in range(1000):
+    arr[i] = a[i] + b[i]
+
+# syntax
