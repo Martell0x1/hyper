@@ -1,0 +1,6 @@
+# Memory Mapping (Mapping a file directly into RAM - C++ speed)
+with open_mmap("huge_ai_model.bin") as mapped_file:
+    # The file is not fully loaded into RAM, it is read directly from memory (0 ms allocation)
+    chunk = mapped_file.read_chunk(0, 1024)
+
+# syntax
