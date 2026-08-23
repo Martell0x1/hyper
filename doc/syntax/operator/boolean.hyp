@@ -1,0 +1,8 @@
+let x = true
+let y = false
+
+let a = x and y
+let b = x or y
+let c = not x
+
+# syntax
