@@ -4,6 +4,7 @@ use std::fs;
 mod scanner;
 mod parser;
 mod environment;
+mod text_utils;
 mod interpreter;
 
 fn main() {
