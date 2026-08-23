@@ -1,0 +1,4 @@
+let pi: float32 = 3.14
+let mut gravity: float64 = 9.80665
+
+# syntax

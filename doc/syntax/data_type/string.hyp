@@ -1,0 +1,4 @@
+let name: string = "Hyper"
+let mut greeting: string = "Hello, World!"
+
+# syntax

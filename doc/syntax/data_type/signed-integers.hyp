@@ -1,0 +1,8 @@
+# Signed integers can store both positive and negative numbers.
+
+let a: i8 = -128
+let b: i16 = -32768
+let c: i32 = -2147483648
+let mut d: i64 = 9223372036854775807
+
+# syntax
