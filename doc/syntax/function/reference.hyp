@@ -1,0 +1,5 @@
+# Ref - zero-copy reference to avoid memory duplication and boost speed.
+fn process_array(ref arr: Array[int32]) -> int32:
+    return arr[0]
+
+# syntax

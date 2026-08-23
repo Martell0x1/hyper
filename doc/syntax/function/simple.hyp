@@ -1,0 +1,4 @@
+def fn_name(params):
+    return result
+
+# syntax
