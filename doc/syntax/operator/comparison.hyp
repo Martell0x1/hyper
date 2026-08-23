@@ -1,0 +1,11 @@
+let x = 5
+let y = 10
+
+let a = x == y
+let b = x != y
+let c = x > y
+let d = x < y
+let e = x >= y
+let f = x <= y
+
+# syntax
