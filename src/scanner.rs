@@ -41,6 +41,8 @@ pub enum TokenType {
     Number,
     None, 
 
+    Struct,
+
     True,
     False,
     And, 
@@ -338,6 +340,7 @@ fn match_char (
                 "or" => TokenType::Or,
                 "not" => TokenType::Not,
                 "None" => TokenType::None,
+                "struct" => TokenType::Struct,
                 "if" => TokenType::If,
                 "elif" => TokenType::Elif,
                 "else" => TokenType::Else,
