@@ -308,6 +308,10 @@ impl Parser {
             return self.struct_declaration();
         }
 
+        if self.match_types(&[TokenType::Trait]) {
+            return self.trait_declaration();
+        }
+
         if self.match_types(&[TokenType::Fn]) {
             return self.function_declaration();
         }
@@ -326,12 +330,18 @@ impl Parser {
     fn struct_declaration(&mut self) -> Result<String, ()> {
         let name_token = self.consume(TokenType::Identifier, "Expect struct name.")?.clone();
         let struct_name = name_token.lexeme;
-    
+
+        let mut implemented_trait = String::new();
+        if self.match_types(&[TokenType::LeftParen]) {
+            implemented_trait = self.consume(TokenType::Identifier, "Expect trait name inside parentheses.")?.lexeme.clone();
+            self.consume(TokenType::RightParen, "Expect ')' after trait name.")?;
+        }
+
         self.consume(TokenType::Indent, "Expect indented block for struct body.")?;
-    
+
         let mut fields = Vec::new();
         let mut methods = Vec::new();
-    
+
         while !self.check(&TokenType::Dedent) && !self.is_at_end() {
             if self.match_types(&[TokenType::Let]) {
                 let is_mutable = self.match_types(&[TokenType::Mut]);
@@ -341,17 +351,40 @@ impl Parser {
                 fields.push(format!("{}:{} (mut:{})", field_name, field_type, is_mutable));
                 
                 if self.check(&TokenType::Newline) { self.advance(); }
-            } else if self.match_types(&[TokenType::Fn]) {
+            } else if self.match_types(&[TokenType::Fn]) || self.match_types(&[TokenType::Def]) {
                 let method_ast = self.function_declaration()?;
                 methods.push(method_ast);
             } else {
                 self.advance();
             }
         }
-    
+
         self.consume(TokenType::Dedent, "Expect dedent after struct body.")?;
-    
-        Ok(format!("(struct {} fields:[{}] methods:[{}])", struct_name, fields.join(", "), methods.join(" ")))
+
+        Ok(format!(
+            "(struct {} trait:{} fields:[{}] methods:[{}])",
+            struct_name, implemented_trait, fields.join(", "), methods.join(" ")
+        ))
+    }
+
+    fn trait_declaration(&mut self) -> Result<String, ()> {
+        let name_token = self.consume(TokenType::Identifier, "Expect trait name.")?.clone();
+        let trait_name = name_token.lexeme;
+
+        self.consume(TokenType::Indent, "Expect indented block for trait body.")?;
+
+        let mut methods = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            if self.match_types(&[TokenType::Fn]) || self.match_types(&[TokenType::Def]) {
+                let method_ast = self.function_declaration()?;
+                methods.push(method_ast);
+            } else {
+                self.advance();
+            }
+        }
+
+        self.consume(TokenType::Dedent, "Expect dedent after trait body.")?;
+        Ok(format!("(trait {} methods:[{}])", trait_name, methods.join(" ")))
     }
 
     fn function_declaration(&mut self) -> Result<String, ()> {
