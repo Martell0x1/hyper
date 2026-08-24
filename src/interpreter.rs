@@ -285,20 +285,23 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                 
                     let mut instance_fields_vec = Vec::new();
                     let mut field_indices = HashMap::new();
+                    let mut field_visibility = HashMap::new();
                     
-                    for (idx, (f_name, _, _, _)) in fields.iter().enumerate() {
+                    for (idx, (f_name, _, is_pub, _, _)) in fields.iter().enumerate() {
                         instance_fields_vec.push(HyperValue::None);
                         field_indices.insert(f_name.clone(), idx);
+                        field_visibility.insert(f_name.clone(), *is_pub);
                     }
                 
                     let instance = HyperValue::Instance {
                         struct_name: name.clone(),
                         fields: Rc::new(RefCell::new(instance_fields_vec)),
                         field_indices,
+                        field_visibility,
                         methods: methods.clone(),
                     };
                 
-                    if let Some(HyperValue::Function { params, body, closure, .. }) = methods.get("__init__") {
+                    if let Some((_is_pub, HyperValue::Function { params, body, closure, .. })) = methods.get("__init__") {
                         let init_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
                         init_env.borrow_mut().define("self".to_string(), instance.clone(), true);
                 
@@ -350,7 +353,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
             }
 
             if let HyperValue::Instance { ref methods, .. } = target_val {
-                if let Some(HyperValue::Function { params, body, closure, .. }) = methods.get(method_name) {
+                if let Some((_is_pub, HyperValue::Function { params, body, closure, .. })) = methods.get(method_name) {
                     let method_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
                     method_env.borrow_mut().define("self".to_string(), target_val.clone(), true);
 
@@ -514,9 +517,19 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
         let fields_str = &rest[fields_start..fields_end];
 
         let mut fields = Vec::new();
+        let mut field_indices = HashMap::new();
+        let mut field_visibility = HashMap::new();
+
         if !fields_str.trim().is_empty() {
             for (idx, f) in fields_str.split(", ").enumerate() {
-                fields.push((f.to_string(), "any".to_string(), false, idx));
+                let parts: Vec<&str> = f.split(':').collect();
+                let f_name = parts[0].to_string();
+                let rest_info = parts[1];
+                let is_pub = rest_info.contains("pub:true");
+                
+                fields.push((f_name.clone(), "any".to_string(), is_pub, false, idx));
+                field_indices.insert(f_name.clone(), idx);
+                field_visibility.insert(f_name, is_pub);
             }
         }
 
@@ -527,8 +540,12 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
         let mut methods_map = HashMap::new();
         if !methods_str.trim().is_empty() {
             for m_ast in split_block_statements(methods_str) {
-                if m_ast.starts_with("(fn ") {
-                    let m_trimmed = &m_ast[4..m_ast.len() - 1];
+                if m_ast.starts_with("(pub:") {
+                    let is_pub = m_ast.starts_with("(pub:true");
+                    let real_fn_start = m_ast.find("(fn ").unwrap();
+                    let fn_ast = &m_ast[real_fn_start..];
+                    
+                    let m_trimmed = &fn_ast[4..fn_ast.len() - 1];
                     let m_space = m_trimmed.find(' ').unwrap();
                     let m_name = m_trimmed[..m_space].to_string();
                     
@@ -546,7 +563,7 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
                         is_strict,
                         closure: Rc::clone(&env),
                     };
-                    methods_map.insert(m_name, func_val);
+                    methods_map.insert(m_name, (is_pub, func_val));
                 }
             }
         }
