@@ -1,0 +1,13 @@
+struct Animal:
+    let name: string
+
+struct Dog:
+    let animal: Animal
+    let breed: string
+
+let base_animal = Animal(name: "Rex")
+let my_dog = Dog(animal: base_animal, breed: "Bulldog")
+
+print(my_dog.breed)
+
+# syntax
