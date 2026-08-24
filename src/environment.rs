@@ -25,6 +25,18 @@ pub enum HyperValue {
     Boolean(bool),
     None,
 
+    StructDef {
+        name: String,
+        fields: Vec<(String, String, bool, usize)>, 
+        methods: HashMap<String, HyperValue>,
+    },
+    Instance {
+        struct_name: String,
+        fields: Rc<RefCell<Vec<HyperValue>>>, 
+        field_indices: HashMap<String, usize>,
+        methods: HashMap<String, HyperValue>,
+    },
+
     List(Vec<HyperValue>),
     Array {
         element_type: String,
@@ -161,8 +173,16 @@ impl HyperValue {
                     }
                 }
             }
+            HyperValue::Instance { struct_name: _, fields: _, methods, .. } => {
+                if methods.contains_key(method_name) {
+                    Some(HyperValue::None)
+                } else {
+                    eprintln!("[line {}] Error: Method '{}' not found.", line, method_name);
+                    None
+                }
+            }
             _ => {
-                eprintln!("[line {}] Type Error: Method calls are only supported on strings.", line);
+                eprintln!("[line {}] Type Error: Method calls are not supported on this type.", line);
                 std::process::exit(70);
             }
         }
@@ -309,6 +329,9 @@ impl std::fmt::Display for HyperValue {
             HyperValue::Boolean(b) => write!(f, "{}", b),
             HyperValue::String(s) => write!(f, "{}", s),
             HyperValue::None => write!(f, "None"),
+
+            HyperValue::StructDef { name, .. } => write!(f, "struct {}", name),
+            HyperValue::Instance { struct_name, .. } => write!(f, "instance of {}", struct_name),
 
             HyperValue::List(items) => {
                 let items_str: Vec<String> = items.iter().map(|item| item.to_string()).collect();
