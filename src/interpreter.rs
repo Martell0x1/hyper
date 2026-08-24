@@ -268,7 +268,7 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                         ExecResult::Ok => return Some(HyperValue::None),
                     }
                 }
-                HyperValue::StructDef { name, fields, methods } => {
+                HyperValue::StructDef { name, fields, methods, .. } => {
                     let mut evaluated_args = Vec::new();
                     if let Some(args_raw) = args_str {
                         let mut current_args = args_raw;
@@ -497,6 +497,18 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
         let struct_name = trimmed[..space_idx].to_string();
         let rest = &trimmed[space_idx + 1..];
 
+        let trait_start = rest.find("trait:").unwrap() + 6;
+        let trait_end = rest.find(" fields:[").unwrap();
+        let implemented_trait = rest[trait_start..trait_end].to_string();
+
+        if !implemented_trait.is_empty() {
+            let trait_check = env.borrow().get(&implemented_trait, 0);
+            if !matches!(trait_check, HyperValue::TraitDef { .. }) {
+                eprintln!("Error: Trait '{}' is not defined.", implemented_trait);
+                std::process::exit(70);
+            }
+        }
+
         let fields_start = rest.find("fields:[").unwrap() + 8;
         let fields_end = rest.find("] methods:[").unwrap();
         let fields_str = &rest[fields_start..fields_end];
@@ -508,14 +520,56 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
             }
         }
 
-        let methods = HashMap::new();
+        let methods_start = rest.find("methods:[").unwrap() + 9;
+        let methods_end = rest.len() - 1;
+        let methods_str = &rest[methods_start..methods_end];
+
+        let mut methods_map = HashMap::new();
+        if !methods_str.trim().is_empty() {
+            for m_ast in split_block_statements(methods_str) {
+                if m_ast.starts_with("(fn ") {
+                    let m_trimmed = &m_ast[4..m_ast.len() - 1];
+                    let m_space = m_trimmed.find(' ').unwrap();
+                    let m_name = m_trimmed[..m_space].to_string();
+                    
+                    let rest_m = &m_trimmed[m_space + 1..];
+                    let is_strict = rest_m.starts_with("strict:true");
+                    let p_start = rest_m.find("(params ").unwrap() + 8;
+                    let p_end = rest_m.find(')').unwrap();
+                    let params = rest_m[p_start..p_end].split_whitespace().map(|s| s.to_string()).collect();
+                    let body_str = rest_m[p_end + 2..].to_string();
+
+                    let func_val = HyperValue::Function {
+                        name: m_name.clone(),
+                        params,
+                        body: body_str,
+                        is_strict,
+                        closure: Rc::clone(&env),
+                    };
+                    methods_map.insert(m_name, func_val);
+                }
+            }
+        }
+
         let struct_def = HyperValue::StructDef {
             name: struct_name.clone(),
+            implemented_trait,
             fields,
-            methods,
+            methods: methods_map,
         };
 
         env.borrow_mut().define(struct_name, struct_def, false);
+    } else if stmt.starts_with("(trait ") {
+        let trimmed = &stmt[7..stmt.len() - 1];
+        let space_idx = trimmed.find(' ').unwrap();
+        let trait_name = trimmed[..space_idx].to_string();
+        
+        let trait_def = HyperValue::TraitDef {
+            name: trait_name.clone(),
+            methods: vec![],
+        };
+        env.borrow_mut().define(trait_name, trait_def, false);
+
     } else if stmt.starts_with("(if ") && stmt.ends_with(')') {
         let inner = &stmt[4..stmt.len() - 1];
         if let Some((cond_str, rest)) = split_binary_args(inner) {
