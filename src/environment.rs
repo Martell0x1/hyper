@@ -27,6 +27,7 @@ pub enum HyperValue {
 
     StructDef {
         name: String,
+        implemented_trait: String,
         fields: Vec<(String, String, bool, usize)>, 
         methods: HashMap<String, HyperValue>,
     },
@@ -36,6 +37,11 @@ pub enum HyperValue {
         field_indices: HashMap<String, usize>,
         methods: HashMap<String, HyperValue>,
     },
+    TraitDef {
+        name: String,
+        methods: Vec<String>,
+    },
+    
 
     List(Vec<HyperValue>),
     Array {
@@ -331,6 +337,7 @@ impl std::fmt::Display for HyperValue {
             HyperValue::None => write!(f, "None"),
 
             HyperValue::StructDef { name, .. } => write!(f, "struct {}", name),
+            HyperValue::TraitDef { name, .. } => write!(f, "trait {}", name),
             HyperValue::Instance { struct_name, .. } => write!(f, "instance of {}", struct_name),
 
             HyperValue::List(items) => {
