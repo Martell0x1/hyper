@@ -42,6 +42,7 @@ pub enum TokenType {
     None, 
 
     Struct,
+    Trait,
 
     True,
     False,
@@ -340,7 +341,10 @@ fn match_char (
                 "or" => TokenType::Or,
                 "not" => TokenType::Not,
                 "None" => TokenType::None,
+
                 "struct" => TokenType::Struct,
+                "trait" => TokenType::Trait,
+
                 "if" => TokenType::If,
                 "elif" => TokenType::Elif,
                 "else" => TokenType::Else,
@@ -351,9 +355,11 @@ fn match_char (
                 "def" => TokenType::Def,
                 "fn" => TokenType::Fn,
                 "ref" => TokenType::Ref,
+                "return" => TokenType::Return,
+
                 "print" => TokenType::Print,
                 "input" => TokenType::Input,
-                "return" => TokenType::Return,
+
                 "array" => TokenType::Array,
                 "dict" => TokenType::Dict,
 
