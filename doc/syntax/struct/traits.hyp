@@ -1,0 +1,22 @@
+trait Speaker:
+    fn speak(ref self) -> string
+
+struct Dog(Speaker):
+    let name: string
+
+    fn speak(ref self) -> string:
+        return "Woof!"
+
+struct Cat(Speaker):
+    let name: string
+
+    fn speak(ref self) -> string:
+        return "Meow!"
+
+fn make_it_speak[T: Speaker](ref item: T):
+    print(item.speak())
+
+let my_dog = Dog(name: "Tuzlon")
+make_it_speak(my_dog)
+
+# syntax
