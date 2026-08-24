@@ -344,18 +344,25 @@ impl Parser {
 
         while !self.check(&TokenType::Dedent) && !self.is_at_end() {
             if self.match_types(&[TokenType::Let]) {
+                let is_pub = self.match_types(&[TokenType::Pub]);
                 let is_mutable = self.match_types(&[TokenType::Mut]);
                 let field_name = self.consume(TokenType::Identifier, "Expect field name.")?.lexeme.clone();
                 self.consume(TokenType::Colon, "Expect ':' after field name.")?;
                 let field_type = self.consume(TokenType::Identifier, "Expect field type.")?.lexeme.clone();
-                fields.push(format!("{}:{} (mut:{})", field_name, field_type, is_mutable));
+                
+                fields.push(format!("{}:{} (pub:{}, mut:{})", field_name, field_type, is_pub, is_mutable));
                 
                 if self.check(&TokenType::Newline) { self.advance(); }
             } else if self.match_types(&[TokenType::Fn]) || self.match_types(&[TokenType::Def]) {
+                let is_pub = self.match_types(&[TokenType::Pub]);
                 let method_ast = self.function_declaration()?;
-                methods.push(method_ast);
+                methods.push(format!("(pub:{} {})", is_pub, method_ast));
             } else {
-                self.advance();
+                if self.check(&TokenType::Newline) {
+                    self.advance();
+                } else {
+                    self.advance();
+                }
             }
         }
 
