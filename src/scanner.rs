@@ -43,6 +43,7 @@ pub enum TokenType {
 
     Struct,
     Trait,
+    Pub,
 
     True,
     False,
@@ -344,6 +345,7 @@ fn match_char (
 
                 "struct" => TokenType::Struct,
                 "trait" => TokenType::Trait,
+                "pub" => TokenType::Pub,
 
                 "if" => TokenType::If,
                 "elif" => TokenType::Elif,
