@@ -28,14 +28,15 @@ pub enum HyperValue {
     StructDef {
         name: String,
         implemented_trait: String,
-        fields: Vec<(String, String, bool, usize)>, 
-        methods: HashMap<String, HyperValue>,
+        fields: Vec<(String, String, bool, bool, usize)>,
+        methods: HashMap<String, (bool, HyperValue)>,
     },
     Instance {
         struct_name: String,
         fields: Rc<RefCell<Vec<HyperValue>>>, 
         field_indices: HashMap<String, usize>,
-        methods: HashMap<String, HyperValue>,
+        field_visibility: HashMap<String, bool>,
+        methods: HashMap<String, (bool, HyperValue)>,
     },
     TraitDef {
         name: String,
