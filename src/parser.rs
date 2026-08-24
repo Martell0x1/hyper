@@ -304,6 +304,10 @@ impl Parser {
             }
         }
 
+        if self.match_types(&[TokenType::Struct]) {
+            return self.struct_declaration();
+        }
+
         if self.match_types(&[TokenType::Fn]) {
             return self.function_declaration();
         }
@@ -317,6 +321,37 @@ impl Parser {
         }
 
         self.statement()
+    }
+
+    fn struct_declaration(&mut self) -> Result<String, ()> {
+        let name_token = self.consume(TokenType::Identifier, "Expect struct name.")?.clone();
+        let struct_name = name_token.lexeme;
+    
+        self.consume(TokenType::Indent, "Expect indented block for struct body.")?;
+    
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+    
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            if self.match_types(&[TokenType::Let]) {
+                let is_mutable = self.match_types(&[TokenType::Mut]);
+                let field_name = self.consume(TokenType::Identifier, "Expect field name.")?.lexeme.clone();
+                self.consume(TokenType::Colon, "Expect ':' after field name.")?;
+                let field_type = self.consume(TokenType::Identifier, "Expect field type.")?.lexeme.clone();
+                fields.push(format!("{}:{} (mut:{})", field_name, field_type, is_mutable));
+                
+                if self.check(&TokenType::Newline) { self.advance(); }
+            } else if self.match_types(&[TokenType::Fn]) {
+                let method_ast = self.function_declaration()?;
+                methods.push(method_ast);
+            } else {
+                self.advance();
+            }
+        }
+    
+        self.consume(TokenType::Dedent, "Expect dedent after struct body.")?;
+    
+        Ok(format!("(struct {} fields:[{}] methods:[{}])", struct_name, fields.join(", "), methods.join(" ")))
     }
 
     fn function_declaration(&mut self) -> Result<String, ()> {
