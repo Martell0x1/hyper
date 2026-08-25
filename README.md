@@ -23,7 +23,7 @@ Hyper is being developed to solve the trade-off between developer efficiency and
 * **Safety First:** Aiming to introduce memory and type safety mechanisms to prevent common runtime errors.
 * **Modern Conception:** Created as an open exploration into building efficient, high-level developer tools for modern systems.
 
-# Commit Conventiions
+## Commit Conventiions
 
 We follow standard commit message conventions to keep our git history clean, readable, and easy to parse automatically.
 
