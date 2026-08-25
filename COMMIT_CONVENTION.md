@@ -14,4 +14,4 @@ You can start the message after the prefix with either an uppercase or a lowerca
 * **`test:`** adding or updating tests.
 * **`chore:`** Routine tasks, maintenance, or dependency updates.
 
-If you encounter any difficulties writing commits with prefixes or want to suggest new prefixes outside of the existing ones, please open an **Issue** to discuss it.
+If you encounter any difficulties writing commits with prefixes or want to suggest new prefixes outside of the existing ones, please open an [Issues](https://github.com/Yusupov-Muhammadyusuf/hyperlang/issues) to discuss it.
