@@ -23,4 +23,4 @@ If you want to add code or fix bugs:
 * **Readability First:** Keep the core interpreter code clean, well-commented, and maintainable.
 * **Testing:** Ensure your changes do not break existing interpreter behaviors.
 
-c
+> **Note:** Large architectural changes or major syntax modifications should be discussed in an [issue](https://github.com/Yusupov-Muhammadyusuf/hyperlang/issues) before submitting a PR. 
