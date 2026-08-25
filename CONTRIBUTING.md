@@ -2,12 +2,6 @@
 
 Thank you for your interest in contributing to **Hyper**! We welcome contributions from the community, whether it's reporting bugs, improving documentation, or proposing new language features.
 
-## Language Specifications & Syntax
-
-Before contributing code or suggesting language changes, please refer to the official syntax plan and language design specifications:
-
-* **[Hyper Syntax & Design Plan](https://fan-nightshade-912.notion.site/Syntax-3a5904f9897980a39d37f5539d8dcf0b)**
-
 ## How to Contribute
 
 ### 1. Reporting Bugs & Feature Ideas
@@ -25,7 +19,8 @@ If you want to add code or fix bugs:
 
 ## Code Guidelines
 
+* **Commit Messages:** Contributors must create commit messages with a [prefix](COMMIT_CONVENTION.md) (e.g., `feat:`, `fix:`, `docs:`).
 * **Readability First:** Keep the core interpreter code clean, well-commented, and maintainable.
 * **Testing:** Ensure your changes do not break existing interpreter behaviors.
 
-> **Note:** Since Hyper is in active early development, large architectural changes or major syntax modifications should be discussed in an issue before submitting a PR.
+c
