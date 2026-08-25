@@ -23,6 +23,12 @@ Hyper is being developed to solve the trade-off between developer efficiency and
 * **Safety First:** Aiming to introduce memory and type safety mechanisms to prevent common runtime errors.
 * **Modern Conception:** Created as an open exploration into building efficient, high-level developer tools for modern systems.
 
+# Commit Conventiions
+
+We follow standard commit message conventions to keep our git history clean, readable, and easy to parse automatically.
+
+For guidelines on commit messages and history management, see the [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -34,5 +40,3 @@ For a detailed explanation of the language's architecture and how to begin contr
 Hyper is primarily distributed under the terms of both the MIT license and the Apache License (Version 2.0).
 
 See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
-
-> **Development Status:** Hyper is in its early stages of active development. Syntax features, core functionality, and performance optimizations are still under design and subject to change.
