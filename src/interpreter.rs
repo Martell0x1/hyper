@@ -17,6 +17,29 @@ fn clean_group_expressions(mut input: String) -> String {
     input
 }
 
+fn unescape_string_literal(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('\\') => out.push('\\'),
+                Some('"') => out.push('"'),
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn is_truthy(value: &HyperValue) -> bool {
     match value {
         HyperValue::None => false,
@@ -27,15 +50,32 @@ fn is_truthy(value: &HyperValue) -> bool {
 
 fn split_binary_args(inner: &str) -> Option<(String, String)> {
     let mut bracket_count = 0;
+    let mut in_string = false;
+    let mut escape = false;
     let chars: Vec<char> = inner.chars().collect();
 
     for (i, &ch) in chars.iter().enumerate() {
-        if ch == '(' { bracket_count += 1; }
-        else if ch == ')' { bracket_count -= 1; }
-        else if ch == ' ' && bracket_count == 0 {
-            let left = chars[..i].iter().collect::<String>();
-            let right = chars[i + 1..].iter().collect::<String>();
-            return Some((left, right));
+        if in_string {
+            if escape {
+                escape = false;
+            } else if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '(' => bracket_count += 1,
+            ')' => bracket_count -= 1,
+            ' ' if bracket_count == 0 => {
+                let left = chars[..i].iter().collect::<String>();
+                let right = chars[i + 1..].iter().collect::<String>();
+                return Some((left, right));
+            }
+            _ => {}
         }
     }
     None
@@ -428,8 +468,8 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                 Some(HyperValue::I32(num))
             } else if let Ok(num) = cleaned.parse::<f64>() {
                 Some(HyperValue::F64(num))
-            } else if cleaned.starts_with('"') && cleaned.ends_with('"') {
-                Some(HyperValue::String(cleaned[1..cleaned.len() - 1].to_string()))
+            } else if cleaned.starts_with('"') && cleaned.ends_with('"') && cleaned.len() >= 2 {
+                Some(HyperValue::String(unescape_string_literal(&cleaned[1..cleaned.len() - 1])))
             } else {
                 None
             }
@@ -613,7 +653,15 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
         }
     } else if stmt.starts_with("(while ") && stmt.ends_with(')') {
         let inner = &stmt[7..stmt.len() - 1];
-        if let Some((cond_str, body_str)) = split_binary_args(inner) {
+        let rest = if inner.starts_with("line:") {
+            match inner.find(' ') {
+                Some(idx) => &inner[idx + 1..],
+                None => inner,
+            }
+        } else {
+            inner
+        };
+        if let Some((cond_str, body_str)) = split_binary_args(rest) {
             while let Some(cond_val) = evaluate_str(cond_str.clone(), 1, Rc::clone(&env)) {
                 if is_truthy(&cond_val) {
                     if let ExecResult::Return(val) = execute_statement(&body_str, Rc::clone(&env)) {
@@ -699,7 +747,7 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
             }
         }
     } else if stmt.starts_with("(fn ") {
-        let trimmed = &stmt[5..stmt.len() - 1];
+        let trimmed = &stmt[4..stmt.len() - 1];
         let space_idx = trimmed.find(' ').unwrap();
         let func_name = trimmed[..space_idx].to_string();
         let rest = &trimmed[space_idx + 1..];
@@ -708,7 +756,10 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
  
         let params_start = rest.find("(params ").unwrap() + 8;
         let params_end = rest.find(')').unwrap();
-        let params = rest[params_start..params_end].split_whitespace().map(|s| s.to_string()).collect();
+        let params = rest[params_start..params_end]
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
         let body_str = rest[params_end + 2..].to_string();
 
         env.borrow_mut().define(
