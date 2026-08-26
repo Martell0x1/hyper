@@ -203,13 +203,80 @@ impl HyperValue {
         if let (HyperValue::String(a), HyperValue::String(b)) = (self, other) {
             return Some(HyperValue::String(format!("{}{}", a, b)));
         }
-        impl_binary_op!(self, other, +)
+        if let Some(v) = { impl_binary_op!(self, other, +) } {
+            return Some(v);
+        }
+        Self::numeric_promote_bin(self, other, |a, b| a + b, |a, b| a + b)
     }
 
-    pub fn sub(&self, other: &Self) -> Option<HyperValue> { impl_binary_op!(self, other, -) }
-    pub fn mul(&self, other: &Self) -> Option<HyperValue> { impl_binary_op!(self, other, *) }
-    pub fn div(&self, other: &Self) -> Option<HyperValue> { impl_binary_op!(self, other, /) }
-    pub fn rem(&self, other: &Self) -> Option<HyperValue> { impl_binary_op!(self, other, %) }
+    pub fn sub(&self, other: &Self) -> Option<HyperValue> {
+        if let Some(v) = { impl_binary_op!(self, other, -) } {
+            return Some(v);
+        }
+        Self::numeric_promote_bin(self, other, |a, b| a - b, |a, b| a - b)
+    }
+    pub fn mul(&self, other: &Self) -> Option<HyperValue> {
+        if let Some(v) = { impl_binary_op!(self, other, *) } {
+            return Some(v);
+        }
+        Self::numeric_promote_bin(self, other, |a, b| a * b, |a, b| a * b)
+    }
+    pub fn div(&self, other: &Self) -> Option<HyperValue> {
+        if let Some(v) = { impl_binary_op!(self, other, /) } {
+            return Some(v);
+        }
+        Self::numeric_promote_bin(self, other, |a, b| a / b, |a, b| a / b)
+    }
+    pub fn rem(&self, other: &Self) -> Option<HyperValue> {
+        if let Some(v) = { impl_binary_op!(self, other, %) } {
+            return Some(v);
+        }
+        Self::numeric_promote_bin(self, other, |a, b| a % b, |a, b| a % b)
+    }
+
+    fn to_i64_value(&self) -> Option<i64> {
+        match self {
+            HyperValue::I8(n) => Some(*n as i64),
+            HyperValue::I16(n) => Some(*n as i64),
+            HyperValue::I32(n) => Some(*n as i64),
+            HyperValue::I64(n) => Some(*n),
+            HyperValue::U8(n) => Some(*n as i64),
+            HyperValue::U16(n) => Some(*n as i64),
+            HyperValue::U32(n) => Some(*n as i64),
+            HyperValue::U64(n) if *n <= i64::MAX as u64 => Some(*n as i64),
+            _ => None,
+        }
+    }
+
+    fn to_f64_value(&self) -> Option<f64> {
+        match self {
+            HyperValue::F32(n) => Some(*n as f64),
+            HyperValue::F64(n) => Some(*n),
+            other => other.to_i64_value().map(|n| n as f64),
+        }
+    }
+
+    fn numeric_promote_bin<FI, FF>(
+        left: &Self,
+        right: &Self,
+        int_op: FI,
+        float_op: FF,
+    ) -> Option<HyperValue>
+    where
+        FI: Fn(i64, i64) -> i64,
+        FF: Fn(f64, f64) -> f64,
+    {
+        let left_float = matches!(left, HyperValue::F32(_) | HyperValue::F64(_));
+        let right_float = matches!(right, HyperValue::F32(_) | HyperValue::F64(_));
+        if left_float || right_float {
+            let a = left.to_f64_value()?;
+            let b = right.to_f64_value()?;
+            return Some(HyperValue::F64(float_op(a, b)));
+        }
+        let a = left.to_i64_value()?;
+        let b = right.to_i64_value()?;
+        Some(HyperValue::I64(int_op(a, b)))
+    }
     pub fn pow(&self, other: &Self) -> Option<HyperValue> {
         match (self, other) {
             (HyperValue::I8(a), HyperValue::I8(b)) if *b >= 0 => Some(HyperValue::I8(a.pow(*b as u32))),
@@ -226,10 +293,52 @@ impl HyperValue {
         }
     }
 
-    pub fn greater(&self, other: &Self) -> Option<HyperValue> { impl_cmp_op!(self, other, >) }
-    pub fn less(&self, other: &Self) -> Option<HyperValue> { impl_cmp_op!(self, other, <) }
-    pub fn greater_equal(&self, other: &Self) -> Option<HyperValue> { impl_cmp_op!(self, other, >=) }
-    pub fn less_equal(&self, other: &Self) -> Option<HyperValue> { impl_cmp_op!(self, other, <=) }
+    pub fn greater(&self, other: &Self) -> Option<HyperValue> {
+        if let Some(v) = { impl_cmp_op!(self, other, >) } {
+            return Some(v);
+        }
+        Self::numeric_promote_cmp(self, other, |a, b| a > b, |a, b| a > b)
+    }
+    pub fn less(&self, other: &Self) -> Option<HyperValue> {
+        if let Some(v) = { impl_cmp_op!(self, other, <) } {
+            return Some(v);
+        }
+        Self::numeric_promote_cmp(self, other, |a, b| a < b, |a, b| a < b)
+    }
+    pub fn greater_equal(&self, other: &Self) -> Option<HyperValue> {
+        if let Some(v) = { impl_cmp_op!(self, other, >=) } {
+            return Some(v);
+        }
+        Self::numeric_promote_cmp(self, other, |a, b| a >= b, |a, b| a >= b)
+    }
+    pub fn less_equal(&self, other: &Self) -> Option<HyperValue> {
+        if let Some(v) = { impl_cmp_op!(self, other, <=) } {
+            return Some(v);
+        }
+        Self::numeric_promote_cmp(self, other, |a, b| a <= b, |a, b| a <= b)
+    }
+
+    fn numeric_promote_cmp<FI, FF>(
+        left: &Self,
+        right: &Self,
+        int_op: FI,
+        float_op: FF,
+    ) -> Option<HyperValue>
+    where
+        FI: Fn(i64, i64) -> bool,
+        FF: Fn(f64, f64) -> bool,
+    {
+        let left_float = matches!(left, HyperValue::F32(_) | HyperValue::F64(_));
+        let right_float = matches!(right, HyperValue::F32(_) | HyperValue::F64(_));
+        if left_float || right_float {
+            let a = left.to_f64_value()?;
+            let b = right.to_f64_value()?;
+            return Some(HyperValue::Boolean(float_op(a, b)));
+        }
+        let a = left.to_i64_value()?;
+        let b = right.to_i64_value()?;
+        Some(HyperValue::Boolean(int_op(a, b)))
+    }
 
     pub fn negate(&self) -> Option<HyperValue> {
         match self {
