@@ -10,4 +10,4 @@ The repository currently ships a working **interpreter**. A native **compiler** 
 cargo run -- run your_file.hyp
 ```
 
-See [Installation](installation.md) and [Examples](examples/index.md).
+See [Installation](installation.md) and [Examples](examples.md).
