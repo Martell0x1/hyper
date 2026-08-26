@@ -142,6 +142,83 @@ where
     }
 }
 
+fn coerce_to_type(value: HyperValue, type_name: &str, line: u32) -> HyperValue {
+    let ty = match type_name {
+        "int8" => "i8",
+        "int16" => "i16",
+        "int32" => "i32",
+        "int64" => "i64",
+        "uint8" => "u8",
+        "uint16" => "u16",
+        "uint32" => "u32",
+        "uint64" => "u64",
+        "float32" => "f32",
+        "float64" => "f64",
+        "boolean" => "bool",
+        other => other,
+    };
+
+    if ty == "None" || ty == "any" {
+        return value;
+    }
+
+    let as_i64 = |v: &HyperValue| -> Option<i64> {
+        match v {
+            HyperValue::I8(n) => Some(*n as i64),
+            HyperValue::I16(n) => Some(*n as i64),
+            HyperValue::I32(n) => Some(*n as i64),
+            HyperValue::I64(n) => Some(*n),
+            HyperValue::U8(n) => Some(*n as i64),
+            HyperValue::U16(n) => Some(*n as i64),
+            HyperValue::U32(n) => Some(*n as i64),
+            HyperValue::U64(n) => Some(*n as i64),
+            HyperValue::F32(n) => Some(*n as i64),
+            HyperValue::F64(n) => Some(*n as i64),
+            _ => None,
+        }
+    };
+    let as_f64 = |v: &HyperValue| -> Option<f64> {
+        match v {
+            HyperValue::I8(n) => Some(*n as f64),
+            HyperValue::I16(n) => Some(*n as f64),
+            HyperValue::I32(n) => Some(*n as f64),
+            HyperValue::I64(n) => Some(*n as f64),
+            HyperValue::U8(n) => Some(*n as f64),
+            HyperValue::U16(n) => Some(*n as f64),
+            HyperValue::U32(n) => Some(*n as f64),
+            HyperValue::U64(n) => Some(*n as f64),
+            HyperValue::F32(n) => Some(*n as f64),
+            HyperValue::F64(n) => Some(*n),
+            _ => None,
+        }
+    };
+
+    match ty {
+        "i8" => as_i64(&value).map(|n| HyperValue::I8(n as i8)).unwrap_or(value),
+        "i16" => as_i64(&value).map(|n| HyperValue::I16(n as i16)).unwrap_or(value),
+        "i32" => as_i64(&value).map(|n| HyperValue::I32(n as i32)).unwrap_or(value),
+        "i64" => as_i64(&value).map(HyperValue::I64).unwrap_or(value),
+        "u8" => as_i64(&value).map(|n| HyperValue::U8(n as u8)).unwrap_or(value),
+        "u16" => as_i64(&value).map(|n| HyperValue::U16(n as u16)).unwrap_or(value),
+        "u32" => as_i64(&value).map(|n| HyperValue::U32(n as u32)).unwrap_or(value),
+        "u64" => as_i64(&value).map(|n| HyperValue::U64(n as u64)).unwrap_or(value),
+        "f32" => as_f64(&value).map(|n| HyperValue::F32(n as f32)).unwrap_or(value),
+        "f64" => as_f64(&value).map(HyperValue::F64).unwrap_or(value),
+        "bool" => match value {
+            HyperValue::Boolean(b) => HyperValue::Boolean(b),
+            other => other,
+        },
+        "string" => match value {
+            HyperValue::String(s) => HyperValue::String(s),
+            other => HyperValue::String(other.to_string()),
+        },
+        _ => {
+            let _ = line;
+            value
+        }
+    }
+}
+
 fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) -> Option<HyperValue> {
     let cleaned = clean_group_expressions(ast_string);
 
@@ -541,6 +618,8 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
         _ => {
             if let Ok(num) = cleaned.parse::<i32>() {
                 Some(HyperValue::I32(num))
+            } else if let Ok(num) = cleaned.parse::<i64>() {
+                Some(HyperValue::I64(num))
             } else if let Ok(num) = cleaned.parse::<f64>() {
                 Some(HyperValue::F64(num))
             } else if cleaned.starts_with('"') && cleaned.ends_with('"') && cleaned.len() >= 2 {
@@ -568,10 +647,17 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
                 parts[3].to_string()
             };
 
+            let type_annotation = if parts[3].starts_with("type:") {
+                &parts[3][5..]
+            } else {
+                "None"
+            };
+
             let value = if initializer_expr == "None" {
                 HyperValue::None
             } else {
-                evaluate_str(initializer_expr, line_num, Rc::clone(&env)).unwrap_or(HyperValue::None)
+                let raw = evaluate_str(initializer_expr, line_num, Rc::clone(&env)).unwrap_or(HyperValue::None);
+                coerce_to_type(raw, type_annotation, line_num)
             };
             env.borrow_mut().define(let_name, value, is_mutable);
         }
@@ -760,8 +846,8 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
             }
         }
     } else if stmt.starts_with("(for_seq line:") || stmt.starts_with("(for_par line:") || stmt.starts_with("(for_vec line:") || stmt.starts_with("(for_par_vec line:") {
-        let is_parallel = stmt.starts_with("(for_par ") || stmt.starts_with("(for_par_vec ");
-        let is_vectorized = stmt.starts_with("(for_vec ") || stmt.starts_with("(for_par_vec ");
+        let is_parallel = stmt.starts_with("(for_par line:") || stmt.starts_with("(for_par_vec line:");
+        let is_vectorized = stmt.starts_with("(for_vec line:") || stmt.starts_with("(for_par_vec line:");
 
         let tag_len = if stmt.starts_with("(for_seq line:") { 14 }
                       else if stmt.starts_with("(for_par line:") { 14 }
@@ -780,8 +866,15 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
             let parse_to_i64 = |expr: &str| -> i64 {
                 match evaluate_str(expr.to_string(), line_num, Rc::clone(&env)) {
                     Some(HyperValue::I64(val)) => val,
-                    Some(HyperValue::F64(val)) => val as i64,
                     Some(HyperValue::I32(val)) => val as i64,
+                    Some(HyperValue::I16(val)) => val as i64,
+                    Some(HyperValue::I8(val)) => val as i64,
+                    Some(HyperValue::U64(val)) => val as i64,
+                    Some(HyperValue::U32(val)) => val as i64,
+                    Some(HyperValue::U16(val)) => val as i64,
+                    Some(HyperValue::U8(val)) => val as i64,
+                    Some(HyperValue::F64(val)) => val as i64,
+                    Some(HyperValue::F32(val)) => val as i64,
                      _ => 0,
                 }
             }; 
@@ -789,11 +882,12 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
             let start_val = parse_to_i64(&start_expr);
             let end_val = parse_to_i64(&end_expr);
 
-            if is_parallel && is_vectorized {
+            if is_parallel {
                 let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
                 let total_items = (end_val - start_val).max(0);
                 if total_items > 0 {
                     let chunk_size = (total_items + num_threads as i64 - 1) / num_threads as i64;
+                    let vec_step: i64 = if is_vectorized { 4 } else { 1 };
                     
                     std::thread::scope(|s| {
                         for t in 0..num_threads {
@@ -807,22 +901,42 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
                             s.spawn(move || {
                                 let thread_local_env = Environment::new();         
                                 let thread_local_rc = Rc::new(RefCell::new(thread_local_env));
+                                thread_local_rc.borrow_mut().define(
+                                    "clock".to_string(),
+                                    HyperValue::NativeFunction("clock".to_string()),
+                                    false,
+                                );
+                                thread_local_rc.borrow_mut().define(
+                                    "input".to_string(),
+                                    HyperValue::NativeFunction("input".to_string()),
+                                    false,
+                                );
                                 let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(thread_local_rc)));
             
-                                for i in t_start..t_end {
-                                    loop_env.borrow_mut().define(var_n.clone(), HyperValue::I64(i), true);
-                                    execute_statement(&b_str, Rc::clone(&loop_env));
+                                let mut i = t_start;
+                                while i < t_end {
+                                    let lane_end = (i + vec_step).min(t_end);
+                                    while i < lane_end {
+                                        loop_env.borrow_mut().define(var_n.clone(), HyperValue::I64(i), true);
+                                        execute_statement(&b_str, Rc::clone(&loop_env));
+                                        i += 1;
+                                    }
                                 }
                             });
                         }
                     });
                 }
             } else if is_vectorized {
-                for i in (start_val..end_val).step_by(1) {
-                    let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
-                    loop_env.borrow_mut().define(var_name.clone(), HyperValue::I64(i), true);
-                    if let ExecResult::Return(val) = execute_statement(&body_str, loop_env) {
-                        return ExecResult::Return(val);
+                let mut i = start_val;
+                while i < end_val {
+                    let lane_end = (i + 4).min(end_val);
+                    while i < lane_end {
+                        let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+                        loop_env.borrow_mut().define(var_name.clone(), HyperValue::I64(i), true);
+                        if let ExecResult::Return(val) = execute_statement(&body_str, loop_env) {
+                            return ExecResult::Return(val);
+                        }
+                        i += 1;
                     }
                 }
             } else {
