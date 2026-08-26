@@ -152,11 +152,15 @@ impl HyperValue {
                         let offset = match args[0] {
                             HyperValue::I64(n) => n,
                             HyperValue::I32(n) => n as i64,
+                            HyperValue::F64(n) => n as i64,
+                            HyperValue::F32(n) => n as i64,
                             _ => 0,
                         };
                         let size = match args[1] {
                             HyperValue::I64(n) => n as usize,
                             HyperValue::I32(n) => n as usize,
+                            HyperValue::F64(n) => n as usize,
+                            HyperValue::F32(n) => n as usize,
                             _ => 0,
                         };
             
