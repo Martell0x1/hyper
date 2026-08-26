@@ -246,6 +246,7 @@ fn match_char (
         ')' => add_token!(TokenType::RightParen, ")", "null"),
         '{' => add_token!(TokenType::LeftBrace, "{", "null"),
         '}' => add_token!(TokenType::RightBrace, "}", "null"),
+        ':' => add_token!(TokenType::Colon, ":", "null"),
         '@' => add_token!(TokenType::At, "@", "null"),
         '.' => add_token!(TokenType::Dot, ".", "null"),
         ',' => add_token!(TokenType::Comma, ",", "null"),
