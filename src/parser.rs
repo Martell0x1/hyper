@@ -117,8 +117,11 @@ impl Parser {
     }
 
     fn unary(&mut self) -> Result<String, ()> {
-        if self.match_types(&[TokenType::Bang, TokenType::Minus]) {
-            let operator = self.previous().lexeme.clone();
+        if self.match_types(&[TokenType::Bang, TokenType::Minus, TokenType::Not]) {
+            let operator = match self.previous().token_type {
+                TokenType::Not | TokenType::Bang => "not".to_string(),
+                _ => self.previous().lexeme.clone(),
+            };
             let right = self.unary()?;
             return Ok(format!("({} {})", operator, right));
         }
@@ -171,8 +174,7 @@ impl Parser {
         }
 
         if self.match_types(&[TokenType::Input]) {
-            let line = self.previous().line;
-            let mut prompt_expr = "None".to_string();
+            let mut prompt_expr = String::new();
 
             self.consume(TokenType::LeftParen, "Expect '(' after input.")?;
             if !self.check(&TokenType::RightParen) {
@@ -180,7 +182,10 @@ impl Parser {
             }
             self.consume(TokenType::RightParen, "Expect ')' after input argument.")?;
 
-            return Ok(format!("input line:{} {}", line, prompt_expr));
+            if prompt_expr.is_empty() {
+                return Ok("(call let_ref:input)".to_string());
+            }
+            return Ok(format!("(call let_ref:input {})", prompt_expr));
         }
 
         if self.match_types(&[TokenType::FString]) {
@@ -210,11 +215,35 @@ impl Parser {
         
                 return Ok(format!("(call_method {} {} [{}])", name, method_name, args.join(" ")));
             }
+
+            if self.match_types(&[TokenType::LeftParen]) {
+                let mut args = Vec::new();
+                if !self.check(&TokenType::RightParen) {
+                    loop {
+                        args.push(self.expression()?);
+                        if !self.match_types(&[TokenType::Comma]) {
+                            break;
+                        }
+                    }
+                }
+                self.consume(TokenType::RightParen, "Expect ')' after arguments.")?;
+
+                if args.is_empty() {
+                    return Ok(format!("(call let_ref:{})", name));
+                }
+                return Ok(format!("(call let_ref:{} {})", name, args.join(" ")));
+            }
         
             return Ok(format!("let_ref:{}", name));
         }
         
-        if self.match_types(&[TokenType::Number, TokenType::String]) {
+        if self.match_types(&[TokenType::String]) {
+            let lit = self.previous().literal.clone();
+            let escaped = lit.replace('\\', "\\\\").replace('"', "\\\"");
+            return Ok(format!("\"{}\"", escaped));
+        }
+
+        if self.match_types(&[TokenType::Number]) {
             return Ok(self.previous().literal.clone());
         }
 
@@ -323,7 +352,11 @@ impl Parser {
         }
 
         if self.match_types(&[TokenType::Fn]) {
-            return self.function_declaration();
+            return self.function_declaration(true);
+        }
+
+        if self.match_types(&[TokenType::Def]) {
+            return self.function_declaration(false);
         }
 
         if self.match_types(&[TokenType::Let]) {
@@ -347,12 +380,18 @@ impl Parser {
             self.consume(TokenType::RightParen, "Expect ')' after trait name.")?;
         }
 
+        self.consume(TokenType::Colon, "Expect ':' before struct body.")?;
+        self.skip_newlines();
         self.consume(TokenType::Indent, "Expect indented block for struct body.")?;
 
         let mut fields = Vec::new();
         let mut methods = Vec::new();
 
         while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(&TokenType::Dedent) || self.is_at_end() {
+                break;
+            }
             if self.match_types(&[TokenType::Let]) {
                 let is_pub = self.match_types(&[TokenType::Pub]);
                 let is_mutable = self.match_types(&[TokenType::Mut]);
@@ -363,9 +402,13 @@ impl Parser {
                 fields.push(format!("{}:{} (pub:{}, mut:{})", field_name, field_type, is_pub, is_mutable));
                 
                 if self.check(&TokenType::Newline) { self.advance(); }
-            } else if self.match_types(&[TokenType::Fn]) || self.match_types(&[TokenType::Def]) {
+            } else if self.match_types(&[TokenType::Fn]) {
                 let is_pub = self.match_types(&[TokenType::Pub]);
-                let method_ast = self.function_declaration()?;
+                let method_ast = self.function_declaration(true)?;
+                methods.push(format!("(pub:{} {})", is_pub, method_ast));
+            } else if self.match_types(&[TokenType::Def]) {
+                let is_pub = self.match_types(&[TokenType::Pub]);
+                let method_ast = self.function_declaration(false)?;
                 methods.push(format!("(pub:{} {})", is_pub, method_ast));
             } else {
                 if self.check(&TokenType::Newline) {
@@ -388,12 +431,21 @@ impl Parser {
         let name_token = self.consume(TokenType::Identifier, "Expect trait name.")?.clone();
         let trait_name = name_token.lexeme;
 
+        self.consume(TokenType::Colon, "Expect ':' before trait body.")?;
+        self.skip_newlines();
         self.consume(TokenType::Indent, "Expect indented block for trait body.")?;
 
         let mut methods = Vec::new();
         while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-            if self.match_types(&[TokenType::Fn]) || self.match_types(&[TokenType::Def]) {
-                let method_ast = self.function_declaration()?;
+            self.skip_newlines();
+            if self.check(&TokenType::Dedent) || self.is_at_end() {
+                break;
+            }
+            if self.match_types(&[TokenType::Fn]) {
+                let method_ast = self.function_declaration(true)?;
+                methods.push(method_ast);
+            } else if self.match_types(&[TokenType::Def]) {
+                let method_ast = self.function_declaration(false)?;
                 methods.push(method_ast);
             } else {
                 self.advance();
@@ -404,12 +456,7 @@ impl Parser {
         Ok(format!("(trait {} methods:[{}])", trait_name, methods.join(" ")))
     }
 
-    fn function_declaration(&mut self) -> Result<String, ()> {
-        let is_strict = self.match_types(&[TokenType::Fn]);
-        if !is_strict {
-            self.consume(TokenType::Def, "Expect 'def' or 'fn' for function declaration.")?;
-        }
-
+    fn function_declaration(&mut self, is_strict: bool) -> Result<String, ()> {
         let name_token = self.consume(TokenType::Identifier, "Expect function name.")?.clone();
         let fn_name = name_token.lexeme;
 
@@ -418,18 +465,15 @@ impl Parser {
         let mut params = Vec::new();
         if !self.check(&TokenType::RightParen) {
             loop {
-                let is_ref = self.match_types(&[TokenType::Ref]);
+                let _is_ref = self.match_types(&[TokenType::Ref]);
                 let param_token = self.consume(TokenType::Identifier, "Expect parameter name.")?;
                 let param_name = param_token.lexeme.clone();
                 
-                let mut param_type = "any".to_string();
                 if self.match_types(&[TokenType::Colon]) {
-                    param_type = self.peek().lexeme.clone();
                     self.advance();
                 }
 
-                let ref_str = if is_ref { "ref" } else { "val" };
-                params.push(format!("{}:{} ({})", param_name, param_type, ref_str));
+                params.push(param_name);
 
                 if !self.match_types(&[TokenType::Comma]) {
                     break;
@@ -438,15 +482,21 @@ impl Parser {
         }
         self.consume(TokenType::RightParen, "Expect ')' after parameters.")?;
 
-        let mut return_type = "None".to_string();
         if self.match_types(&[TokenType::Arrow]) {
-            return_type = self.peek().lexeme.clone();
             self.advance();
         }
 
         self.consume(TokenType::Colon, "Expect ':' before function body.")?;
+        self.skip_newlines();
+        let body = self.statement()?;
 
-        Ok(format!("(fn {} strict:{} returns:{} params:[{}])", fn_name, is_strict, return_type, params.join(", ")))
+        Ok(format!(
+            "(fn {} strict:{} (params {}) {})",
+            fn_name,
+            is_strict,
+            params.join(" "),
+            body
+        ))
     }
 
     fn let_declaration(&mut self) -> Result<String, ()> {
@@ -502,7 +552,7 @@ impl Parser {
             return self.print_statement();
         }
 
-        if self.match_types(&[TokenType::Indent, TokenType::LeftBrace]) {
+        if self.check(&TokenType::Indent) {
             return self.block();
         }
 
@@ -533,7 +583,7 @@ impl Parser {
         let var_name = var_token.lexeme;
 
         if self.check(&TokenType::Colon) { self.advance(); }
-        if self.check(&TokenType::Newline) { self.advance(); }
+        self.skip_newlines();
 
         let body = self.statement()?;
         Ok(format!("(with_mmap line:{} {} {} {})", line, path_expr, var_name, body))
@@ -634,6 +684,7 @@ impl Parser {
         if self.check(&TokenType::Colon) {
             self.advance();
         }
+        self.skip_newlines();
 
         let then_branch = self.statement()?;
 
@@ -644,6 +695,7 @@ impl Parser {
             if self.check(&TokenType::Colon) {
                 self.advance();
             }
+            self.skip_newlines();
             let else_branch = self.statement()?;
             Ok(format!("(if {} {} {})", condition, then_branch, else_branch)) 
         } else {
@@ -658,10 +710,7 @@ impl Parser {
         if self.check(&TokenType::Colon) {
             self.advance();
         }
-
-        if self.check(&TokenType::Newline) {
-            self.advance();
-        }
+        self.skip_newlines();
 
         let body = self.statement()?;
 
@@ -699,10 +748,7 @@ impl Parser {
         if self.check(&TokenType::Colon) {
             self.advance();
         }
-
-        if self.check(&TokenType::Newline) {
-            self.advance();
-        }
+        self.skip_newlines();
 
         let body = self.statement()?;
 
@@ -720,7 +766,11 @@ impl Parser {
         let line = self.previous().line;
         let mut value = "None".to_string();
 
-        if !self.check(&TokenType::EOF) {
+        if !self.check(&TokenType::EOF)
+            && !self.check(&TokenType::Newline)
+            && !self.check(&TokenType::Dedent)
+            && !self.check(&TokenType::RightBrace)
+        {
             value = self.expression()?;
         }
 
