@@ -1,23 +1,50 @@
-site_name: Hyper Programming Language
+site_name: Hyper
 site_description: Official documentation for the Hyper programming language
+site_author: Hyper Contributors
+repo_url: https://github.com/Yusupov-Muhammadyusuf/hyperlang
+repo_name: Yusupov-Muhammadyusuf/hyperlang
+edit_uri: edit/main/doc/
 docs_dir: doc
 
 theme:
   name: material
+  language: en
   palette:
-    - scheme: default
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
       primary: indigo
+      accent: indigo
       toggle:
         icon: material/brightness-7
-        name: Dark mode
-    - scheme: slate
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
       primary: indigo
+      accent: indigo
       toggle:
         icon: material/brightness-4
-        name: Light mode
+        name: Switch to light mode
   features:
     - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
     - content.code.copy
 
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+
 nav:
-  - Introduction: index.md
+  - Home: index.md
+  - Installation: installation.md
+  - Examples: examples/index.md
