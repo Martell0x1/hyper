@@ -47,4 +47,4 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Installation: installation.md
-  - Examples: examples/index.md
+  - Examples: examples.md
