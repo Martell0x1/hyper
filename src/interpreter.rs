@@ -440,12 +440,18 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
 fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
     if stmt.starts_with("(let line:") {
         let trimmed = &stmt[10..stmt.len() - 1];
-        let parts: Vec<&str> = trimmed.splitn(4, ' ').collect();
-        if parts.len() == 4 {
+        let parts: Vec<&str> = trimmed.splitn(5, ' ').collect();
+        if parts.len() >= 4 {
             let line_num: u32 = parts[0].parse().unwrap();
             let is_mutable = parts[1] == "mut";
             let let_name = parts[2].to_string();
-            let initializer_expr = parts[3].to_string();
+            let initializer_expr = if parts.len() == 5 {
+                parts[4].to_string()
+            } else if parts[3].starts_with("type:") {
+                "None".to_string()
+            } else {
+                parts[3].to_string()
+            };
 
             let value = if initializer_expr == "None" {
                 HyperValue::None
@@ -803,7 +809,7 @@ pub fn run_program(file_contents: String) {
             }
         }
         Err(_) => {
-            eprintln!("[line 1] Syntax error in function declaration.");
+            eprintln!("Syntax error.");
             std::process::exit(65);
         }
     }
