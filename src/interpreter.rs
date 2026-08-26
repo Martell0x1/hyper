@@ -81,6 +81,32 @@ fn split_binary_args(inner: &str) -> Option<(String, String)> {
     None
 }
 
+fn find_top_level_colon(s: &str) -> Option<usize> {
+    let mut bracket_count = 0;
+    let mut in_string = false;
+    let mut escape = false;
+    for (i, ch) in s.char_indices() {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '(' => bracket_count += 1,
+            ')' => bracket_count -= 1,
+            ':' if bracket_count == 0 => return Some(i),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn split_block_statements(inner: &str) -> Vec<String> {
     let mut stmts = Vec::new();
     let mut current = String::new();
@@ -184,7 +210,64 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                 }
             }
 
+            if let HyperValue::Instance { ref methods, .. } = target_val {
+                if let Some((_is_pub, HyperValue::Function { params, body, closure, .. })) = methods.get(method_name) {
+                    let method_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
+                    method_env.borrow_mut().define("self".to_string(), target_val.clone(), true);
+
+                    for (param_name, arg_value) in params.iter().skip(1).zip(evaluated_args.iter()) {
+                        method_env.borrow_mut().define(param_name.clone(), arg_value.clone(), true);
+                    }
+
+                    match execute_statement(&body, method_env) {
+                        ExecResult::Return(val) => return Some(val),
+                        ExecResult::Ok => return Some(HyperValue::None),
+                    }
+                } else {
+                    eprintln!("[line {}] Error: Method '{}' not found.", line, method_name);
+                    std::process::exit(70);
+                }
+            }
+
             return target_val.call_method(method_name, &evaluated_args, line);
+        }
+    }
+
+    if cleaned.starts_with("(get_field ") && cleaned.ends_with(')') {
+        let inner = &cleaned[11..cleaned.len() - 1];
+        if let Some(space_idx) = inner.find(' ') {
+            let object_name = &inner[..space_idx];
+            let field_name = &inner[space_idx + 1..];
+            let target = env.borrow().get(object_name, line);
+            if let HyperValue::Instance { fields, field_indices, .. } = target {
+                if let Some(&idx) = field_indices.get(field_name) {
+                    return Some(fields.borrow()[idx].clone());
+                }
+                eprintln!("[line {}] Error: Undefined field '{}'.", line, field_name);
+                std::process::exit(70);
+            }
+            eprintln!("[line {}] Error: Only instances have fields.", line);
+            std::process::exit(70);
+        }
+    }
+
+    if cleaned.starts_with("(set_field ") && cleaned.ends_with(')') {
+        let inner = &cleaned[11..cleaned.len() - 1];
+        if let Some((object_name, rest)) = split_binary_args(inner) {
+            if let Some((field_name, value_expr)) = split_binary_args(&rest) {
+                let value = evaluate_str(value_expr, line, Rc::clone(&env))?;
+                let target = env.borrow().get(&object_name, line);
+                if let HyperValue::Instance { fields, field_indices, .. } = target {
+                    if let Some(&idx) = field_indices.get(&field_name) {
+                        fields.borrow_mut()[idx] = value.clone();
+                        return Some(value);
+                    }
+                    eprintln!("[line {}] Error: Undefined field '{}'.", line, field_name);
+                    std::process::exit(70);
+                }
+                eprintln!("[line {}] Error: Only instances have fields.", line);
+                std::process::exit(70);
+            }
         }
     }
 
@@ -209,7 +292,29 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
     }
 
     if cleaned.starts_with("(dict ") && cleaned.ends_with(')') {
-        let entries = HashMap::new();
+        let inner = &cleaned[6..cleaned.len() - 1];
+        let mut entries = HashMap::new();
+        if !inner.trim().is_empty() {
+            let mut current = inner.to_string();
+            let mut parts = Vec::new();
+            while let Some((left, right)) = split_binary_args(&current) {
+                parts.push(left);
+                current = right;
+            }
+            if !current.trim().is_empty() {
+                parts.push(current.trim().to_string());
+            }
+
+            for part in parts {
+                if let Some(colon_idx) = find_top_level_colon(&part) {
+                    let key_expr = part[..colon_idx].trim().to_string();
+                    let val_expr = part[colon_idx + 1..].trim().to_string();
+                    let key_val = evaluate_str(key_expr, line, Rc::clone(&env))?;
+                    let value = evaluate_str(val_expr, line, Rc::clone(&env))?;
+                    entries.insert(key_val.to_string(), value);
+                }
+            }
+        }
         return Some(HyperValue::Dict {
             key_type: "string".to_string(),
             val_type: "any".to_string(),
@@ -309,30 +414,44 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                     }
                 }
                 HyperValue::StructDef { name, fields, methods, .. } => {
-                    let mut evaluated_args = Vec::new();
+                    let mut positional_args = Vec::new();
+                    let mut named_args: HashMap<String, HyperValue> = HashMap::new();
+
                     if let Some(args_raw) = args_str {
                         let mut current_args = args_raw;
+                        let mut arg_parts = Vec::new();
                         while let Some((arg, rest)) = split_binary_args(&current_args) {
-                            if let Some(val) = evaluate_str(arg, line, Rc::clone(&env)) { evaluated_args.push(val); }
+                            arg_parts.push(arg);
                             current_args = rest;
                         }
                         if !current_args.trim().is_empty() {
-                            if let Some(val) = evaluate_str(current_args.trim().to_string(), line, Rc::clone(&env)) {
-                                evaluated_args.push(val);
+                            arg_parts.push(current_args.trim().to_string());
+                        }
+
+                        for arg in arg_parts {
+                            if let Some(eq_idx) = arg.find('=') {
+                                let field_name = arg[..eq_idx].to_string();
+                                let value_expr = arg[eq_idx + 1..].to_string();
+                                if let Some(val) = evaluate_str(value_expr, line, Rc::clone(&env)) {
+                                    named_args.insert(field_name, val);
+                                }
+                            } else if let Some(val) = evaluate_str(arg, line, Rc::clone(&env)) {
+                                positional_args.push(val);
                             }
                         }
                     }
-                
+
                     let mut instance_fields_vec = Vec::new();
                     let mut field_indices = HashMap::new();
                     let mut field_visibility = HashMap::new();
-                    
+
                     for (idx, (f_name, _, is_pub, _, _)) in fields.iter().enumerate() {
-                        instance_fields_vec.push(HyperValue::None);
+                        let initial = named_args.get(f_name).cloned().unwrap_or(HyperValue::None);
+                        instance_fields_vec.push(initial);
                         field_indices.insert(f_name.clone(), idx);
                         field_visibility.insert(f_name.clone(), *is_pub);
                     }
-                
+
                     let instance = HyperValue::Instance {
                         struct_name: name.clone(),
                         fields: Rc::new(RefCell::new(instance_fields_vec)),
@@ -340,15 +459,24 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
                         field_visibility,
                         methods: methods.clone(),
                     };
-                
+
                     if let Some((_is_pub, HyperValue::Function { params, body, closure, .. })) = methods.get("__init__") {
                         let init_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
                         init_env.borrow_mut().define("self".to_string(), instance.clone(), true);
-                
-                        for (param_name, arg_value) in params.iter().skip(1).zip(evaluated_args) {
+
+                        let mut init_args = positional_args;
+                        if init_args.is_empty() && !named_args.is_empty() {
+                            for (f_name, _, _, _, _) in fields.iter() {
+                                if let Some(val) = named_args.get(f_name) {
+                                    init_args.push(val.clone());
+                                }
+                            }
+                        }
+
+                        for (param_name, arg_value) in params.iter().skip(1).zip(init_args) {
                             init_env.borrow_mut().define(param_name.clone(), arg_value, true);
                         }
-                
+
                         execute_statement(&body, init_env);
                     }
                     return Some(instance);
@@ -360,59 +488,6 @@ fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) ->
             }
         }
         return None;
-    }
-
-    if cleaned.starts_with("(call_method ") && cleaned.ends_with(')') {
-        let inner = &cleaned[13..cleaned.len() - 1];
-        
-        let parts: Vec<&str> = inner.splitn(3, ' ').collect();
-        if parts.len() >= 2 {
-            let var_name = parts[0];
-            let method_name = parts[1];
-            let args_raw = if parts.len() == 3 { parts[2] } else { "[]" };
-
-            let target_val = env.borrow().get(var_name, line);
-
-            let mut evaluated_args = Vec::new();
-            let args_trimmed = args_raw.trim();
-            if args_trimmed.starts_with('[') && args_trimmed.ends_with(']') && args_trimmed.len() > 2 {
-                let args_inner = &args_trimmed[1..args_trimmed.len() - 1];
-                let mut current_args = args_inner.to_string();
-                
-                while let Some((left, right)) = split_binary_args(&current_args) {
-                    if let Some(val) = evaluate_str(left, line, Rc::clone(&env)) {
-                        evaluated_args.push(val);
-                    }
-                    current_args = right;
-                }
-                if !current_args.trim().is_empty() {
-                    if let Some(val) = evaluate_str(current_args.trim().to_string(), line, Rc::clone(&env)) {
-                        evaluated_args.push(val);
-                    }
-                }
-            }
-
-            if let HyperValue::Instance { ref methods, .. } = target_val {
-                if let Some((_is_pub, HyperValue::Function { params, body, closure, .. })) = methods.get(method_name) {
-                    let method_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
-                    method_env.borrow_mut().define("self".to_string(), target_val.clone(), true);
-
-                    for (param_name, arg_value) in params.iter().skip(1).zip(evaluated_args.iter()) {
-                        method_env.borrow_mut().define(param_name.clone(), arg_value.clone(), true);
-                    }
-
-                    match execute_statement(&body, method_env) {
-                        ExecResult::Return(val) => return Some(val),
-                        ExecResult::Ok => return Some(HyperValue::None),
-                    }
-                } else {
-                    eprintln!("[line {}] Error: Method '{}' not found.", line, method_name);
-                    std::process::exit(70);
-                }
-            }
-
-            return target_val.call_method(method_name, &evaluated_args, line);
-        }
     }
 
     if cleaned.ends_with(')') {
@@ -568,12 +643,12 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
 
         if !fields_str.trim().is_empty() {
             for (idx, f) in fields_str.split(", ").enumerate() {
-                let parts: Vec<&str> = f.split(':').collect();
+                let parts: Vec<&str> = f.splitn(2, ':').collect();
                 let f_name = parts[0].to_string();
-                let rest_info = parts[1];
-                let is_pub = rest_info.contains("pub:true");
-                
-                fields.push((f_name.clone(), "any".to_string(), is_pub, false, idx));
+                let is_pub = f.contains("pub:true");
+                let is_mut = f.contains("mut:true");
+
+                fields.push((f_name.clone(), "any".to_string(), is_pub, is_mut, idx));
                 field_indices.insert(f_name.clone(), idx);
                 field_visibility.insert(f_name, is_pub);
             }
@@ -626,10 +701,24 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
         let trimmed = &stmt[7..stmt.len() - 1];
         let space_idx = trimmed.find(' ').unwrap();
         let trait_name = trimmed[..space_idx].to_string();
-        
+        let rest = &trimmed[space_idx + 1..];
+
+        let mut method_names = Vec::new();
+        if let Some(start) = rest.find("methods:[") {
+            let methods_str = &rest[start + 9..rest.len() - 1];
+            for m_ast in split_block_statements(methods_str) {
+                if m_ast.starts_with("(fn ") {
+                    let m_trimmed = &m_ast[4..m_ast.len() - 1];
+                    if let Some(m_space) = m_trimmed.find(' ') {
+                        method_names.push(m_trimmed[..m_space].to_string());
+                    }
+                }
+            }
+        }
+
         let trait_def = HyperValue::TraitDef {
             name: trait_name.clone(),
-            methods: vec![],
+            methods: method_names,
         };
         env.borrow_mut().define(trait_name, trait_def, false);
 
