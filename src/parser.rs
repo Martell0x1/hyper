@@ -233,6 +233,12 @@ impl Parser {
         Err(())
     }
 
+    fn skip_newlines(&mut self) {
+        while self.check(&TokenType::Newline) {
+            self.advance();
+        }
+    }
+
     fn match_types(&mut self, types: &[TokenType]) -> bool {
         for t in types {
             if self.check(t) {
@@ -280,6 +286,10 @@ impl Parser {
     pub fn parse_statements(&mut self) -> Result<Vec<String>, ()> {
         let mut statements = Vec::new();
         while !self.is_at_end() && self.peek().token_type != TokenType::EOF {
+            self.skip_newlines();
+            if self.is_at_end() || self.peek().token_type == TokenType::EOF {
+                break;
+            }
             statements.push(self.declaration()?);
         }
         Ok(statements)
@@ -742,6 +752,10 @@ impl Parser {
         self.consume(TokenType::Indent, "Expect indentation at start of block.")?;
 
         while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check(&TokenType::Dedent) || self.is_at_end() {
+                break;
+            }
             statements.push(self.declaration()?);
         }
 
