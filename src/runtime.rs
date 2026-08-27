@@ -8,6 +8,7 @@ pub const KIND_BOOL: i64 = 3;
 pub const KIND_NONE: i64 = 4;
 pub const KIND_LIST: i64 = 5;
 pub const KIND_DICT: i64 = 6;
+pub const KIND_STRUCT: i64 = 7;
 
 #[derive(Clone)]
 struct RtValue {
@@ -21,6 +22,10 @@ struct RtList {
 
 struct RtDict {
     entries: Vec<(String, RtValue)>,
+}
+
+struct RtStruct {
+    fields: Vec<RtValue>,
 }
 
 fn format_value(v: &RtValue) -> String {
@@ -51,6 +56,10 @@ fn format_value(v: &RtValue) -> String {
             let dict = unsafe { &*(v.payload as *const RtDict) };
             format_dict(dict)
         }
+        KIND_STRUCT => {
+            let st = unsafe { &*(v.payload as *const RtStruct) };
+            format_struct(st)
+        }
         _ => format!("<?>"),
     }
 }
@@ -66,6 +75,11 @@ fn format_dict(dict: &RtDict) -> String {
         .iter()
         .map(|(k, v)| format!("{}: {}", k, format_value(v)))
         .collect();
+    format!("{{{}}}", parts.join(", "))
+}
+
+fn format_struct(st: &RtStruct) -> String {
+    let parts: Vec<String> = st.fields.iter().map(format_value).collect();
     format!("{{{}}}", parts.join(", "))
 }
 
@@ -335,4 +349,63 @@ pub extern "C" fn hyper_rt_str_concat(left: i64, right: i64) -> i64 {
         Ok(c) => c.into_raw() as i64,
         Err(_) => 0,
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_struct_new(nfields: i64) -> i64 {
+    let n = if nfields < 0 { 0 } else { nfields as usize };
+    let st = Box::new(RtStruct {
+        fields: vec![
+            RtValue {
+                kind: KIND_NONE,
+                payload: 0,
+            };
+            n
+        ],
+    });
+    Box::into_raw(st) as i64
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_struct_get(obj: i64, field: i64, out_kind: *mut i64) -> i64 {
+    if obj == 0 || out_kind.is_null() {
+        return 0;
+    }
+    let st = unsafe { &*(obj as *const RtStruct) };
+    if field < 0 || field as usize >= st.fields.len() {
+        unsafe {
+            *out_kind = KIND_NONE;
+        }
+        return 0;
+    }
+    let item = &st.fields[field as usize];
+    unsafe {
+        *out_kind = item.kind;
+    }
+    item.payload
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_struct_set(obj: i64, field: i64, value: i64, kind: i64) {
+    if obj == 0 {
+        return;
+    }
+    let st = unsafe { &mut *(obj as *mut RtStruct) };
+    if field < 0 || field as usize >= st.fields.len() {
+        return;
+    }
+    st.fields[field as usize] = RtValue {
+        kind,
+        payload: value,
+    };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_print_struct(obj: i64) {
+    if obj == 0 {
+        print!("{{}} ");
+        return;
+    }
+    let st = unsafe { &*(obj as *const RtStruct) };
+    print!("{} ", format_struct(st));
 }
