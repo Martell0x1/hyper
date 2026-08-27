@@ -139,6 +139,12 @@ pub enum ForIter {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ImportName {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let {
         line: u32,
@@ -184,6 +190,18 @@ pub enum Stmt {
         path: Expr,
         var: String,
         body: Box<Stmt>,
+    },
+    /// `import math` / `import math as m`
+    Import {
+        line: u32,
+        module: String,
+        alias: Option<String>,
+    },
+    /// `from math import add, mul as product`
+    ImportFrom {
+        line: u32,
+        module: String,
+        names: Vec<ImportName>,
     },
 }
 
@@ -479,6 +497,34 @@ impl fmt::Display for Stmt {
                 var,
                 body,
             } => write!(f, "(with_mmap line:{} {} {} {})", line, path, var, body),
+            Stmt::Import {
+                line,
+                module,
+                alias,
+            } => match alias {
+                Some(a) => write!(f, "(import line:{} {} as {})", line, module, a),
+                None => write!(f, "(import line:{} {})", line, module),
+            },
+            Stmt::ImportFrom {
+                line,
+                module,
+                names,
+            } => {
+                let parts: Vec<String> = names
+                    .iter()
+                    .map(|n| match &n.alias {
+                        Some(a) => format!("{} as {}", n.name, a),
+                        None => n.name.clone(),
+                    })
+                    .collect();
+                write!(
+                    f,
+                    "(from line:{} {} import {})",
+                    line,
+                    module,
+                    parts.join(", ")
+                )
+            }
         }
     }
 }
