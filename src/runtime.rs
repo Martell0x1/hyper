@@ -202,3 +202,99 @@ pub extern "C" fn hyper_rt_print_dict(dict: i64) {
     let dict = unsafe { &*(dict as *const RtDict) };
     print!("{} ", format_dict(dict));
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_print_value(payload: i64, kind: i64) {
+    print!("{} ", format_value(&RtValue { kind, payload }));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_list_get(list: i64, index: i64, out_kind: *mut i64) -> i64 {
+    if list == 0 || out_kind.is_null() {
+        return 0;
+    }
+    let list = unsafe { &*(list as *const RtList) };
+    if index < 0 || index as usize >= list.items.len() {
+        unsafe {
+            *out_kind = KIND_NONE;
+        }
+        return 0;
+    }
+    let item = &list.items[index as usize];
+    unsafe {
+        *out_kind = item.kind;
+    }
+    item.payload
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_list_set(list: i64, index: i64, value: i64, kind: i64) {
+    if list == 0 {
+        return;
+    }
+    let list = unsafe { &mut *(list as *mut RtList) };
+    if index < 0 || index as usize >= list.items.len() {
+        return;
+    }
+    list.items[index as usize] = RtValue {
+        kind,
+        payload: value,
+    };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_dict_get(
+    dict: i64,
+    key: i64,
+    key_kind: i64,
+    out_kind: *mut i64,
+) -> i64 {
+    if dict == 0 || out_kind.is_null() {
+        return 0;
+    }
+    let dict = unsafe { &*(dict as *const RtDict) };
+    let k = key_to_string(key, key_kind);
+    for (ek, ev) in &dict.entries {
+        if ek == &k {
+            unsafe {
+                *out_kind = ev.kind;
+            }
+            return ev.payload;
+        }
+    }
+    unsafe {
+        *out_kind = KIND_NONE;
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_dict_set(
+    dict: i64,
+    key: i64,
+    key_kind: i64,
+    value: i64,
+    val_kind: i64,
+) {
+    if dict == 0 {
+        return;
+    }
+    let dict = unsafe { &mut *(dict as *mut RtDict) };
+    let k = key_to_string(key, key_kind);
+    for (ek, ev) in &mut dict.entries {
+        if ek == &k {
+            *ev = RtValue {
+                kind: val_kind,
+                payload: value,
+            };
+            return;
+        }
+    }
+    dict.entries.push((
+        k,
+        RtValue {
+            kind: val_kind,
+            payload: value,
+        },
+    ));
+}
