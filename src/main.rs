@@ -4,13 +4,14 @@ use std::fs;
 mod ast;
 mod scanner;
 mod parser;
-mod frontend;
+mod driver;
 mod environment;
 mod text_utils;
 mod interpreter;
 mod semantic;
 mod ir;
 mod compiler;
+mod codegen;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
