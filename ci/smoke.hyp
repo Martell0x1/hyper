@@ -1,0 +1,27 @@
+# Stable CI smoke program (keep small and self-contained).
+let nums = [1, 2, 3]
+print(nums[0])
+print(nums[1] + nums[2])
+
+struct Point:
+    let mut x: i32
+    let mut y: i32
+
+    fn __init__(ref self, x_val: i32, y_val: i32):
+        self.x = x_val
+        self.y = y_val
+
+    fn move(ref self, dx: i32, dy: i32):
+        self.x = self.x + dx
+        self.y = self.y + dy
+
+let mut p = Point(x: 10, y: 20)
+p.move(5, 5)
+print(p.x)
+print(p.y)
+
+fn add(a, b):
+    return a + b
+
+print(add(2, 3))
+print(f"ok {add(1, 1)}")
