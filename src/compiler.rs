@@ -12,6 +12,8 @@ struct StructLayout {
     fields: HashMap<String, u32>,
     field_order: Vec<String>,
     has_init: bool,
+    /// IR / mangled base name for methods (`Point` or `shapes__Point`).
+    ir_name: String,
 }
 
 struct Lowerer {
@@ -50,8 +52,8 @@ impl Lowerer {
         }
     }
 
-    fn mangle_method(struct_name: &str, method: &str) -> String {
-        format!("{}__{}", struct_name, method)
+    fn mangle_method(ir_name: &str, method: &str) -> String {
+        format!("{}__{}", ir_name, method)
     }
 
     fn note_struct_binding(&mut self, name: &str, initializer: &Expr) {
@@ -60,6 +62,16 @@ impl Lowerer {
                 if let Expr::Variable { name: sn, .. } = callee.as_ref() {
                     if self.structs.contains_key(sn) {
                         self.var_structs.insert(name.to_string(), sn.clone());
+                    }
+                }
+            }
+            Expr::CallMethod {
+                object, method, ..
+            } => {
+                if let Some(mod_name) = self.module_aliases.get(object) {
+                    let key = module::mangle_module_fn(mod_name, method);
+                    if self.structs.contains_key(&key) {
+                        self.var_structs.insert(name.to_string(), key);
                     }
                 }
             }
@@ -72,15 +84,16 @@ impl Lowerer {
         }
     }
 
-    fn lower_struct_ctor(&mut self, struct_name: &str, args: &[CallArg]) -> ValueId {
+    fn lower_struct_ctor(&mut self, struct_key: &str, args: &[CallArg]) -> ValueId {
         let layout = self
             .structs
-            .get(struct_name)
+            .get(struct_key)
             .cloned()
             .unwrap_or(StructLayout {
                 fields: HashMap::new(),
                 field_order: Vec::new(),
                 has_init: false,
+                ir_name: struct_key.to_string(),
             });
 
         let dest = self.fresh_value();
@@ -124,12 +137,80 @@ impl Lowerer {
             let ret = self.fresh_value();
             self.emit(IrInstr::Call {
                 dest: ret,
-                func: Self::mangle_method(struct_name, "__init__"),
+                func: Self::mangle_method(&layout.ir_name, "__init__"),
                 args: init_args,
             });
         }
 
         dest
+    }
+
+    /// Register a struct layout and lower its methods into IR functions.
+    fn lower_struct_decl(
+        &mut self,
+        name: &str,
+        fields: &[StructField],
+        methods: &[MethodDecl],
+        ir_name: &str,
+    ) {
+        let mut field_map = HashMap::new();
+        let mut field_order = Vec::new();
+        for (i, f) in fields.iter().enumerate() {
+            field_map.insert(f.name.clone(), i as u32);
+            field_order.push(f.name.clone());
+        }
+        let has_init = methods.iter().any(|m| m.function.name == "__init__");
+        let layout = StructLayout {
+            fields: field_map,
+            field_order,
+            has_init,
+            ir_name: ir_name.to_string(),
+        };
+        self.structs.insert(name.to_string(), layout.clone());
+        if name != ir_name {
+            self.structs.insert(ir_name.to_string(), layout);
+        }
+
+        for method in methods {
+            let mangled = Self::mangle_method(ir_name, &method.function.name);
+            let saved = std::mem::take(&mut self.current);
+            let saved_next_value = self.next_value;
+            let saved_next_block = self.next_block;
+            let saved_var_structs = self.var_structs.clone();
+            self.next_value = 0;
+            self.next_block = 0;
+            self.var_structs
+                .insert("self".to_string(), name.to_string());
+
+            self.lower_stmt(&method.function.body);
+
+            let body = std::mem::take(&mut self.current);
+            self.functions.push(IrFunction {
+                name: mangled,
+                params: method
+                    .function
+                    .params
+                    .iter()
+                    .map(|p| p.name.clone())
+                    .collect(),
+                body,
+            });
+
+            self.current = saved;
+            self.next_value = saved_next_value;
+            self.next_block = saved_next_block;
+            self.var_structs = saved_var_structs;
+        }
+    }
+
+    fn bind_import_name(&mut self, module: &str, item: &ImportName) {
+        let bind = item.alias.as_ref().unwrap_or(&item.name).clone();
+        let mangled = module::mangle_module_fn(module, &item.name);
+        if let Some(layout) = self.structs.get(&mangled).cloned() {
+            self.structs.insert(bind, layout);
+        } else {
+            self.call_aliases.insert(bind, mangled);
+        }
     }
 
     fn resolve_call_name(&self, name: &str) -> String {
@@ -166,12 +247,77 @@ impl Lowerer {
         }
 
         let saved_aliases = self.call_aliases.clone();
+        let saved_structs = self.structs.clone();
         for stmt in &stmts {
             if let Stmt::Function(decl) = stmt {
                 self.call_aliases.insert(
                     decl.name.clone(),
                     module::mangle_module_fn(module_name, &decl.name),
                 );
+            }
+        }
+
+        // Register module structs under short names while lowering the module body.
+        let mut module_struct_shorts: Vec<String> = Vec::new();
+        let mut module_structs: Vec<(&str, &[StructField], &[MethodDecl], String)> = Vec::new();
+        for stmt in &stmts {
+            if let Stmt::Struct {
+                name,
+                fields,
+                methods,
+                ..
+            } = stmt
+            {
+                let ir_name = module::mangle_module_fn(module_name, name);
+                let mut field_map = HashMap::new();
+                let mut field_order = Vec::new();
+                for (i, f) in fields.iter().enumerate() {
+                    field_map.insert(f.name.clone(), i as u32);
+                    field_order.push(f.name.clone());
+                }
+                let has_init = methods.iter().any(|m| m.function.name == "__init__");
+                let layout = StructLayout {
+                    fields: field_map,
+                    field_order,
+                    has_init,
+                    ir_name: ir_name.clone(),
+                };
+                self.structs.insert(name.clone(), layout.clone());
+                self.structs.insert(ir_name.clone(), layout);
+                module_struct_shorts.push(name.clone());
+                module_structs.push((name, fields, methods, ir_name));
+            }
+        }
+        for (name, _fields, methods, ir_name) in &module_structs {
+            for method in *methods {
+                let mangled = Self::mangle_method(ir_name, &method.function.name);
+                let saved = std::mem::take(&mut self.current);
+                let saved_next_value = self.next_value;
+                let saved_next_block = self.next_block;
+                let saved_var_structs = self.var_structs.clone();
+                self.next_value = 0;
+                self.next_block = 0;
+                self.var_structs
+                    .insert("self".to_string(), (*name).to_string());
+
+                self.lower_stmt(&method.function.body);
+
+                let body = std::mem::take(&mut self.current);
+                self.functions.push(IrFunction {
+                    name: mangled,
+                    params: method
+                        .function
+                        .params
+                        .iter()
+                        .map(|p| p.name.clone())
+                        .collect(),
+                    body,
+                });
+
+                self.current = saved;
+                self.next_value = saved_next_value;
+                self.next_block = saved_next_block;
+                self.var_structs = saved_var_structs;
             }
         }
 
@@ -223,10 +369,11 @@ impl Lowerer {
                 } => {
                     self.ensure_module(module, *line);
                     for item in names {
-                        let mangled = module::mangle_module_fn(module, &item.name);
-                        let bind = item.alias.as_ref().unwrap_or(&item.name).clone();
-                        self.call_aliases.insert(bind, mangled);
+                        self.bind_import_name(module, item);
                     }
+                }
+                Stmt::Struct { .. } => {
+                    // Already lowered above.
                 }
                 _ => {
                     // Skip control-flow / print at module top-level on compile path for now.
@@ -236,6 +383,17 @@ impl Lowerer {
         self.module_inits.append(&mut self.current);
         self.current = saved_current;
         self.call_aliases = saved_aliases;
+
+        // Drop short names so they do not leak into the importer; keep mangled keys.
+        for short in module_struct_shorts {
+            self.structs.remove(&short);
+        }
+        // Restore any importer structs that shared a short name.
+        for (k, v) in saved_structs {
+            if !self.structs.contains_key(&k) {
+                self.structs.insert(k, v);
+            }
+        }
     }
 
     fn fresh_value(&mut self) -> ValueId {
@@ -456,6 +614,15 @@ impl Lowerer {
                 args,
             } => {
                 if let Some(mod_name) = self.module_aliases.get(object).cloned() {
+                    let struct_key = module::mangle_module_fn(&mod_name, method);
+                    if self.structs.contains_key(&struct_key) {
+                        let call_args: Vec<CallArg> = args
+                            .iter()
+                            .cloned()
+                            .map(CallArg::Positional)
+                            .collect();
+                        return self.lower_struct_ctor(&struct_key, &call_args);
+                    }
                     let mut arg_ids = Vec::new();
                     for a in args {
                         arg_ids.push(self.lower_expr(a));
@@ -469,6 +636,11 @@ impl Lowerer {
                     return dest;
                 }
                 if let Some(stype) = self.var_structs.get(object).cloned() {
+                    let ir_name = self
+                        .structs
+                        .get(&stype)
+                        .map(|l| l.ir_name.clone())
+                        .unwrap_or_else(|| stype.clone());
                     let obj = self.fresh_value();
                     self.emit(IrInstr::Load {
                         dest: obj,
@@ -481,7 +653,7 @@ impl Lowerer {
                     let dest = self.fresh_value();
                     self.emit(IrInstr::Call {
                         dest,
-                        func: Self::mangle_method(&stype, method),
+                        func: Self::mangle_method(&ir_name, method),
                         args: arg_ids,
                     });
                     return dest;
@@ -899,52 +1071,7 @@ impl Lowerer {
                 methods,
                 ..
             } => {
-                let mut field_map = HashMap::new();
-                let mut field_order = Vec::new();
-                for (i, f) in fields.iter().enumerate() {
-                    field_map.insert(f.name.clone(), i as u32);
-                    field_order.push(f.name.clone());
-                }
-                let has_init = methods.iter().any(|m| m.function.name == "__init__");
-                self.structs.insert(
-                    name.clone(),
-                    StructLayout {
-                        fields: field_map,
-                        field_order,
-                        has_init,
-                    },
-                );
-
-                for method in methods {
-                    let mangled = Self::mangle_method(name, &method.function.name);
-                    let saved = std::mem::take(&mut self.current);
-                    let saved_next_value = self.next_value;
-                    let saved_next_block = self.next_block;
-                    let saved_var_structs = self.var_structs.clone();
-                    self.next_value = 0;
-                    self.next_block = 0;
-                    self.var_structs
-                        .insert("self".to_string(), name.clone());
-
-                    self.lower_stmt(&method.function.body);
-
-                    let body = std::mem::take(&mut self.current);
-                    self.functions.push(IrFunction {
-                        name: mangled,
-                        params: method
-                            .function
-                            .params
-                            .iter()
-                            .map(|p| p.name.clone())
-                            .collect(),
-                        body,
-                    });
-
-                    self.current = saved;
-                    self.next_value = saved_next_value;
-                    self.next_block = saved_next_block;
-                    self.var_structs = saved_var_structs;
-                }
+                self.lower_struct_decl(name, fields, methods, name);
             }
             Stmt::Trait { name, .. } => {
                 let dest = self.fresh_value();
@@ -989,9 +1116,7 @@ impl Lowerer {
             } => {
                 self.ensure_module(module, *line);
                 for item in names {
-                    let mangled = module::mangle_module_fn(module, &item.name);
-                    let bind = item.alias.as_ref().unwrap_or(&item.name).clone();
-                    self.call_aliases.insert(bind, mangled);
+                    self.bind_import_name(module, item);
                 }
             }
         }
