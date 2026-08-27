@@ -23,11 +23,9 @@ Hyper is being developed to solve the trade-off between developer efficiency and
 * **Safety First:** Aiming to introduce memory and type safety mechanisms to prevent common runtime errors.
 * **Modern Conception:** Created as an open exploration into building efficient, high-level developer tools for modern systems.
 
-## Commit Conventiions
+## Building from source
 
-We follow standard commit message conventions to keep our git history clean, readable, and easy to parse automatically.
-
-For guidelines on commit messages and history management, see [doc/COMMIT_CONVENTION.md](doc/COMMIT_CONVENTION.md).
+Hyper has no official release yet. To clone, build, aend run the toolchain, see [Building from source](doc/building.md).
 
 ## Contributing
 
