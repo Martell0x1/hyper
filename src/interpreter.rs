@@ -829,7 +829,7 @@ pub fn run_evaluate(file_contents: String) {
 }
 
 pub fn run_program(file_contents: String) {
-    let statements = match crate::frontend::parse_program(&file_contents) {
+    let statements = match crate::driver::parse_program(&file_contents) {
         Ok(stmts) => stmts,
         Err(()) => {
             eprintln!("Syntax error.");
@@ -837,7 +837,7 @@ pub fn run_program(file_contents: String) {
         }
     };
 
-    // Soft-wire: typecheck errors are warnings only so existing scripts still run.
+    // Type errors are non-fatal for `run` while the interpreter remains the default backend.
     if let Err(errors) = crate::semantic::typecheck(&statements) {
         for e in &errors {
             eprintln!("warning: {}", e);
