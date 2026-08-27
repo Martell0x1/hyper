@@ -52,6 +52,16 @@ pub enum IrInstr {
         dest: ValueId,
         entries: Vec<(ValueId, ValueId)>,
     },
+    IndexGet {
+        dest: ValueId,
+        object: ValueId,
+        index: ValueId,
+    },
+    IndexSet {
+        object: ValueId,
+        index: ValueId,
+        value: ValueId,
+    },
     Print { args: Vec<ValueId> },
     Return { value: Option<ValueId> },
     Jump { target: BlockId },
@@ -158,6 +168,16 @@ impl fmt::Display for IrInstr {
                     write!(f, "  v{} = make_dict({})", dest, entries_str.join(", "))
                 }
             }
+            IrInstr::IndexGet {
+                dest,
+                object,
+                index,
+            } => write!(f, "  v{} = index_get v{}[v{}]", dest, object, index),
+            IrInstr::IndexSet {
+                object,
+                index,
+                value,
+            } => write!(f, "  index_set v{}[v{}] = v{}", object, index, value),
             IrInstr::Print { args } => {
                 let args_str: Vec<String> = args.iter().map(|a| format!("v{}", a)).collect();
                 write!(f, "  print {}", args_str.join(", "))
