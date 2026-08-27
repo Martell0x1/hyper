@@ -429,6 +429,23 @@ impl Environment {
         eprintln!("[line {}] Error: Undefined variable '{}'.", line, name);
         std::process::exit(70);
     }
+
+    /// Mutate a binding in place (e.g. list/dict element update) without rebinding.
+    pub fn with_value_mut<F>(&mut self, name: &str, line: u32, f: F)
+    where
+        F: FnOnce(&mut HyperValue),
+    {
+        if let Some(let_entry) = self.values.get_mut(name) {
+            f(&mut let_entry.value);
+            return;
+        }
+        if let Some(ref enclosing) = self.enclosing {
+            enclosing.borrow_mut().with_value_mut(name, line, f);
+            return;
+        }
+        eprintln!("[line {}] Error: Undefined variable '{}'.", line, name);
+        std::process::exit(70);
+    }
 }
 
 impl std::fmt::Display for HyperValue {
