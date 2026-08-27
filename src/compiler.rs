@@ -7,6 +7,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process;
 
+#[derive(Clone)]
+struct StructLayout {
+    fields: HashMap<String, u32>,
+    field_order: Vec<String>,
+    has_init: bool,
+}
+
 struct Lowerer {
     next_value: ValueId,
     next_block: BlockId,
@@ -20,6 +27,10 @@ struct Lowerer {
     call_aliases: HashMap<String, String>,
     lowered_modules: HashSet<String>,
     load_state: ModuleLoadState,
+    /// struct type layouts
+    structs: HashMap<String, StructLayout>,
+    /// local variable → struct type name (for field/method lowering)
+    var_structs: HashMap<String, String>,
 }
 
 impl Lowerer {
@@ -34,7 +45,91 @@ impl Lowerer {
             call_aliases: HashMap::new(),
             lowered_modules: HashSet::new(),
             load_state: ModuleLoadState::new(entry_path),
+            structs: HashMap::new(),
+            var_structs: HashMap::new(),
         }
+    }
+
+    fn mangle_method(struct_name: &str, method: &str) -> String {
+        format!("{}__{}", struct_name, method)
+    }
+
+    fn note_struct_binding(&mut self, name: &str, initializer: &Expr) {
+        match initializer {
+            Expr::Call { callee, .. } => {
+                if let Expr::Variable { name: sn, .. } = callee.as_ref() {
+                    if self.structs.contains_key(sn) {
+                        self.var_structs.insert(name.to_string(), sn.clone());
+                    }
+                }
+            }
+            Expr::Variable { name: src, .. } => {
+                if let Some(st) = self.var_structs.get(src).cloned() {
+                    self.var_structs.insert(name.to_string(), st);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn lower_struct_ctor(&mut self, struct_name: &str, args: &[CallArg]) -> ValueId {
+        let layout = self
+            .structs
+            .get(struct_name)
+            .cloned()
+            .unwrap_or(StructLayout {
+                fields: HashMap::new(),
+                field_order: Vec::new(),
+                has_init: false,
+            });
+
+        let dest = self.fresh_value();
+        self.emit(IrInstr::MakeStruct {
+            dest,
+            nfields: layout.field_order.len() as u32,
+        });
+
+        let mut named: HashMap<String, ValueId> = HashMap::new();
+        let mut positional: Vec<ValueId> = Vec::new();
+        for arg in args {
+            match arg {
+                CallArg::Named { name, value } => {
+                    named.insert(name.clone(), self.lower_expr(value));
+                }
+                CallArg::Positional(e) => positional.push(self.lower_expr(e)),
+            }
+        }
+
+        for (i, fname) in layout.field_order.iter().enumerate() {
+            if let Some(&vid) = named.get(fname) {
+                self.emit(IrInstr::StructSet {
+                    object: dest,
+                    field: i as u32,
+                    value: vid,
+                });
+            }
+        }
+
+        if layout.has_init {
+            let mut init_args = vec![dest];
+            if positional.is_empty() {
+                for fname in &layout.field_order {
+                    if let Some(&vid) = named.get(fname) {
+                        init_args.push(vid);
+                    }
+                }
+            } else {
+                init_args.extend(positional);
+            }
+            let ret = self.fresh_value();
+            self.emit(IrInstr::Call {
+                dest: ret,
+                func: Self::mangle_method(struct_name, "__init__"),
+                args: init_args,
+            });
+        }
+
+        dest
     }
 
     fn resolve_call_name(&self, name: &str) -> String {
@@ -242,6 +337,7 @@ impl Lowerer {
                 dest
             }
             Expr::Assign { name, value } => {
+                self.note_struct_binding(name, value);
                 let v = self.lower_expr(value);
                 self.emit(IrInstr::Store {
                     name: name.clone(),
@@ -258,7 +354,25 @@ impl Lowerer {
                     });
                     return dest;
                 }
-                // Soft: load object then call a synthetic getter.
+                if let Some(stype) = self.var_structs.get(object).cloned() {
+                    if let Some(layout) = self.structs.get(&stype) {
+                        if let Some(&idx) = layout.fields.get(field) {
+                            let obj = self.fresh_value();
+                            self.emit(IrInstr::Load {
+                                dest: obj,
+                                name: object.clone(),
+                            });
+                            let dest = self.fresh_value();
+                            self.emit(IrInstr::StructGet {
+                                dest,
+                                object: obj,
+                                field: idx,
+                            });
+                            return dest;
+                        }
+                    }
+                }
+                // Soft fallback for unknown field access.
                 let obj = self.fresh_value();
                 self.emit(IrInstr::Load {
                     dest: obj,
@@ -277,12 +391,29 @@ impl Lowerer {
                 field,
                 value,
             } => {
+                let v = self.lower_expr(value);
+                if let Some(stype) = self.var_structs.get(object).cloned() {
+                    if let Some(layout) = self.structs.get(&stype) {
+                        if let Some(&idx) = layout.fields.get(field) {
+                            let obj = self.fresh_value();
+                            self.emit(IrInstr::Load {
+                                dest: obj,
+                                name: object.clone(),
+                            });
+                            self.emit(IrInstr::StructSet {
+                                object: obj,
+                                field: idx,
+                                value: v,
+                            });
+                            return v;
+                        }
+                    }
+                }
                 let obj = self.fresh_value();
                 self.emit(IrInstr::Load {
                     dest: obj,
                     name: object.clone(),
                 });
-                let v = self.lower_expr(value);
                 let dest = self.fresh_value();
                 self.emit(IrInstr::Call {
                     dest,
@@ -292,10 +423,14 @@ impl Lowerer {
                 dest
             }
             Expr::Call { callee, args } => {
+                if let Expr::Variable { name, .. } = callee.as_ref() {
+                    if self.structs.contains_key(name) {
+                        return self.lower_struct_ctor(name, args);
+                    }
+                }
                 let func_name = match callee.as_ref() {
                     Expr::Variable { name, .. } => self.resolve_call_name(name),
                     other => {
-                        // Evaluate callee then call through a temp name.
                         let _ = self.lower_expr(other);
                         "__indirect__".to_string()
                     }
@@ -329,6 +464,24 @@ impl Lowerer {
                     self.emit(IrInstr::Call {
                         dest,
                         func: module::mangle_module_fn(&mod_name, method),
+                        args: arg_ids,
+                    });
+                    return dest;
+                }
+                if let Some(stype) = self.var_structs.get(object).cloned() {
+                    let obj = self.fresh_value();
+                    self.emit(IrInstr::Load {
+                        dest: obj,
+                        name: object.clone(),
+                    });
+                    let mut arg_ids = vec![obj];
+                    for a in args {
+                        arg_ids.push(self.lower_expr(a));
+                    }
+                    let dest = self.fresh_value();
+                    self.emit(IrInstr::Call {
+                        dest,
+                        func: Self::mangle_method(&stype, method),
                         args: arg_ids,
                     });
                     return dest;
@@ -485,6 +638,7 @@ impl Lowerer {
             Stmt::Let {
                 name, initializer, ..
             } => {
+                self.note_struct_binding(name, initializer);
                 let v = self.lower_expr(initializer);
                 self.emit(IrInstr::Store {
                     name: name.clone(),
@@ -739,17 +893,58 @@ impl Lowerer {
                     self.emit(IrInstr::Return { value: Some(v) });
                 }
             }
-            Stmt::Struct { name, .. } => {
-                // Soft: store type name marker for now.
-                let dest = self.fresh_value();
-                self.emit(IrInstr::ConstStr {
-                    dest,
-                    value: format!("struct:{}", name),
-                });
-                self.emit(IrInstr::Store {
-                    name: name.clone(),
-                    value: dest,
-                });
+            Stmt::Struct {
+                name,
+                fields,
+                methods,
+                ..
+            } => {
+                let mut field_map = HashMap::new();
+                let mut field_order = Vec::new();
+                for (i, f) in fields.iter().enumerate() {
+                    field_map.insert(f.name.clone(), i as u32);
+                    field_order.push(f.name.clone());
+                }
+                let has_init = methods.iter().any(|m| m.function.name == "__init__");
+                self.structs.insert(
+                    name.clone(),
+                    StructLayout {
+                        fields: field_map,
+                        field_order,
+                        has_init,
+                    },
+                );
+
+                for method in methods {
+                    let mangled = Self::mangle_method(name, &method.function.name);
+                    let saved = std::mem::take(&mut self.current);
+                    let saved_next_value = self.next_value;
+                    let saved_next_block = self.next_block;
+                    let saved_var_structs = self.var_structs.clone();
+                    self.next_value = 0;
+                    self.next_block = 0;
+                    self.var_structs
+                        .insert("self".to_string(), name.clone());
+
+                    self.lower_stmt(&method.function.body);
+
+                    let body = std::mem::take(&mut self.current);
+                    self.functions.push(IrFunction {
+                        name: mangled,
+                        params: method
+                            .function
+                            .params
+                            .iter()
+                            .map(|p| p.name.clone())
+                            .collect(),
+                        body,
+                    });
+
+                    self.current = saved;
+                    self.next_value = saved_next_value;
+                    self.next_block = saved_next_block;
+                    self.var_structs = saved_var_structs;
+                }
             }
             Stmt::Trait { name, .. } => {
                 let dest = self.fresh_value();
