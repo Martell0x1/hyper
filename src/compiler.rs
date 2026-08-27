@@ -233,6 +233,32 @@ impl Lowerer {
                 });
                 dest
             }
+            Expr::Index { object, index } => {
+                let obj = self.lower_expr(object);
+                let idx = self.lower_expr(index);
+                let dest = self.fresh_value();
+                self.emit(IrInstr::IndexGet {
+                    dest,
+                    object: obj,
+                    index: idx,
+                });
+                dest
+            }
+            Expr::IndexSet {
+                object,
+                index,
+                value,
+            } => {
+                let obj = self.lower_expr(object);
+                let idx = self.lower_expr(index);
+                let val = self.lower_expr(value);
+                self.emit(IrInstr::IndexSet {
+                    object: obj,
+                    index: idx,
+                    value: val,
+                });
+                val
+            }
             Expr::FString { parts, .. } => {
                 let mut arg_ids = Vec::new();
                 for part in parts {
