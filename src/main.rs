@@ -9,6 +9,7 @@ mod environment;
 mod text_utils;
 mod interpreter;
 mod semantic;
+mod module;
 mod ir;
 mod compiler;
 mod runtime;
@@ -48,14 +49,14 @@ fn main() {
             interpreter::run_evaluate(file_contents);
         }
         "run" => {
-            crate::interpreter::run_program(file_contents);
+            crate::interpreter::run_program(file_contents, filename);
         }
         "typecheck" => {
             semantic::run_typecheck(file_contents);
         }
         "compile" => {
             let mode = parse_compile_mode(&args[3..]);
-            compiler::run_compile(file_contents, mode);
+            compiler::run_compile(file_contents, filename, mode);
         }
         _ => {
             println!("Unknown command: {}", command);
