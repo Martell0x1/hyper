@@ -260,27 +260,38 @@ impl Lowerer {
                 val
             }
             Expr::FString { parts, .. } => {
-                let mut arg_ids = Vec::new();
+                let empty = self.fresh_value();
+                self.emit(IrInstr::ConstStr {
+                    dest: empty,
+                    value: String::new(),
+                });
+                let mut acc = empty;
                 for part in parts {
-                    match part {
+                    let piece = match part {
                         FStringPart::Literal(s) => {
                             let dest = self.fresh_value();
                             self.emit(IrInstr::ConstStr {
                                 dest,
                                 value: s.clone(),
                             });
-                            arg_ids.push(dest);
+                            dest
                         }
-                        FStringPart::Expr(e) => arg_ids.push(self.lower_expr(e)),
-                    }
+                        FStringPart::Expr(e) => {
+                            let src = self.lower_expr(e);
+                            let dest = self.fresh_value();
+                            self.emit(IrInstr::ValueToStr { dest, src });
+                            dest
+                        }
+                    };
+                    let dest = self.fresh_value();
+                    self.emit(IrInstr::StrConcat {
+                        dest,
+                        left: acc,
+                        right: piece,
+                    });
+                    acc = dest;
                 }
-                let dest = self.fresh_value();
-                self.emit(IrInstr::Call {
-                    dest,
-                    func: "__fstring__".to_string(),
-                    args: arg_ids,
-                });
-                dest
+                acc
             }
             Expr::Ternary {
                 condition,
@@ -405,72 +416,154 @@ impl Lowerer {
             Stmt::For {
                 kind: _,
                 var,
-                start,
-                end,
+                iter,
                 body,
                 ..
             } => {
-                // Always sequential label/branch loop so @parallel/@vectorize still
-                // compile via sequential codegen. ForKind is kept in AST only.
-                let start_v = self.lower_expr(start);
-                let end_v = self.lower_expr(end);
+                match iter {
+                    ForIter::Range { start, end } => {
+                        // Always sequential label/branch loop so @parallel/@vectorize still
+                        // compile via sequential codegen. ForKind is kept in AST only.
+                        let start_v = self.lower_expr(start);
+                        let end_v = self.lower_expr(end);
 
-                self.emit(IrInstr::Store {
-                    name: var.clone(),
-                    value: start_v,
-                });
-                let header = self.fresh_block();
-                let body_b = self.fresh_block();
-                let exit_b = self.fresh_block();
+                        self.emit(IrInstr::Store {
+                            name: var.clone(),
+                            value: start_v,
+                        });
+                        let header = self.fresh_block();
+                        let body_b = self.fresh_block();
+                        let exit_b = self.fresh_block();
 
-                self.emit(IrInstr::Jump { target: header });
-                self.emit(IrInstr::Label { block: header });
+                        self.emit(IrInstr::Jump { target: header });
+                        self.emit(IrInstr::Label { block: header });
 
-                let i_val = self.fresh_value();
-                self.emit(IrInstr::Load {
-                    dest: i_val,
-                    name: var.clone(),
-                });
-                let cmp = self.fresh_value();
-                self.emit(IrInstr::Binary {
-                    dest: cmp,
-                    op: IrOp::Lt,
-                    left: i_val,
-                    right: end_v,
-                });
-                self.emit(IrInstr::Branch {
-                    cond: cmp,
-                    then_block: body_b,
-                    else_block: exit_b,
-                });
+                        let i_val = self.fresh_value();
+                        self.emit(IrInstr::Load {
+                            dest: i_val,
+                            name: var.clone(),
+                        });
+                        let cmp = self.fresh_value();
+                        self.emit(IrInstr::Binary {
+                            dest: cmp,
+                            op: IrOp::Lt,
+                            left: i_val,
+                            right: end_v,
+                        });
+                        self.emit(IrInstr::Branch {
+                            cond: cmp,
+                            then_block: body_b,
+                            else_block: exit_b,
+                        });
 
-                self.emit(IrInstr::Label { block: body_b });
-                self.lower_stmt(body);
+                        self.emit(IrInstr::Label { block: body_b });
+                        self.lower_stmt(body);
 
-                let i2 = self.fresh_value();
-                self.emit(IrInstr::Load {
-                    dest: i2,
-                    name: var.clone(),
-                });
-                let one = self.fresh_value();
-                self.emit(IrInstr::ConstI64 {
-                    dest: one,
-                    value: 1,
-                });
-                let next = self.fresh_value();
-                self.emit(IrInstr::Binary {
-                    dest: next,
-                    op: IrOp::Add,
-                    left: i2,
-                    right: one,
-                });
-                self.emit(IrInstr::Store {
-                    name: var.clone(),
-                    value: next,
-                });
-                self.emit(IrInstr::Jump { target: header });
+                        let i2 = self.fresh_value();
+                        self.emit(IrInstr::Load {
+                            dest: i2,
+                            name: var.clone(),
+                        });
+                        let one = self.fresh_value();
+                        self.emit(IrInstr::ConstI64 {
+                            dest: one,
+                            value: 1,
+                        });
+                        let next = self.fresh_value();
+                        self.emit(IrInstr::Binary {
+                            dest: next,
+                            op: IrOp::Add,
+                            left: i2,
+                            right: one,
+                        });
+                        self.emit(IrInstr::Store {
+                            name: var.clone(),
+                            value: next,
+                        });
+                        self.emit(IrInstr::Jump { target: header });
 
-                self.emit(IrInstr::Label { block: exit_b });
+                        self.emit(IrInstr::Label { block: exit_b });
+                    }
+                    ForIter::Iterable(iterable) => {
+                        let list = self.lower_expr(iterable);
+                        let len = self.fresh_value();
+                        self.emit(IrInstr::ListLen { dest: len, list });
+
+                        let idx_name = format!("__for_i_{}", var);
+                        let zero = self.fresh_value();
+                        self.emit(IrInstr::ConstI64 {
+                            dest: zero,
+                            value: 0,
+                        });
+                        self.emit(IrInstr::Store {
+                            name: idx_name.clone(),
+                            value: zero,
+                        });
+
+                        let header = self.fresh_block();
+                        let body_b = self.fresh_block();
+                        let exit_b = self.fresh_block();
+
+                        self.emit(IrInstr::Jump { target: header });
+                        self.emit(IrInstr::Label { block: header });
+
+                        let i_val = self.fresh_value();
+                        self.emit(IrInstr::Load {
+                            dest: i_val,
+                            name: idx_name.clone(),
+                        });
+                        let cmp = self.fresh_value();
+                        self.emit(IrInstr::Binary {
+                            dest: cmp,
+                            op: IrOp::Lt,
+                            left: i_val,
+                            right: len,
+                        });
+                        self.emit(IrInstr::Branch {
+                            cond: cmp,
+                            then_block: body_b,
+                            else_block: exit_b,
+                        });
+
+                        self.emit(IrInstr::Label { block: body_b });
+                        let elem = self.fresh_value();
+                        self.emit(IrInstr::IndexGet {
+                            dest: elem,
+                            object: list,
+                            index: i_val,
+                        });
+                        self.emit(IrInstr::Store {
+                            name: var.clone(),
+                            value: elem,
+                        });
+                        self.lower_stmt(body);
+
+                        let i2 = self.fresh_value();
+                        self.emit(IrInstr::Load {
+                            dest: i2,
+                            name: idx_name.clone(),
+                        });
+                        let one = self.fresh_value();
+                        self.emit(IrInstr::ConstI64 {
+                            dest: one,
+                            value: 1,
+                        });
+                        let next = self.fresh_value();
+                        self.emit(IrInstr::Binary {
+                            dest: next,
+                            op: IrOp::Add,
+                            left: i2,
+                            right: one,
+                        });
+                        self.emit(IrInstr::Store {
+                            name: idx_name,
+                            value: next,
+                        });
+                        self.emit(IrInstr::Jump { target: header });
+
+                        self.emit(IrInstr::Label { block: exit_b });
+                    }
+                }
             }
             Stmt::Function(decl) => {
                 let saved = std::mem::take(&mut self.current);
