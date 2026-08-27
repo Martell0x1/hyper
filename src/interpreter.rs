@@ -152,6 +152,71 @@ fn to_i64(value: &HyperValue) -> i64 {
     }
 }
 
+fn index_get(object: &HyperValue, index: &HyperValue, line: u32) -> HyperValue {
+    match object {
+        HyperValue::List(items) | HyperValue::Array { elements: items, .. } => {
+            let i = to_i64(index);
+            if i < 0 || i as usize >= items.len() {
+                eprintln!(
+                    "[line {}] Error: List index {} out of bounds (len {}).",
+                    line,
+                    i,
+                    items.len()
+                );
+                std::process::exit(70);
+            }
+            items[i as usize].clone()
+        }
+        HyperValue::Dict { entries, .. } => {
+            let key = index.to_string();
+            entries.get(&key).cloned().unwrap_or(HyperValue::None)
+        }
+        HyperValue::String(s) => {
+            let i = to_i64(index);
+            let chars: Vec<char> = s.chars().collect();
+            if i < 0 || i as usize >= chars.len() {
+                eprintln!(
+                    "[line {}] Error: String index {} out of bounds (len {}).",
+                    line,
+                    i,
+                    chars.len()
+                );
+                std::process::exit(70);
+            }
+            HyperValue::String(chars[i as usize].to_string())
+        }
+        _ => {
+            eprintln!("[line {}] Error: Indexed value is not a list, dict, or string.", line);
+            std::process::exit(70);
+        }
+    }
+}
+
+fn index_set(object: &mut HyperValue, index: &HyperValue, value: HyperValue, line: u32) {
+    match object {
+        HyperValue::List(items) | HyperValue::Array { elements: items, .. } => {
+            let i = to_i64(index);
+            if i < 0 || i as usize >= items.len() {
+                eprintln!(
+                    "[line {}] Error: List index {} out of bounds (len {}).",
+                    line,
+                    i,
+                    items.len()
+                );
+                std::process::exit(70);
+            }
+            items[i as usize] = value;
+        }
+        HyperValue::Dict { entries, .. } => {
+            entries.insert(index.to_string(), value);
+        }
+        _ => {
+            eprintln!("[line {}] Error: Indexed assignment requires a list or dict.", line);
+            std::process::exit(70);
+        }
+    }
+}
+
 fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<HyperValue> {
     match expr {
         Expr::Literal(lit) => Some(literal_to_value(lit)),
@@ -341,6 +406,34 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                 val_type: "any".to_string(),
                 entries: map,
             })
+        }
+        Expr::Index { object, index } => {
+            let obj = evaluate(object, line, Rc::clone(&env))?;
+            let idx = evaluate(index, line, Rc::clone(&env))?;
+            Some(index_get(&obj, &idx, line))
+        }
+        Expr::IndexSet {
+            object,
+            index,
+            value,
+        } => {
+            let idx = evaluate(index, line, Rc::clone(&env))?;
+            let val = evaluate(value, line, Rc::clone(&env))?;
+            match object.as_ref() {
+                Expr::Variable { name, line: var_line } => {
+                    let idx_c = idx.clone();
+                    let val_c = val.clone();
+                    env.borrow_mut().with_value_mut(name, *var_line, |current| {
+                        index_set(current, &idx_c, val_c, line);
+                    });
+                    Some(val)
+                }
+                _ => {
+                    let mut obj = evaluate(object, line, Rc::clone(&env))?;
+                    index_set(&mut obj, &idx, val.clone(), line);
+                    Some(val)
+                }
+            }
         }
         Expr::FString { line: f_line, parts } => {
             let mut evaluated_string = String::new();
