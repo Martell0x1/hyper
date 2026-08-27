@@ -53,7 +53,6 @@ pub enum IrInstr {
         else_block: BlockId,
     },
     Label { block: BlockId },
-    /// Marker for parallel/vector loops for future codegen.
     ParallelForBegin {
         var: String,
         start: ValueId,
