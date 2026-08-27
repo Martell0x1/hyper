@@ -340,6 +340,79 @@ void hyper_rt_dict_set(
     dict->len++;
 }
 
+int64_t hyper_rt_list_len(int64_t list_h) {
+    if (!list_h) {
+        return 0;
+    }
+    const RtList *list = (const RtList *)(intptr_t)list_h;
+    return (int64_t)list->len;
+}
+
+int64_t hyper_rt_value_to_str(int64_t payload, int64_t kind) {
+    RtValue v;
+    v.kind = kind;
+    v.payload = payload;
+
+    char buf[512];
+    switch (kind) {
+    case KIND_I64:
+        snprintf(buf, sizeof(buf), "%lld", (long long)payload);
+        break;
+    case KIND_F64: {
+        double d;
+        memcpy(&d, &payload, sizeof(d));
+        snprintf(buf, sizeof(buf), "%g", d);
+        break;
+    }
+    case KIND_STR: {
+        const char *s = payload ? (const char *)(intptr_t)payload : "";
+        size_t n = strlen(s);
+        char *out = (char *)malloc(n + 1);
+        if (!out) {
+            return 0;
+        }
+        memcpy(out, s, n + 1);
+        return (int64_t)(intptr_t)out;
+    }
+    case KIND_BOOL:
+        snprintf(buf, sizeof(buf), "%s", payload ? "true" : "false");
+        break;
+    case KIND_NONE:
+        snprintf(buf, sizeof(buf), "None");
+        break;
+    case KIND_LIST:
+    case KIND_DICT: {
+        /* Fall back to a small fixed buffer via format helpers into temp FILE-less path. */
+        snprintf(buf, sizeof(buf), "<?>");
+        break;
+    }
+    default:
+        snprintf(buf, sizeof(buf), "<?>");
+        break;
+    }
+    size_t n = strlen(buf);
+    char *out = (char *)malloc(n + 1);
+    if (!out) {
+        return 0;
+    }
+    memcpy(out, buf, n + 1);
+    return (int64_t)(intptr_t)out;
+}
+
+int64_t hyper_rt_str_concat(int64_t left, int64_t right) {
+    const char *a = left ? (const char *)(intptr_t)left : "";
+    const char *b = right ? (const char *)(intptr_t)right : "";
+    size_t na = strlen(a);
+    size_t nb = strlen(b);
+    char *out = (char *)malloc(na + nb + 1);
+    if (!out) {
+        return 0;
+    }
+    memcpy(out, a, na);
+    memcpy(out + na, b, nb + 1);
+    return (int64_t)(intptr_t)out;
+}
+
 int main(void) {
     __main__();
     return 0;
