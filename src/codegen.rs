@@ -15,10 +15,10 @@ use std::process::Command;
 
 use crate::runtime::{
     hyper_rt_dict_get, hyper_rt_dict_new, hyper_rt_dict_push, hyper_rt_dict_set,
-    hyper_rt_list_get, hyper_rt_list_new, hyper_rt_list_push, hyper_rt_list_set,
-    hyper_rt_pow_f64, hyper_rt_pow_i64, hyper_rt_print_dict, hyper_rt_print_f64,
-    hyper_rt_print_i64, hyper_rt_print_list, hyper_rt_print_newline, hyper_rt_print_str,
-    hyper_rt_print_value,
+    hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
+    hyper_rt_list_set, hyper_rt_pow_f64, hyper_rt_pow_i64, hyper_rt_print_dict,
+    hyper_rt_print_f64, hyper_rt_print_i64, hyper_rt_print_list, hyper_rt_print_newline,
+    hyper_rt_print_str, hyper_rt_print_value, hyper_rt_str_concat, hyper_rt_value_to_str,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,10 +87,13 @@ struct RuntimeIds {
     list_push: FuncId,
     list_get: FuncId,
     list_set: FuncId,
+    list_len: FuncId,
     dict_new: FuncId,
     dict_push: FuncId,
     dict_get: FuncId,
     dict_set: FuncId,
+    value_to_str: FuncId,
+    str_concat: FuncId,
 }
 
 fn make_flags(is_pic: bool) -> Result<settings::Flags, String> {
@@ -248,6 +251,32 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
             .declare_function("hyper_rt_dict_set", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
+    let list_len = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_list_len", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let value_to_str = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_value_to_str", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let str_concat = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_str_concat", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
     Ok(RuntimeIds {
         print_i64,
         print_f64,
@@ -262,10 +291,13 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         list_push,
         list_get,
         list_set,
+        list_len,
         dict_new,
         dict_push,
         dict_get,
         dict_set,
+        value_to_str,
+        str_concat,
     })
 }
 
@@ -332,10 +364,13 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_list_push", hyper_rt_list_push as *const u8);
     jit_builder.symbol("hyper_rt_list_get", hyper_rt_list_get as *const u8);
     jit_builder.symbol("hyper_rt_list_set", hyper_rt_list_set as *const u8);
+    jit_builder.symbol("hyper_rt_list_len", hyper_rt_list_len as *const u8);
     jit_builder.symbol("hyper_rt_dict_new", hyper_rt_dict_new as *const u8);
     jit_builder.symbol("hyper_rt_dict_push", hyper_rt_dict_push as *const u8);
     jit_builder.symbol("hyper_rt_dict_get", hyper_rt_dict_get as *const u8);
     jit_builder.symbol("hyper_rt_dict_set", hyper_rt_dict_set as *const u8);
+    jit_builder.symbol("hyper_rt_value_to_str", hyper_rt_value_to_str as *const u8);
+    jit_builder.symbol("hyper_rt_str_concat", hyper_rt_str_concat as *const u8);
 }
 
 pub fn jit_execute(module: &IrModule) -> Result<(), String> {
@@ -647,6 +682,19 @@ fn define_function<M: Module>(
                     ensure_val(*index, &mut builder, &mut next_var, &mut value_vars);
                     ensure_val(*value, &mut builder, &mut next_var, &mut value_vars);
                 }
+                IrInstr::ListLen { dest, list } => {
+                    ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
+                    ensure_val(*list, &mut builder, &mut next_var, &mut value_vars);
+                }
+                IrInstr::ValueToStr { dest, src } => {
+                    ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
+                    ensure_val(*src, &mut builder, &mut next_var, &mut value_vars);
+                }
+                IrInstr::StrConcat { dest, left, right } => {
+                    ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
+                    ensure_val(*left, &mut builder, &mut next_var, &mut value_vars);
+                    ensure_val(*right, &mut builder, &mut next_var, &mut value_vars);
+                }
                 IrInstr::Print { args } => {
                     for a in args {
                         ensure_val(*a, &mut builder, &mut next_var, &mut value_vars);
@@ -779,7 +827,15 @@ fn define_function<M: Module>(
                     let rk = kind_of(&value_kinds, *right);
                     let is_float = lk == ValueKind::F64 || rk == ValueKind::F64;
 
-                    let (v, out_kind) = if is_float
+                    let (v, out_kind) = if lk == ValueKind::Str
+                        && rk == ValueKind::Str
+                        && matches!(op, IrOp::Add)
+                    {
+                        let fref = module
+                            .declare_func_in_func(runtime.str_concat, &mut builder.func);
+                        let call = builder.ins().call(fref, &[l, r]);
+                        (builder.inst_results(call)[0], ValueKind::Str)
+                    } else if is_float
                         && matches!(
                             op,
                             IrOp::Add | IrOp::Sub | IrOp::Mul | IrOp::Div | IrOp::Pow
@@ -1053,6 +1109,38 @@ fn define_function<M: Module>(
                             builder.ins().call(fref, &[obj, idx, val, val_kind]);
                         }
                     }
+                }
+                IrInstr::ListLen { dest, list } => {
+                    let l = builder.use_var(value_vars[list]);
+                    let fref =
+                        module.declare_func_in_func(runtime.list_len, &mut builder.func);
+                    let call = builder.ins().call(fref, &[l]);
+                    let ret = builder.inst_results(call)[0];
+                    builder.def_var(value_vars[dest], ret);
+                    value_kinds.insert(*dest, ValueKind::I64);
+                }
+                IrInstr::ValueToStr { dest, src } => {
+                    let v = builder.use_var(value_vars[src]);
+                    let kind = match kind_of(&value_kinds, *src) {
+                        ValueKind::Dynamic => builder.use_var(kind_vars[src]),
+                        other => builder.ins().iconst(types::I64, other.as_i64()),
+                    };
+                    let fref =
+                        module.declare_func_in_func(runtime.value_to_str, &mut builder.func);
+                    let call = builder.ins().call(fref, &[v, kind]);
+                    let ret = builder.inst_results(call)[0];
+                    builder.def_var(value_vars[dest], ret);
+                    value_kinds.insert(*dest, ValueKind::Str);
+                }
+                IrInstr::StrConcat { dest, left, right } => {
+                    let l = builder.use_var(value_vars[left]);
+                    let r = builder.use_var(value_vars[right]);
+                    let fref =
+                        module.declare_func_in_func(runtime.str_concat, &mut builder.func);
+                    let call = builder.ins().call(fref, &[l, r]);
+                    let ret = builder.inst_results(call)[0];
+                    builder.def_var(value_vars[dest], ret);
+                    value_kinds.insert(*dest, ValueKind::Str);
                 }
                 IrInstr::Print { args } => {
                     for a in args {
