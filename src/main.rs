@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 
+mod ast;
 mod scanner;
 mod parser;
 mod environment;
