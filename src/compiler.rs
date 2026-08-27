@@ -378,93 +378,74 @@ impl Lowerer {
                 self.emit(IrInstr::Label { block: exit_b });
             }
             Stmt::For {
-                kind,
+                kind: _,
                 var,
                 start,
                 end,
                 body,
                 ..
             } => {
+                // Always sequential label/branch loop so @parallel/@vectorize still
+                // compile via sequential codegen. ForKind is kept in AST only.
                 let start_v = self.lower_expr(start);
                 let end_v = self.lower_expr(end);
 
-                let is_parallel = matches!(
-                    kind,
-                    ForKind::Parallel | ForKind::ParallelVectorized | ForKind::Vectorized
-                );
-                let vectorized =
-                    matches!(kind, ForKind::Vectorized | ForKind::ParallelVectorized);
+                self.emit(IrInstr::Store {
+                    name: var.clone(),
+                    value: start_v,
+                });
+                let header = self.fresh_block();
+                let body_b = self.fresh_block();
+                let exit_b = self.fresh_block();
 
-                if is_parallel {
-                    self.emit(IrInstr::ParallelForBegin {
-                        var: var.clone(),
-                        start: start_v,
-                        end: end_v,
-                        vectorized,
-                    });
-                    // Body still lowered for typecheck/codegen preview.
-                    self.lower_stmt(body);
-                    self.emit(IrInstr::ParallelForEnd);
-                } else {
-                    // Sequential for as labels/branch:
-                    // i = start; loop: if i >= end goto exit; body; i = i + 1; goto loop; exit:
-                    self.emit(IrInstr::Store {
-                        name: var.clone(),
-                        value: start_v,
-                    });
-                    let header = self.fresh_block();
-                    let body_b = self.fresh_block();
-                    let exit_b = self.fresh_block();
+                self.emit(IrInstr::Jump { target: header });
+                self.emit(IrInstr::Label { block: header });
 
-                    self.emit(IrInstr::Jump { target: header });
-                    self.emit(IrInstr::Label { block: header });
+                let i_val = self.fresh_value();
+                self.emit(IrInstr::Load {
+                    dest: i_val,
+                    name: var.clone(),
+                });
+                let cmp = self.fresh_value();
+                self.emit(IrInstr::Binary {
+                    dest: cmp,
+                    op: IrOp::Lt,
+                    left: i_val,
+                    right: end_v,
+                });
+                self.emit(IrInstr::Branch {
+                    cond: cmp,
+                    then_block: body_b,
+                    else_block: exit_b,
+                });
 
-                    let i_val = self.fresh_value();
-                    self.emit(IrInstr::Load {
-                        dest: i_val,
-                        name: var.clone(),
-                    });
-                    let cmp = self.fresh_value();
-                    self.emit(IrInstr::Binary {
-                        dest: cmp,
-                        op: IrOp::Lt,
-                        left: i_val,
-                        right: end_v,
-                    });
-                    self.emit(IrInstr::Branch {
-                        cond: cmp,
-                        then_block: body_b,
-                        else_block: exit_b,
-                    });
+                self.emit(IrInstr::Label { block: body_b });
+                self.lower_stmt(body);
 
-                    self.emit(IrInstr::Label { block: body_b });
-                    self.lower_stmt(body);
+                let i2 = self.fresh_value();
+                self.emit(IrInstr::Load {
+                    dest: i2,
+                    name: var.clone(),
+                });
+                let one = self.fresh_value();
+                self.emit(IrInstr::ConstI64 {
+                    dest: one,
+                    value: 1,
+                });
+                let next = self.fresh_value();
+                self.emit(IrInstr::Binary {
+                    dest: next,
+                    op: IrOp::Add,
+                    left: i2,
+                    right: one,
+                });
+                self.emit(IrInstr::Store {
+                    name: var.clone(),
+                    value: next,
+                });
+                self.emit(IrInstr::Jump { target: header });
 
-                    let i2 = self.fresh_value();
-                    self.emit(IrInstr::Load {
-                        dest: i2,
-                        name: var.clone(),
-                    });
-                    let one = self.fresh_value();
-                    self.emit(IrInstr::ConstI64 {
-                        dest: one,
-                        value: 1,
-                    });
-                    let next = self.fresh_value();
-                    self.emit(IrInstr::Binary {
-                        dest: next,
-                        op: IrOp::Add,
-                        left: i2,
-                        right: one,
-                    });
-                    self.emit(IrInstr::Store {
-                        name: var.clone(),
-                        value: next,
-                    });
-                    self.emit(IrInstr::Jump { target: header });
-
-                    self.emit(IrInstr::Label { block: exit_b });
-                }
+                self.emit(IrInstr::Label { block: exit_b });
             }
             Stmt::Function(decl) => {
                 let saved = std::mem::take(&mut self.current);
@@ -551,7 +532,13 @@ pub fn lower(stmts: &[Stmt]) -> IrModule {
     }
 }
 
-pub fn run_compile(file_contents: String) {
+pub enum CompileMode {
+    Jit,
+    EmitIr,
+    EmitObj { path: String },
+}
+
+pub fn run_compile(file_contents: String, mode: CompileMode) {
     let stmts = match driver::parse_program(&file_contents) {
         Ok(s) => s,
         Err(()) => {
@@ -568,12 +555,24 @@ pub fn run_compile(file_contents: String) {
     }
 
     let module = lower(&stmts);
-    match crate::codegen::jit_execute(&module) {
-        Ok(()) => {}
-        Err(msg) => {
-            eprintln!("codegen: {}", msg);
-            println!("{}", module);
-            process::exit(70);
+    match mode {
+        CompileMode::Jit => match crate::codegen::jit_execute(&module) {
+            Ok(()) => {}
+            Err(msg) => {
+                eprintln!("codegen: {}", msg);
+                println!("{}", module);
+                process::exit(70);
+            }
+        },
+        CompileMode::EmitIr => {
+            crate::codegen::dump_ir(&module);
         }
+        CompileMode::EmitObj { path } => match crate::codegen::emit_object(&module, &path) {
+            Ok(()) => {}
+            Err(msg) => {
+                eprintln!("codegen: {}", msg);
+                process::exit(70);
+            }
+        },
     }
 }
