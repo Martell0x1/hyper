@@ -100,7 +100,45 @@ fn coerce_to_type(value: HyperValue, type_ann: &TypeAnn, line: u32) -> HyperValu
     match type_ann {
         TypeAnn::None => value,
         TypeAnn::Named(name) => coerce_named(value, name, line),
-        TypeAnn::Array { .. } | TypeAnn::Dict { .. } => value,
+        TypeAnn::Array { inner } => match value {
+            HyperValue::List(elements) | HyperValue::Array { elements, .. } => {
+                let elements = elements
+                    .into_iter()
+                    .map(|el| coerce_named(el, inner, line))
+                    .collect();
+                HyperValue::Array {
+                    element_type: inner.clone(),
+                    elements,
+                }
+            }
+            other => {
+                eprintln!(
+                    "[line {}] Warning: cannot coerce value to Array[{}]; expected a list.",
+                    line, inner
+                );
+                other
+            }
+        },
+        TypeAnn::Dict { key, value: val_ty } => match value {
+            HyperValue::Dict { entries, .. } => {
+                let entries = entries
+                    .into_iter()
+                    .map(|(k, v)| (k, coerce_named(v, val_ty, line)))
+                    .collect();
+                HyperValue::Dict {
+                    key_type: key.clone(),
+                    val_type: val_ty.clone(),
+                    entries,
+                }
+            }
+            other => {
+                eprintln!(
+                    "[line {}] Warning: cannot coerce value to Dict[{}, {}]; expected a dict.",
+                    line, key, val_ty
+                );
+                other
+            }
+        },
     }
 }
 
