@@ -796,6 +796,30 @@ impl TypeChecker {
                 self.check_stmt(body);
                 self.pop_scope();
             }
+            Stmt::Import {
+                module, alias, ..
+            } => {
+                let bind = alias.as_ref().unwrap_or(module);
+                self.define(
+                    bind,
+                    Binding {
+                        ty: HyperType::Any,
+                        mutable: false,
+                    },
+                );
+            }
+            Stmt::ImportFrom { names, .. } => {
+                for item in names {
+                    let bind = item.alias.as_ref().unwrap_or(&item.name);
+                    self.define(
+                        bind,
+                        Binding {
+                            ty: HyperType::Any,
+                            mutable: false,
+                        },
+                    );
+                }
+            }
         }
     }
 
