@@ -564,6 +564,22 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                             ExecResult::Ok => Some(HyperValue::None),
                         };
                     }
+                    Some(HyperValue::StructDef {
+                        name: sname,
+                        fields,
+                        methods,
+                        implemented_trait,
+                    }) => {
+                        return Some(instantiate_struct(
+                            sname,
+                            fields,
+                            methods,
+                            implemented_trait,
+                            evaluated_args,
+                            &HashMap::new(),
+                            line,
+                        ));
+                    }
                     Some(_) => {
                         eprintln!(
                             "[line {}] Error: '{}.{}' is not callable.",
@@ -660,6 +676,70 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
     }
 }
 
+fn instantiate_struct(
+    name: &str,
+    fields: &[(String, String, bool, bool, usize)],
+    methods: &HashMap<String, (bool, HyperValue)>,
+    _implemented_trait: &str,
+    positional_args: Vec<HyperValue>,
+    named_args: &HashMap<String, HyperValue>,
+    _line: u32,
+) -> HyperValue {
+    let mut instance_fields_vec = Vec::new();
+    let mut field_indices = HashMap::new();
+    let mut field_visibility = HashMap::new();
+
+    for (idx, (f_name, _, is_pub, _, _)) in fields.iter().enumerate() {
+        let initial = named_args.get(f_name).cloned().unwrap_or(HyperValue::None);
+        instance_fields_vec.push(initial);
+        field_indices.insert(f_name.clone(), idx);
+        field_visibility.insert(f_name.clone(), *is_pub);
+    }
+
+    let instance = HyperValue::Instance {
+        struct_name: name.to_string(),
+        fields: Rc::new(RefCell::new(instance_fields_vec)),
+        field_indices,
+        field_visibility,
+        methods: methods.clone(),
+    };
+
+    if let Some((
+        _is_pub,
+        HyperValue::Function {
+            params,
+            body,
+            closure,
+            ..
+        },
+    )) = methods.get("__init__")
+    {
+        let init_env =
+            Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(closure))));
+        init_env
+            .borrow_mut()
+            .define("self".to_string(), instance.clone(), true);
+
+        let mut init_args = positional_args;
+        if init_args.is_empty() && !named_args.is_empty() {
+            for (f_name, _, _, _, _) in fields.iter() {
+                if let Some(val) = named_args.get(f_name) {
+                    init_args.push(val.clone());
+                }
+            }
+        }
+
+        for (param_name, arg_value) in params.iter().skip(1).zip(init_args) {
+            init_env
+                .borrow_mut()
+                .define(param_name.clone(), arg_value, true);
+        }
+
+        execute(body, init_env);
+    }
+    instance
+}
+
 fn evaluate_call(
     callee: &Expr,
     args: &[CallArg],
@@ -743,7 +823,7 @@ fn evaluate_call(
             name,
             fields,
             methods,
-            ..
+            implemented_trait,
         } => {
             let mut positional_args = Vec::new();
             let mut named_args: HashMap<String, HyperValue> = HashMap::new();
@@ -763,61 +843,15 @@ fn evaluate_call(
                 }
             }
 
-            let mut instance_fields_vec = Vec::new();
-            let mut field_indices = HashMap::new();
-            let mut field_visibility = HashMap::new();
-
-            for (idx, (f_name, _, is_pub, _, _)) in fields.iter().enumerate() {
-                let initial = named_args.get(f_name).cloned().unwrap_or(HyperValue::None);
-                instance_fields_vec.push(initial);
-                field_indices.insert(f_name.clone(), idx);
-                field_visibility.insert(f_name.clone(), *is_pub);
-            }
-
-            let instance = HyperValue::Instance {
-                struct_name: name.clone(),
-                fields: Rc::new(RefCell::new(instance_fields_vec)),
-                field_indices,
-                field_visibility,
-                methods: methods.clone(),
-            };
-
-            if let Some((
-                _is_pub,
-                HyperValue::Function {
-                    params,
-                    body,
-                    closure,
-                    ..
-                },
-            )) = methods.get("__init__")
-            {
-                let init_env =
-                    Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(
-                        closure,
-                    ))));
-                init_env
-                    .borrow_mut()
-                    .define("self".to_string(), instance.clone(), true);
-
-                let mut init_args = positional_args;
-                if init_args.is_empty() && !named_args.is_empty() {
-                    for (f_name, _, _, _, _) in fields.iter() {
-                        if let Some(val) = named_args.get(f_name) {
-                            init_args.push(val.clone());
-                        }
-                    }
-                }
-
-                for (param_name, arg_value) in params.iter().skip(1).zip(init_args) {
-                    init_env
-                        .borrow_mut()
-                        .define(param_name.clone(), arg_value, true);
-                }
-
-                execute(body, init_env);
-            }
-            Some(instance)
+            Some(instantiate_struct(
+                &name,
+                &fields,
+                &methods,
+                &implemented_trait,
+                positional_args,
+                &named_args,
+                line,
+            ))
         }
         _ => {
             eprintln!("Can only call functions and classes.\n[line {}]", line);
