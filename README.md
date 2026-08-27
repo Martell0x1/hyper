@@ -23,6 +23,8 @@ Hyper is being developed to solve the trade-off between developer efficiency and
 * **Safety First:** Aiming to introduce memory and type safety mechanisms to prevent common runtime errors.
 * **Modern Conception:** Created as an open exploration into building efficient, high-level developer tools for modern systems.
 
+> **Note:** Generics (e.g. `make_it_speak[T: Speaker](...)` shown in `doc/examples/struct/traits.hyp`) are **not implemented yet** and are planned for a future release. The trait examples currently work only without generic type parameters.
+
 ## Commit Conventiions
 
 We follow standard commit message conventions to keep our git history clean, readable, and easy to parse automatically.
