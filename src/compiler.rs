@@ -1,5 +1,5 @@
 use crate::ast::*;
-use crate::frontend;
+use crate::driver;
 use crate::ir::{BlockId, IrFunction, IrInstr, IrModule, IrOp, ValueId};
 use crate::semantic;
 use std::process;
@@ -8,7 +8,6 @@ struct Lowerer {
     next_value: ValueId,
     next_block: BlockId,
     functions: Vec<IrFunction>,
-    /// Current instruction buffer (main or function being lowered).
     current: Vec<IrInstr>,
 }
 
@@ -541,7 +540,6 @@ impl Lowerer {
     }
 }
 
-/// Lower a typed AST statement list to compiler IR.
 pub fn lower(stmts: &[Stmt]) -> IrModule {
     let mut lowerer = Lowerer::new();
     for stmt in stmts {
@@ -553,9 +551,8 @@ pub fn lower(stmts: &[Stmt]) -> IrModule {
     }
 }
 
-/// Scan, parse, typecheck, lower to IR, and dump the module.
 pub fn run_compile(file_contents: String) {
-    let stmts = match frontend::parse_program(&file_contents) {
+    let stmts = match driver::parse_program(&file_contents) {
         Ok(s) => s,
         Err(()) => {
             eprintln!("Syntax error.");
@@ -571,6 +568,12 @@ pub fn run_compile(file_contents: String) {
     }
 
     let module = lower(&stmts);
-    println!("{}", module);
-    println!("Native codegen not yet enabled; IR is the compiler frontend output.");
+    match crate::codegen::jit_execute(&module) {
+        Ok(()) => {}
+        Err(msg) => {
+            eprintln!("codegen: {}", msg);
+            println!("{}", module);
+            process::exit(70);
+        }
+    }
 }
