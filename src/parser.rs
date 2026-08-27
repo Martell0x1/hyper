@@ -50,6 +50,13 @@ impl Parser {
                         value: Box::new(value),
                     });
                 }
+                Expr::Index { object, index } => {
+                    return Ok(Expr::IndexSet {
+                        object,
+                        index,
+                        value: Box::new(value),
+                    });
+                }
                 _ => {
                     let line = self.previous().line;
                     eprintln!("[line {}] Error: Invalid assignment target.", line);
@@ -213,7 +220,20 @@ impl Parser {
                 right: Box::new(right),
             });
         }
-        self.primary()
+        self.postfix()
+    }
+
+    fn postfix(&mut self) -> Result<Expr, ()> {
+        let mut expr = self.primary()?;
+        while self.match_types(&[TokenType::LeftBracket]) {
+            let index = self.expression()?;
+            self.consume(TokenType::RightBracket, "Expect ']' after index.")?;
+            expr = Expr::Index {
+                object: Box::new(expr),
+                index: Box::new(index),
+            };
+        }
+        Ok(expr)
     }
 
     fn parse_collection_after_open(
