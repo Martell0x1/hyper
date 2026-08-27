@@ -1,7 +1,10 @@
 use crate::ast::*;
 use crate::driver;
 use crate::ir::{BlockId, IrFunction, IrInstr, IrModule, IrOp, ValueId};
+use crate::module::{self, ModuleLoadState};
 use crate::semantic;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::process;
 
 struct Lowerer {
@@ -9,16 +12,135 @@ struct Lowerer {
     next_block: BlockId,
     functions: Vec<IrFunction>,
     current: Vec<IrInstr>,
+    /// Instructions to run once for imported module top-level lets.
+    module_inits: Vec<IrInstr>,
+    /// `import math as m` → m maps to real module name `math`
+    module_aliases: HashMap<String, String>,
+    /// `from math import add` / same-module calls → local name → mangled IR name
+    call_aliases: HashMap<String, String>,
+    lowered_modules: HashSet<String>,
+    load_state: ModuleLoadState,
 }
 
 impl Lowerer {
-    fn new() -> Self {
+    fn new(entry_path: &Path) -> Self {
         Lowerer {
             next_value: 0,
             next_block: 0,
             functions: Vec::new(),
             current: Vec::new(),
+            module_inits: Vec::new(),
+            module_aliases: HashMap::new(),
+            call_aliases: HashMap::new(),
+            lowered_modules: HashSet::new(),
+            load_state: ModuleLoadState::new(entry_path),
         }
+    }
+
+    fn resolve_call_name(&self, name: &str) -> String {
+        self.call_aliases
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.to_string())
+    }
+
+    fn ensure_module(&mut self, module_name: &str, line: u32) {
+        if !self.lowered_modules.insert(module_name.to_string()) {
+            return;
+        }
+
+        let stmts = match self.load_state.load_stmts(module_name) {
+            Ok((_path, stmts)) => stmts,
+            Err(msg) => {
+                eprintln!("[line {}] Error: {}.", line, msg);
+                process::exit(70);
+            }
+        };
+
+        // Nested imports first.
+        for stmt in &stmts {
+            match stmt {
+                Stmt::Import {
+                    module, line, ..
+                } => self.ensure_module(module, *line),
+                Stmt::ImportFrom {
+                    module, line, ..
+                } => self.ensure_module(module, *line),
+                _ => {}
+            }
+        }
+
+        let saved_aliases = self.call_aliases.clone();
+        for stmt in &stmts {
+            if let Stmt::Function(decl) = stmt {
+                self.call_aliases.insert(
+                    decl.name.clone(),
+                    module::mangle_module_fn(module_name, &decl.name),
+                );
+            }
+        }
+
+        let saved_current = std::mem::take(&mut self.current);
+        for stmt in &stmts {
+            match stmt {
+                Stmt::Function(decl) => {
+                    let saved_body_current = std::mem::take(&mut self.current);
+                    let saved_next_value = self.next_value;
+                    let saved_next_block = self.next_block;
+                    self.next_value = 0;
+                    self.next_block = 0;
+
+                    self.lower_stmt(&decl.body);
+
+                    let body = std::mem::take(&mut self.current);
+                    self.functions.push(IrFunction {
+                        name: module::mangle_module_fn(module_name, &decl.name),
+                        params: decl.params.iter().map(|p| p.name.clone()).collect(),
+                        body,
+                    });
+
+                    self.current = saved_body_current;
+                    self.next_value = saved_next_value;
+                    self.next_block = saved_next_block;
+                }
+                Stmt::Let {
+                    name, initializer, ..
+                } => {
+                    let v = self.lower_expr(initializer);
+                    self.current.push(IrInstr::Store {
+                        name: module::mangle_module_fn(module_name, name),
+                        value: v,
+                    });
+                }
+                Stmt::Import {
+                    module,
+                    alias,
+                    line,
+                } => {
+                    self.ensure_module(module, *line);
+                    let bind = alias.as_ref().unwrap_or(module).clone();
+                    self.module_aliases.insert(bind, module.clone());
+                }
+                Stmt::ImportFrom {
+                    module,
+                    names,
+                    line,
+                } => {
+                    self.ensure_module(module, *line);
+                    for item in names {
+                        let mangled = module::mangle_module_fn(module, &item.name);
+                        let bind = item.alias.as_ref().unwrap_or(&item.name).clone();
+                        self.call_aliases.insert(bind, mangled);
+                    }
+                }
+                _ => {
+                    // Skip control-flow / print at module top-level on compile path for now.
+                }
+            }
+        }
+        self.module_inits.append(&mut self.current);
+        self.current = saved_current;
+        self.call_aliases = saved_aliases;
     }
 
     fn fresh_value(&mut self) -> ValueId {
@@ -128,6 +250,14 @@ impl Lowerer {
                 v
             }
             Expr::GetField { object, field } => {
+                if let Some(mod_name) = self.module_aliases.get(object).cloned() {
+                    let dest = self.fresh_value();
+                    self.emit(IrInstr::Load {
+                        dest,
+                        name: module::mangle_module_fn(&mod_name, field),
+                    });
+                    return dest;
+                }
                 // Soft: load object then call a synthetic getter.
                 let obj = self.fresh_value();
                 self.emit(IrInstr::Load {
@@ -163,7 +293,7 @@ impl Lowerer {
             }
             Expr::Call { callee, args } => {
                 let func_name = match callee.as_ref() {
-                    Expr::Variable { name, .. } => name.clone(),
+                    Expr::Variable { name, .. } => self.resolve_call_name(name),
                     other => {
                         // Evaluate callee then call through a temp name.
                         let _ = self.lower_expr(other);
@@ -190,6 +320,19 @@ impl Lowerer {
                 method,
                 args,
             } => {
+                if let Some(mod_name) = self.module_aliases.get(object).cloned() {
+                    let mut arg_ids = Vec::new();
+                    for a in args {
+                        arg_ids.push(self.lower_expr(a));
+                    }
+                    let dest = self.fresh_value();
+                    self.emit(IrInstr::Call {
+                        dest,
+                        func: module::mangle_module_fn(&mod_name, method),
+                        args: arg_ids,
+                    });
+                    return dest;
+                }
                 let obj = self.fresh_value();
                 self.emit(IrInstr::Load {
                     dest: obj,
@@ -635,18 +778,41 @@ impl Lowerer {
                 });
                 self.lower_stmt(body);
             }
+            Stmt::Import {
+                line,
+                module,
+                alias,
+            } => {
+                self.ensure_module(module, *line);
+                let bind = alias.as_ref().unwrap_or(module).clone();
+                self.module_aliases.insert(bind, module.clone());
+            }
+            Stmt::ImportFrom {
+                line,
+                module,
+                names,
+            } => {
+                self.ensure_module(module, *line);
+                for item in names {
+                    let mangled = module::mangle_module_fn(module, &item.name);
+                    let bind = item.alias.as_ref().unwrap_or(&item.name).clone();
+                    self.call_aliases.insert(bind, mangled);
+                }
+            }
         }
     }
 }
 
-pub fn lower(stmts: &[Stmt]) -> IrModule {
-    let mut lowerer = Lowerer::new();
+pub fn lower(stmts: &[Stmt], entry_path: &Path) -> IrModule {
+    let mut lowerer = Lowerer::new(entry_path);
     for stmt in stmts {
         lowerer.lower_stmt(stmt);
     }
+    let mut main = lowerer.module_inits;
+    main.extend(lowerer.current);
     IrModule {
         functions: lowerer.functions,
-        main: lowerer.current,
+        main,
     }
 }
 
@@ -657,7 +823,7 @@ pub enum CompileMode {
     EmitExe { path: String },
 }
 
-pub fn run_compile(file_contents: String, mode: CompileMode) {
+pub fn run_compile(file_contents: String, entry_path: &str, mode: CompileMode) {
     let stmts = match driver::parse_program(&file_contents) {
         Ok(s) => s,
         Err(()) => {
@@ -673,7 +839,7 @@ pub fn run_compile(file_contents: String, mode: CompileMode) {
         process::exit(65);
     }
 
-    let module = lower(&stmts);
+    let module = lower(&stmts, Path::new(entry_path));
     match mode {
         CompileMode::Jit => match crate::codegen::jit_execute(&module) {
             Ok(()) => {}
