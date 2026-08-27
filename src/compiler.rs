@@ -11,6 +11,8 @@ use std::process;
 struct StructLayout {
     fields: HashMap<String, u32>,
     field_order: Vec<String>,
+    /// Field name → type name key in `structs` (primitives do not match a layout).
+    field_types: HashMap<String, String>,
     has_init: bool,
     /// IR / mangled base name for methods (`Point` or `shapes__Point`).
     ir_name: String,
@@ -75,6 +77,19 @@ impl Lowerer {
                     }
                 }
             }
+            Expr::GetField { object, field } => {
+                if let Some(stype) = self.var_structs.get(object).cloned() {
+                    if let Some(ft) = self
+                        .structs
+                        .get(&stype)
+                        .and_then(|l| l.field_types.get(field).cloned())
+                    {
+                        if self.structs.contains_key(&ft) {
+                            self.var_structs.insert(name.to_string(), ft);
+                        }
+                    }
+                }
+            }
             Expr::Variable { name: src, .. } => {
                 if let Some(st) = self.var_structs.get(src).cloned() {
                     self.var_structs.insert(name.to_string(), st);
@@ -92,6 +107,7 @@ impl Lowerer {
             .unwrap_or(StructLayout {
                 fields: HashMap::new(),
                 field_order: Vec::new(),
+                field_types: HashMap::new(),
                 has_init: false,
                 ir_name: struct_key.to_string(),
             });
@@ -155,14 +171,17 @@ impl Lowerer {
     ) {
         let mut field_map = HashMap::new();
         let mut field_order = Vec::new();
+        let mut field_types = HashMap::new();
         for (i, f) in fields.iter().enumerate() {
             field_map.insert(f.name.clone(), i as u32);
             field_order.push(f.name.clone());
+            field_types.insert(f.name.clone(), f.type_name.clone());
         }
         let has_init = methods.iter().any(|m| m.function.name == "__init__");
         let layout = StructLayout {
             fields: field_map,
             field_order,
+            field_types,
             has_init,
             ir_name: ir_name.to_string(),
         };
@@ -271,14 +290,17 @@ impl Lowerer {
                 let ir_name = module::mangle_module_fn(module_name, name);
                 let mut field_map = HashMap::new();
                 let mut field_order = Vec::new();
+                let mut field_types = HashMap::new();
                 for (i, f) in fields.iter().enumerate() {
                     field_map.insert(f.name.clone(), i as u32);
                     field_order.push(f.name.clone());
+                    field_types.insert(f.name.clone(), f.type_name.clone());
                 }
                 let has_init = methods.iter().any(|m| m.function.name == "__init__");
                 let layout = StructLayout {
                     fields: field_map,
                     field_order,
+                    field_types,
                     has_init,
                     ir_name: ir_name.clone(),
                 };
@@ -286,6 +308,21 @@ impl Lowerer {
                 self.structs.insert(ir_name.clone(), layout);
                 module_struct_shorts.push(name.clone());
                 module_structs.push((name, fields, methods, ir_name));
+            }
+        }
+        // Rewrite struct-valued field types to mangled keys so they survive
+        // after short names are dropped from `structs`.
+        for short in &module_struct_shorts {
+            if let Some(mut layout) = self.structs.get(short).cloned() {
+                for ty in layout.field_types.values_mut() {
+                    let mangled = module::mangle_module_fn(module_name, ty);
+                    if self.structs.contains_key(&mangled) {
+                        *ty = mangled;
+                    }
+                }
+                let ir = layout.ir_name.clone();
+                self.structs.insert(short.clone(), layout.clone());
+                self.structs.insert(ir, layout);
             }
         }
         for (name, _fields, methods, ir_name) in &module_structs {
