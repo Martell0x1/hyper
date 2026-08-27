@@ -53,12 +53,15 @@ pub enum IrInstr {
         else_block: BlockId,
     },
     Label { block: BlockId },
+    // Retained for future parallel lowering; compiler currently emits sequential loops.
+    #[allow(dead_code)]
     ParallelForBegin {
         var: String,
         start: ValueId,
         end: ValueId,
         vectorized: bool,
     },
+    #[allow(dead_code)]
     ParallelForEnd,
 }
 
