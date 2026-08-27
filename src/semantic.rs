@@ -644,34 +644,59 @@ impl TypeChecker {
             }
             Stmt::For {
                 var,
-                start,
-                end,
+                iter,
                 body,
                 ..
             } => {
-                let st = self.check_expr(start);
-                let et = self.check_expr(end);
-                if !Self::is_numeric(&st) {
-                    self.error(format!(
-                        "Type error: for-loop start must be numeric, got {:?}.",
-                        st
-                    ));
+                match iter {
+                    ForIter::Range { start, end } => {
+                        let st = self.check_expr(start);
+                        let et = self.check_expr(end);
+                        if !Self::is_numeric(&st) {
+                            self.error(format!(
+                                "Type error: for-loop start must be numeric, got {:?}.",
+                                st
+                            ));
+                        }
+                        if !Self::is_numeric(&et) {
+                            self.error(format!(
+                                "Type error: for-loop end must be numeric, got {:?}.",
+                                et
+                            ));
+                        }
+                        self.push_scope();
+                        self.define(
+                            var,
+                            Binding {
+                                ty: HyperType::I64,
+                                mutable: false,
+                            },
+                        );
+                    }
+                    ForIter::Iterable(iterable) => {
+                        let it = self.check_expr(iterable);
+                        let elem_ty = match it {
+                            HyperType::List(inner) => *inner,
+                            HyperType::Array(inner) => *inner,
+                            HyperType::Any => HyperType::Any,
+                            other => {
+                                self.error(format!(
+                                    "Type error: for-in iterable must be a list, got {:?}.",
+                                    other
+                                ));
+                                HyperType::Any
+                            }
+                        };
+                        self.push_scope();
+                        self.define(
+                            var,
+                            Binding {
+                                ty: elem_ty,
+                                mutable: false,
+                            },
+                        );
+                    }
                 }
-                if !Self::is_numeric(&et) {
-                    self.error(format!(
-                        "Type error: for-loop end must be numeric, got {:?}.",
-                        et
-                    ));
-                }
-                // Loop var is i64 in body scope (including parallel/vectorized).
-                self.push_scope();
-                self.define(
-                    var,
-                    Binding {
-                        ty: HyperType::I64,
-                        mutable: false,
-                    },
-                );
                 self.check_stmt(body);
                 self.pop_scope();
             }
