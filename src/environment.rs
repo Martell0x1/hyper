@@ -55,6 +55,11 @@ pub enum HyperValue {
         val_type: String,
         entries: HashMap<String, HyperValue>,
     },
+    /// Loaded Hyper module namespace (`import math` → exports).
+    Module {
+        name: String,
+        exports: HashMap<String, HyperValue>,
+    },
     MmapFile {
         file: Rc<RefCell<File>>,
         path: String,
@@ -93,6 +98,7 @@ impl PartialEq for HyperValue {
             (HyperValue::Dict { key_type: kt1, val_type: vt1, entries: e1 }, HyperValue::Dict { key_type: kt2, val_type: vt2, entries: e2 }) => {
                 kt1 == kt2 && vt1 == vt2 && e1 == e2
             }
+            (HyperValue::Module { name: n1, .. }, HyperValue::Module { name: n2, .. }) => n1 == n2,
             (HyperValue::MmapFile { path: a, .. }, HyperValue::MmapFile { path: b, .. }) => a == b,
             (HyperValue::NativeFunction(a), HyperValue::NativeFunction(b)) => a == b,
             (HyperValue::Function { name: n1, params: p1, is_strict: s1, .. }, HyperValue::Function { name: n2, params: p2, is_strict: s2, .. }) => {
@@ -399,6 +405,13 @@ impl Environment {
         self.values.insert(name, Variable { value, is_mutable });
     }
 
+    pub fn snapshot_bindings(&self) -> HashMap<String, HyperValue> {
+        self.values
+            .iter()
+            .map(|(k, v)| (k.clone(), v.value.clone()))
+            .collect()
+    }
+
     pub fn get(&self, name: &str, line: u32) -> HyperValue {
         if let Some(let_entry) = self.values.get(name) {
             let_entry.value.clone()
@@ -484,6 +497,7 @@ impl std::fmt::Display for HyperValue {
                 let entries_str: Vec<String> = entries.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", entries_str.join(", "))
             }
+            HyperValue::Module { name, .. } => write!(f, "<module {}>", name),
             HyperValue::MmapFile { path, .. } => write!(f, "<mmap file {}>", path),
             
             HyperValue::NativeFunction(name) => write!(f, "<native fn {}>", name),
