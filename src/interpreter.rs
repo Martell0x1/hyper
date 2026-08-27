@@ -829,23 +829,23 @@ pub fn run_evaluate(file_contents: String) {
 }
 
 pub fn run_program(file_contents: String) {
-    let (tokens, error) = crate::scanner::scan_tokens(&file_contents);
-    if error {
-        std::process::exit(65);
-    }
-
-    let mut parser = crate::parser::Parser::new(tokens);
-    let env = Rc::new(RefCell::new(Environment::new()));
-
-    match parser.parse_statements() {
-        Ok(statements) => {
-            for stmt in statements {
-                execute(&stmt, Rc::clone(&env));
-            }
-        }
-        Err(_) => {
+    let statements = match crate::frontend::parse_program(&file_contents) {
+        Ok(stmts) => stmts,
+        Err(()) => {
             eprintln!("Syntax error.");
             std::process::exit(65);
         }
+    };
+
+    // Soft-wire: typecheck errors are warnings only so existing scripts still run.
+    if let Err(errors) = crate::semantic::typecheck(&statements) {
+        for e in &errors {
+            eprintln!("warning: {}", e);
+        }
+    }
+
+    let env = Rc::new(RefCell::new(Environment::new()));
+    for stmt in statements {
+        execute(&stmt, Rc::clone(&env));
     }
 }
