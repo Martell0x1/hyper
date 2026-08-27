@@ -75,6 +75,20 @@ pub enum IrInstr {
         left: ValueId,
         right: ValueId,
     },
+    MakeStruct {
+        dest: ValueId,
+        nfields: u32,
+    },
+    StructGet {
+        dest: ValueId,
+        object: ValueId,
+        field: u32,
+    },
+    StructSet {
+        object: ValueId,
+        field: u32,
+        value: ValueId,
+    },
     Print { args: Vec<ValueId> },
     Return { value: Option<ValueId> },
     Jump { target: BlockId },
@@ -196,6 +210,19 @@ impl fmt::Display for IrInstr {
             IrInstr::StrConcat { dest, left, right } => {
                 write!(f, "  v{} = str_concat v{} v{}", dest, left, right)
             }
+            IrInstr::MakeStruct { dest, nfields } => {
+                write!(f, "  v{} = make_struct nfields={}", dest, nfields)
+            }
+            IrInstr::StructGet {
+                dest,
+                object,
+                field,
+            } => write!(f, "  v{} = struct_get v{}[{}]", dest, object, field),
+            IrInstr::StructSet {
+                object,
+                field,
+                value,
+            } => write!(f, "  struct_set v{}[{}] = v{}", object, field, value),
             IrInstr::Print { args } => {
                 let args_str: Vec<String> = args.iter().map(|a| format!("v{}", a)).collect();
                 write!(f, "  print {}", args_str.join(", "))
