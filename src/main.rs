@@ -11,6 +11,7 @@ mod interpreter;
 mod semantic;
 mod ir;
 mod compiler;
+mod runtime;
 mod codegen;
 
 fn main() {
@@ -19,9 +20,10 @@ fn main() {
         eprintln!(
             "Usage: {} <tokenize|parse|evaluate|run|typecheck|compile> <filename> [options]\n\
              \n\
-             compile <file>                 JIT execute\n\
-             compile <file> --emit-ir       print IR only\n\
-             compile <file> --emit-obj [path]  emit object (default a.o)",
+             compile <file>                    JIT execute\n\
+             compile <file> --emit-ir          print IR only\n\
+             compile <file> --emit-obj [path]  emit object (default a.o)\n\
+             compile <file> --emit-exe [path]  emit executable (default hyper_out)",
             args[0]
         );
         return;
@@ -74,10 +76,17 @@ fn parse_compile_mode(args: &[String]) -> compiler::CompileMode {
                 .unwrap_or_else(|| "a.o".to_string());
             compiler::CompileMode::EmitObj { path }
         }
+        "--emit-exe" => {
+            let path = args
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| "hyper_out".to_string());
+            compiler::CompileMode::EmitExe { path }
+        }
         other => {
             eprintln!("Unknown compile option: {other}");
             eprintln!(
-                "Expected: --emit-ir | --emit-obj [path]"
+                "Expected: --emit-ir | --emit-obj [path] | --emit-exe [path]"
             );
             std::process::exit(64);
         }
