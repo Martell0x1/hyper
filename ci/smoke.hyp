@@ -28,3 +28,12 @@ fn add(a, b):
 
 print(add(2, 3))
 print(f"ok {add(1, 1)}")
+
+fn boom():
+    print("boom")
+    return true
+
+print(false and boom())
+print(true or boom())
+print(true and false)
+print(false or true)
