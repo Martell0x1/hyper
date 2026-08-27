@@ -78,6 +78,9 @@ pub enum TokenType {
     OpenMmap,
     ReadChunk,
 
+    Import,
+    From,
+
     At,
     Let,
     Mut,
@@ -385,6 +388,9 @@ fn match_char (
                 "as" => TokenType::As,
                 "open_mmap" => TokenType::OpenMmap,
                 "read_chunk" => TokenType::ReadChunk,
+
+                "import" => TokenType::Import,
+                "from" => TokenType::From,
                 
                 "let" => TokenType::Let,
                 "mut" => TokenType::Mut, 
