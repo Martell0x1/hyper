@@ -1003,20 +1003,6 @@ fn define_function<M: Module>(
                                 };
                                 builder.ins().uextend(types::I64, b)
                             }
-                            IrOp::And => {
-                                let zero = builder.ins().iconst(types::I64, 0);
-                                let lb = builder.ins().icmp(IntCC::NotEqual, l, zero);
-                                let rb = builder.ins().icmp(IntCC::NotEqual, r, zero);
-                                let b = builder.ins().band(lb, rb);
-                                builder.ins().uextend(types::I64, b)
-                            }
-                            IrOp::Or => {
-                                let zero = builder.ins().iconst(types::I64, 0);
-                                let lb = builder.ins().icmp(IntCC::NotEqual, l, zero);
-                                let rb = builder.ins().icmp(IntCC::NotEqual, r, zero);
-                                let b = builder.ins().bor(lb, rb);
-                                builder.ins().uextend(types::I64, b)
-                            }
                             IrOp::Neg | IrOp::Not => {
                                 return Err(format!("codegen: {op} is unary, not binary"));
                             }
@@ -1027,9 +1013,7 @@ fn define_function<M: Module>(
                             | IrOp::Lt
                             | IrOp::Le
                             | IrOp::Gt
-                            | IrOp::Ge
-                            | IrOp::And
-                            | IrOp::Or => ValueKind::Bool,
+                            | IrOp::Ge => ValueKind::Bool,
                             _ => ValueKind::I64,
                         };
                         (v, out_kind)
