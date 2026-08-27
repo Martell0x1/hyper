@@ -133,6 +133,12 @@ pub enum ForKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum ForIter {
+    Range { start: Expr, end: Expr },
+    Iterable(Expr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let {
         line: u32,
@@ -158,8 +164,7 @@ pub enum Stmt {
         kind: ForKind,
         line: u32,
         var: String,
-        start: Expr,
-        end: Expr,
+        iter: ForIter,
         body: Box<Stmt>,
     },
     Function(FunctionDecl),
@@ -362,6 +367,15 @@ impl fmt::Display for ForKind {
     }
 }
 
+impl fmt::Display for ForIter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ForIter::Range { start, end } => write!(f, "range({}, {})", start, end),
+            ForIter::Iterable(e) => write!(f, "{}", e),
+        }
+    }
+}
+
 impl fmt::Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -412,13 +426,12 @@ impl fmt::Display for Stmt {
                 kind,
                 line,
                 var,
-                start,
-                end,
+                iter,
                 body,
             } => write!(
                 f,
-                "({} line:{} {} {} {} {})",
-                kind, line, var, start, end, body
+                "({} line:{} {} in {} {})",
+                kind, line, var, iter, body
             ),
             Stmt::Function(decl) => write!(f, "{}", decl),
             Stmt::Return { line, value } => write!(f, "(return line:{} {})", line, value),
