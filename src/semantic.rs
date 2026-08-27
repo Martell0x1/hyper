@@ -406,6 +406,32 @@ impl TypeChecker {
                 }
                 HyperType::Dict
             }
+            Expr::Index { object, index } => {
+                let ot = self.check_expr(object);
+                let _ = self.check_expr(index);
+                match ot {
+                    HyperType::List(inner) => *inner,
+                    HyperType::Dict => HyperType::Any,
+                    HyperType::String => HyperType::String,
+                    HyperType::Any => HyperType::Any,
+                    other => {
+                        self.error(format!(
+                            "Type error: cannot index value of type {:?}.",
+                            other
+                        ));
+                        HyperType::Any
+                    }
+                }
+            }
+            Expr::IndexSet {
+                object,
+                index,
+                value,
+            } => {
+                let _ = self.check_expr(object);
+                let _ = self.check_expr(index);
+                self.check_expr(value)
+            }
             Expr::FString { parts, .. } => {
                 for part in parts {
                     if let FStringPart::Expr(e) = part {
