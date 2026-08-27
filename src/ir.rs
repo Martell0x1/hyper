@@ -17,8 +17,6 @@ pub enum IrOp {
     Le,
     Gt,
     Ge,
-    And,
-    Or,
     Neg,
     Not,
 }
@@ -138,8 +136,6 @@ impl fmt::Display for IrOp {
             IrOp::Le => "le",
             IrOp::Gt => "gt",
             IrOp::Ge => "ge",
-            IrOp::And => "and",
-            IrOp::Or => "or",
             IrOp::Neg => "neg",
             IrOp::Not => "not",
         };
