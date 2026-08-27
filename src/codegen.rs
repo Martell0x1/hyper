@@ -18,7 +18,8 @@ use crate::runtime::{
     hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
     hyper_rt_list_set, hyper_rt_pow_f64, hyper_rt_pow_i64, hyper_rt_print_dict,
     hyper_rt_print_f64, hyper_rt_print_i64, hyper_rt_print_list, hyper_rt_print_newline,
-    hyper_rt_print_str, hyper_rt_print_value, hyper_rt_str_concat, hyper_rt_value_to_str,
+    hyper_rt_print_str, hyper_rt_print_struct, hyper_rt_print_value, hyper_rt_str_concat,
+    hyper_rt_struct_get, hyper_rt_struct_new, hyper_rt_struct_set, hyper_rt_value_to_str,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +31,7 @@ enum ValueKind {
     None_,
     List,
     Dict,
+    Struct,
     /// Element kind known only at runtime (e.g. after index_get).
     Dynamic,
 }
@@ -44,6 +46,7 @@ impl ValueKind {
             ValueKind::None_ => 4,
             ValueKind::List => 5,
             ValueKind::Dict => 6,
+            ValueKind::Struct => 7,
             ValueKind::Dynamic => 0,
         }
     }
@@ -94,6 +97,10 @@ struct RuntimeIds {
     dict_set: FuncId,
     value_to_str: FuncId,
     str_concat: FuncId,
+    struct_new: FuncId,
+    struct_get: FuncId,
+    struct_set: FuncId,
+    print_struct: FuncId,
 }
 
 fn make_flags(is_pic: bool) -> Result<settings::Flags, String> {
@@ -277,6 +284,41 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
             .declare_function("hyper_rt_str_concat", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
+    let struct_new = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_struct_new", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let struct_get = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_struct_get", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let struct_set = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_struct_set", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let print_struct = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_print_struct", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
     Ok(RuntimeIds {
         print_i64,
         print_f64,
@@ -298,6 +340,10 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         dict_set,
         value_to_str,
         str_concat,
+        struct_new,
+        struct_get,
+        struct_set,
+        print_struct,
     })
 }
 
@@ -371,6 +417,10 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_dict_set", hyper_rt_dict_set as *const u8);
     jit_builder.symbol("hyper_rt_value_to_str", hyper_rt_value_to_str as *const u8);
     jit_builder.symbol("hyper_rt_str_concat", hyper_rt_str_concat as *const u8);
+    jit_builder.symbol("hyper_rt_struct_new", hyper_rt_struct_new as *const u8);
+    jit_builder.symbol("hyper_rt_struct_get", hyper_rt_struct_get as *const u8);
+    jit_builder.symbol("hyper_rt_struct_set", hyper_rt_struct_set as *const u8);
+    jit_builder.symbol("hyper_rt_print_struct", hyper_rt_print_struct as *const u8);
 }
 
 pub fn jit_execute(module: &IrModule) -> Result<(), String> {
@@ -694,6 +744,17 @@ fn define_function<M: Module>(
                     ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
                     ensure_val(*left, &mut builder, &mut next_var, &mut value_vars);
                     ensure_val(*right, &mut builder, &mut next_var, &mut value_vars);
+                }
+                IrInstr::MakeStruct { dest, .. } => {
+                    ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
+                }
+                IrInstr::StructGet { dest, object, .. } => {
+                    ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
+                    ensure_val(*object, &mut builder, &mut next_var, &mut value_vars);
+                }
+                IrInstr::StructSet { object, value, .. } => {
+                    ensure_val(*object, &mut builder, &mut next_var, &mut value_vars);
+                    ensure_val(*value, &mut builder, &mut next_var, &mut value_vars);
                 }
                 IrInstr::Print { args } => {
                     for a in args {
@@ -1142,6 +1203,55 @@ fn define_function<M: Module>(
                     builder.def_var(value_vars[dest], ret);
                     value_kinds.insert(*dest, ValueKind::Str);
                 }
+                IrInstr::MakeStruct { dest, nfields } => {
+                    let n = builder.ins().iconst(types::I64, *nfields as i64);
+                    let fref =
+                        module.declare_func_in_func(runtime.struct_new, &mut builder.func);
+                    let call = builder.ins().call(fref, &[n]);
+                    let ret = builder.inst_results(call)[0];
+                    builder.def_var(value_vars[dest], ret);
+                    value_kinds.insert(*dest, ValueKind::Struct);
+                }
+                IrInstr::StructGet {
+                    dest,
+                    object,
+                    field,
+                } => {
+                    let obj = builder.use_var(value_vars[object]);
+                    let idx = builder.ins().iconst(types::I64, *field as i64);
+                    let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        8,
+                        0,
+                    ));
+                    let kind_ptr = builder.ins().stack_addr(types::I64, slot, 0);
+                    let fref =
+                        module.declare_func_in_func(runtime.struct_get, &mut builder.func);
+                    let call = builder.ins().call(fref, &[obj, idx, kind_ptr]);
+                    let payload = builder.inst_results(call)[0];
+                    builder.def_var(value_vars[dest], payload);
+                    let kind_val = builder.ins().load(types::I64, MemFlags::new(), kind_ptr, 0);
+                    let kv = declare_var(&mut builder, &mut next_var);
+                    builder.def_var(kv, kind_val);
+                    kind_vars.insert(*dest, kv);
+                    value_kinds.insert(*dest, ValueKind::Dynamic);
+                }
+                IrInstr::StructSet {
+                    object,
+                    field,
+                    value,
+                } => {
+                    let obj = builder.use_var(value_vars[object]);
+                    let idx = builder.ins().iconst(types::I64, *field as i64);
+                    let val = builder.use_var(value_vars[value]);
+                    let val_kind = match kind_of(&value_kinds, *value) {
+                        ValueKind::Dynamic => builder.use_var(kind_vars[value]),
+                        other => builder.ins().iconst(types::I64, other.as_i64()),
+                    };
+                    let fref =
+                        module.declare_func_in_func(runtime.struct_set, &mut builder.func);
+                    builder.ins().call(fref, &[obj, idx, val, val_kind]);
+                }
                 IrInstr::Print { args } => {
                     for a in args {
                         let v = builder.use_var(value_vars[a]);
@@ -1173,6 +1283,11 @@ fn define_function<M: Module>(
                             ValueKind::Dict => {
                                 let fref = module
                                     .declare_func_in_func(runtime.print_dict, &mut builder.func);
+                                builder.ins().call(fref, &[v]);
+                            }
+                            ValueKind::Struct => {
+                                let fref = module
+                                    .declare_func_in_func(runtime.print_struct, &mut builder.func);
                                 builder.ins().call(fref, &[v]);
                             }
                             ValueKind::I64 | ValueKind::Bool | ValueKind::None_ => {
