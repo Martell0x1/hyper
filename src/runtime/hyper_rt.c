@@ -241,6 +241,105 @@ void hyper_rt_print_dict(int64_t dict_h) {
     putchar(' ');
 }
 
+void hyper_rt_print_value(int64_t payload, int64_t kind) {
+    RtValue v;
+    v.kind = kind;
+    v.payload = payload;
+    format_value(&v);
+    putchar(' ');
+}
+
+int64_t hyper_rt_list_get(int64_t list_h, int64_t index, int64_t *out_kind) {
+    if (!list_h || !out_kind) {
+        return 0;
+    }
+    const RtList *list = (const RtList *)(intptr_t)list_h;
+    if (index < 0 || (size_t)index >= list->len) {
+        *out_kind = KIND_NONE;
+        return 0;
+    }
+    *out_kind = list->items[index].kind;
+    return list->items[index].payload;
+}
+
+void hyper_rt_list_set(int64_t list_h, int64_t index, int64_t value, int64_t kind) {
+    if (!list_h) {
+        return;
+    }
+    RtList *list = (RtList *)(intptr_t)list_h;
+    if (index < 0 || (size_t)index >= list->len) {
+        return;
+    }
+    list->items[index].kind = kind;
+    list->items[index].payload = value;
+}
+
+int64_t hyper_rt_dict_get(
+    int64_t dict_h,
+    int64_t key,
+    int64_t key_kind,
+    int64_t *out_kind
+) {
+    if (!dict_h || !out_kind) {
+        return 0;
+    }
+    const RtDict *dict = (const RtDict *)(intptr_t)dict_h;
+    char *k = key_to_string(key, key_kind);
+    if (!k) {
+        *out_kind = KIND_NONE;
+        return 0;
+    }
+    for (size_t i = 0; i < dict->len; i++) {
+        if (dict->entries[i].key && strcmp(dict->entries[i].key, k) == 0) {
+            free(k);
+            *out_kind = dict->entries[i].value.kind;
+            return dict->entries[i].value.payload;
+        }
+    }
+    free(k);
+    *out_kind = KIND_NONE;
+    return 0;
+}
+
+void hyper_rt_dict_set(
+    int64_t dict_h,
+    int64_t key,
+    int64_t key_kind,
+    int64_t value,
+    int64_t val_kind
+) {
+    if (!dict_h) {
+        return;
+    }
+    RtDict *dict = (RtDict *)(intptr_t)dict_h;
+    char *k = key_to_string(key, key_kind);
+    if (!k) {
+        return;
+    }
+    for (size_t i = 0; i < dict->len; i++) {
+        if (dict->entries[i].key && strcmp(dict->entries[i].key, k) == 0) {
+            free(k);
+            dict->entries[i].value.kind = val_kind;
+            dict->entries[i].value.payload = value;
+            return;
+        }
+    }
+    if (dict->len + 1 > dict->cap) {
+        size_t ncap = dict->cap ? dict->cap * 2 : 4;
+        RtDictEntry *ne = (RtDictEntry *)realloc(dict->entries, ncap * sizeof(RtDictEntry));
+        if (!ne) {
+            free(k);
+            return;
+        }
+        dict->entries = ne;
+        dict->cap = ncap;
+    }
+    dict->entries[dict->len].key = k;
+    dict->entries[dict->len].value.kind = val_kind;
+    dict->entries[dict->len].value.payload = value;
+    dict->len++;
+}
+
 int main(void) {
     __main__();
     return 0;
