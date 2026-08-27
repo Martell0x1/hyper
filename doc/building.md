@@ -77,14 +77,20 @@ Both should finish without syntax errors.
 
 ## Docs site (optional)
 
-Documentation uses [MkDocs Material](https://squidfunk.github.io/mkdocs-material/):
+Documentation is built with [mdBook](https://rust-lang.github.io/mdBook/):
 
 ```bash
-pip install mkdocs-material
-mkdocs serve
+cargo install mdbook
+mdbook serve --open
 ```
 
-Open `http://127.0.0.1:8000`.
+Open the URL printed by `mdbook serve` (usually `http://localhost:3000`).
+
+To build static HTML into `book/`:
+
+```bash
+mdbook build
+```
 
 ## What is not supported yet
 
