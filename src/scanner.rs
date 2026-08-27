@@ -11,6 +11,8 @@ pub enum TokenType {
     RightParen, 
     LeftBrace, 
     RightBrace,
+    LeftBracket,
+    RightBracket,
     
     Colon,
     Comma, 
@@ -20,6 +22,8 @@ pub enum TokenType {
     Semicolon, 
     Slash, 
     Star,
+    StarStar,
+    Percent,
 
     Bang, 
     BangEqual, 
@@ -249,6 +253,8 @@ fn match_char (
         ')' => add_token!(TokenType::RightParen, ")", "null"),
         '{' => add_token!(TokenType::LeftBrace, "{", "null"),
         '}' => add_token!(TokenType::RightBrace, "}", "null"),
+        '[' => add_token!(TokenType::LeftBracket, "[", "null"),
+        ']' => add_token!(TokenType::RightBracket, "]", "null"),
         ':' => add_token!(TokenType::Colon, ":", "null"),
         '@' => add_token!(TokenType::At, "@", "null"),
         '.' => add_token!(TokenType::Dot, ".", "null"),
@@ -263,7 +269,15 @@ fn match_char (
         }
         '+' => add_token!(TokenType::Plus, "+", "null"),
         ';' => add_token!(TokenType::Semicolon, ";", "null"),
-        '*' => add_token!(TokenType::Star, "*", "null"),
+        '%' => add_token!(TokenType::Percent, "%", "null"),
+        '*' => {
+            if chars.peek() == Some(&'*') {
+                chars.next();
+                add_token!(TokenType::StarStar, "**", "null");
+            } else {
+                add_token!(TokenType::Star, "*", "null");
+            }
+        }
         '=' => {
             if chars.peek() == Some(&'=') {
                 chars.next();
@@ -306,7 +320,7 @@ fn match_char (
             if let Some(str_val) = str_literals(chars, line) {
                 add_token!(TokenType::String, format!("\"{}\"", str_val), str_val);
             } else {
-                eprint!("[line {}] Error: Unterminated string.", line);
+                eprintln!("[line {}] Error: Unterminated string.", line);
                 *error = true;
             }
         }
