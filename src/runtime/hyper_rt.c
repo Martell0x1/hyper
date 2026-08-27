@@ -11,7 +11,8 @@ enum {
     KIND_BOOL = 3,
     KIND_NONE = 4,
     KIND_LIST = 5,
-    KIND_DICT = 6
+    KIND_DICT = 6,
+    KIND_STRUCT = 7
 };
 
 typedef struct {
@@ -35,6 +36,11 @@ typedef struct {
     size_t len;
     size_t cap;
 } RtDict;
+
+typedef struct {
+    RtValue *fields;
+    size_t len;
+} RtStruct;
 
 extern int64_t __main__(void);
 
@@ -104,6 +110,17 @@ static void format_dict(const RtDict *dict) {
     putchar('}');
 }
 
+static void format_struct(const RtStruct *st) {
+    putchar('{');
+    for (size_t i = 0; i < st->len; i++) {
+        if (i > 0) {
+            printf(", ");
+        }
+        format_value(&st->fields[i]);
+    }
+    putchar('}');
+}
+
 static void format_value(const RtValue *v) {
     switch (v->kind) {
     case KIND_I64:
@@ -136,6 +153,13 @@ static void format_value(const RtValue *v) {
     case KIND_DICT:
         if (v->payload) {
             format_dict((const RtDict *)(intptr_t)v->payload);
+        } else {
+            fputs("{}", stdout);
+        }
+        break;
+    case KIND_STRUCT:
+        if (v->payload) {
+            format_struct((const RtStruct *)(intptr_t)v->payload);
         } else {
             fputs("{}", stdout);
         }
@@ -411,6 +435,61 @@ int64_t hyper_rt_str_concat(int64_t left, int64_t right) {
     memcpy(out, a, na);
     memcpy(out + na, b, nb + 1);
     return (int64_t)(intptr_t)out;
+}
+
+int64_t hyper_rt_struct_new(int64_t nfields) {
+    size_t n = nfields < 0 ? 0 : (size_t)nfields;
+    RtStruct *st = (RtStruct *)calloc(1, sizeof(RtStruct));
+    if (!st) {
+        return 0;
+    }
+    if (n > 0) {
+        st->fields = (RtValue *)calloc(n, sizeof(RtValue));
+        if (!st->fields) {
+            free(st);
+            return 0;
+        }
+        for (size_t i = 0; i < n; i++) {
+            st->fields[i].kind = KIND_NONE;
+            st->fields[i].payload = 0;
+        }
+    }
+    st->len = n;
+    return (int64_t)(intptr_t)st;
+}
+
+int64_t hyper_rt_struct_get(int64_t obj, int64_t field, int64_t *out_kind) {
+    if (!obj || !out_kind) {
+        return 0;
+    }
+    const RtStruct *st = (const RtStruct *)(intptr_t)obj;
+    if (field < 0 || (size_t)field >= st->len) {
+        *out_kind = KIND_NONE;
+        return 0;
+    }
+    *out_kind = st->fields[field].kind;
+    return st->fields[field].payload;
+}
+
+void hyper_rt_struct_set(int64_t obj, int64_t field, int64_t value, int64_t kind) {
+    if (!obj) {
+        return;
+    }
+    RtStruct *st = (RtStruct *)(intptr_t)obj;
+    if (field < 0 || (size_t)field >= st->len) {
+        return;
+    }
+    st->fields[field].kind = kind;
+    st->fields[field].payload = value;
+}
+
+void hyper_rt_print_struct(int64_t obj) {
+    if (!obj) {
+        printf("{} ");
+        return;
+    }
+    format_struct((const RtStruct *)(intptr_t)obj);
+    putchar(' ');
 }
 
 int main(void) {
