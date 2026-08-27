@@ -77,6 +77,15 @@ pub enum Expr {
     },
     List(Vec<Expr>),
     Dict(Vec<(Expr, Expr)>),
+    Index {
+        object: Box<Expr>,
+        index: Box<Expr>,
+    },
+    IndexSet {
+        object: Box<Expr>,
+        index: Box<Expr>,
+        value: Box<Expr>,
+    },
     FString { line: u32, parts: Vec<FStringPart> },
     Ternary {
         condition: Box<Expr>,
@@ -302,6 +311,12 @@ impl fmt::Display for Expr {
                     .collect();
                 write!(f, "(dict {})", entries_str.join(" "))
             }
+            Expr::Index { object, index } => write!(f, "(index {} {})", object, index),
+            Expr::IndexSet {
+                object,
+                index,
+                value,
+            } => write!(f, "(index_set {} {} {})", object, index, value),
             Expr::FString { line, parts } => {
                 let parts_str: Vec<String> = parts.iter().map(|p| p.to_string()).collect();
                 write!(f, "(f_string line:{} [{}])", line, parts_str.join(" "))
