@@ -44,6 +44,14 @@ pub enum IrInstr {
         func: String,
         args: Vec<ValueId>,
     },
+    MakeList {
+        dest: ValueId,
+        items: Vec<ValueId>,
+    },
+    MakeDict {
+        dest: ValueId,
+        entries: Vec<(ValueId, ValueId)>,
+    },
     Print { args: Vec<ValueId> },
     Return { value: Option<ValueId> },
     Jump { target: BlockId },
@@ -128,6 +136,26 @@ impl fmt::Display for IrInstr {
                 } else {
                     let args_str: Vec<String> = args.iter().map(|a| format!("v{}", a)).collect();
                     write!(f, "  v{} = call {}({})", dest, func, args_str.join(", "))
+                }
+            }
+            IrInstr::MakeList { dest, items } => {
+                if items.is_empty() {
+                    write!(f, "  v{} = make_list()", dest)
+                } else {
+                    let items_str: Vec<String> =
+                        items.iter().map(|a| format!("v{}", a)).collect();
+                    write!(f, "  v{} = make_list({})", dest, items_str.join(", "))
+                }
+            }
+            IrInstr::MakeDict { dest, entries } => {
+                if entries.is_empty() {
+                    write!(f, "  v{} = make_dict()", dest)
+                } else {
+                    let entries_str: Vec<String> = entries
+                        .iter()
+                        .map(|(k, v)| format!("v{}:v{}", k, v))
+                        .collect();
+                    write!(f, "  v{} = make_dict({})", dest, entries_str.join(", "))
                 }
             }
             IrInstr::Print { args } => {
