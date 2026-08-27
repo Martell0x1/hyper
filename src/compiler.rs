@@ -208,29 +208,28 @@ impl Lowerer {
                 dest
             }
             Expr::List(items) => {
-                let mut arg_ids = Vec::new();
+                let mut item_ids = Vec::new();
                 for item in items {
-                    arg_ids.push(self.lower_expr(item));
+                    item_ids.push(self.lower_expr(item));
                 }
                 let dest = self.fresh_value();
-                self.emit(IrInstr::Call {
+                self.emit(IrInstr::MakeList {
                     dest,
-                    func: "__list__".to_string(),
-                    args: arg_ids,
+                    items: item_ids,
                 });
                 dest
             }
             Expr::Dict(entries) => {
-                let mut arg_ids = Vec::new();
+                let mut entry_ids = Vec::new();
                 for (k, v) in entries {
-                    arg_ids.push(self.lower_expr(k));
-                    arg_ids.push(self.lower_expr(v));
+                    let key = self.lower_expr(k);
+                    let val = self.lower_expr(v);
+                    entry_ids.push((key, val));
                 }
                 let dest = self.fresh_value();
-                self.emit(IrInstr::Call {
+                self.emit(IrInstr::MakeDict {
                     dest,
-                    func: "__dict__".to_string(),
-                    args: arg_ids,
+                    entries: entry_ids,
                 });
                 dest
             }
@@ -536,6 +535,7 @@ pub enum CompileMode {
     Jit,
     EmitIr,
     EmitObj { path: String },
+    EmitExe { path: String },
 }
 
 pub fn run_compile(file_contents: String, mode: CompileMode) {
@@ -568,6 +568,13 @@ pub fn run_compile(file_contents: String, mode: CompileMode) {
             crate::codegen::dump_ir(&module);
         }
         CompileMode::EmitObj { path } => match crate::codegen::emit_object(&module, &path) {
+            Ok(()) => {}
+            Err(msg) => {
+                eprintln!("codegen: {}", msg);
+                process::exit(70);
+            }
+        },
+        CompileMode::EmitExe { path } => match crate::codegen::emit_exe(&module, &path) {
             Ok(()) => {}
             Err(msg) => {
                 eprintln!("codegen: {}", msg);
