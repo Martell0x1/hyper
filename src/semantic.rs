@@ -1,5 +1,5 @@
 use crate::ast::*;
-use crate::frontend;
+use crate::driver;
 use std::collections::HashMap;
 use std::process;
 
@@ -18,7 +18,6 @@ pub enum HyperType {
     U64,
     F32,
     F64,
-    /// Element type, or `Any` when unknown.
     List(Box<HyperType>),
     Dict,
     Array(Box<HyperType>),
@@ -45,11 +44,8 @@ struct Scope {
 struct TypeChecker {
     scopes: Vec<Scope>,
     errors: Vec<String>,
-    /// Expected return type for the current function (if any).
     expected_return: Option<HyperType>,
-    /// Known struct type names.
     structs: HashMap<String, ()>,
-    /// Known trait type names.
     traits: HashMap<String, ()>,
 }
 
@@ -233,7 +229,6 @@ impl TypeChecker {
         }
     }
 
-    /// `src` is compatible with annotated `dest` (numeric widen / Any ok).
     fn is_compatible(dest: &HyperType, src: &HyperType) -> bool {
         if matches!(dest, HyperType::Any) || matches!(src, HyperType::Any) {
             return true;
@@ -799,7 +794,6 @@ impl TypeChecker {
     }
 }
 
-/// Walk statements and report type / semantic errors.
 pub fn typecheck(stmts: &[Stmt]) -> Result<(), Vec<String>> {
     let mut tc = TypeChecker::new();
     for stmt in stmts {
@@ -812,9 +806,8 @@ pub fn typecheck(stmts: &[Stmt]) -> Result<(), Vec<String>> {
     }
 }
 
-/// Scan, parse, typecheck; print errors and exit 65 on failure.
 pub fn run_typecheck(file_contents: String) {
-    let stmts = match frontend::parse_program(&file_contents) {
+    let stmts = match driver::parse_program(&file_contents) {
         Ok(s) => s,
         Err(()) => {
             eprintln!("Syntax error.");
