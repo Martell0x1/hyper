@@ -6,11 +6,18 @@ use cranelift_codegen::ir::{types, AbiParam, Function, InstBuilder, MemFlags, Us
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
+use cranelift_module::{default_libcall_names, DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::collections::{HashMap, HashSet};
-use std::ffi::{CStr, CString};
 use std::mem;
+use std::path::PathBuf;
+use std::process::Command;
+
+use crate::runtime::{
+    hyper_rt_dict_new, hyper_rt_dict_push, hyper_rt_list_new, hyper_rt_list_push,
+    hyper_rt_pow_f64, hyper_rt_pow_i64, hyper_rt_print_dict, hyper_rt_print_f64,
+    hyper_rt_print_i64, hyper_rt_print_list, hyper_rt_print_newline, hyper_rt_print_str,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ValueKind {
@@ -19,76 +26,46 @@ enum ValueKind {
     Str,
     Bool,
     None_,
+    List,
+    Dict,
 }
 
-struct StringPool {
-    strings: Vec<CString>,
+impl ValueKind {
+    fn as_i64(self) -> i64 {
+        match self {
+            ValueKind::I64 => 0,
+            ValueKind::F64 => 1,
+            ValueKind::Str => 2,
+            ValueKind::Bool => 3,
+            ValueKind::None_ => 4,
+            ValueKind::List => 5,
+            ValueKind::Dict => 6,
+        }
+    }
 }
 
-impl StringPool {
+struct StringData {
+    next: usize,
+}
+
+impl StringData {
     fn new() -> Self {
-        StringPool {
-            strings: Vec::new(),
-        }
+        StringData { next: 0 }
     }
 
-    fn intern(&mut self, s: &str) -> i64 {
-        let c = CString::new(s.replace('\0', "")).unwrap_or_else(|_| CString::new("").unwrap());
-        let ptr = c.as_ptr() as i64;
-        self.strings.push(c);
-        ptr
+    fn define<M: Module>(&mut self, module: &mut M, s: &str) -> Result<DataId, String> {
+        let name = format!(".hyper_str.{}", self.next);
+        self.next += 1;
+        let id = module
+            .declare_data(&name, Linkage::Local, false, false)
+            .map_err(|e| e.to_string())?;
+        let mut desc = DataDescription::new();
+        let mut bytes = s.as_bytes().to_vec();
+        bytes.push(0);
+        desc.define(bytes.into_boxed_slice());
+        module.define_data(id, &desc).map_err(|e| e.to_string())?;
+        Ok(id)
     }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn hyper_rt_print_i64(v: i64) {
-    print!("{} ", v);
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn hyper_rt_print_f64(v: f64) {
-    print!("{} ", v);
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn hyper_rt_print_str(s: *const i8) {
-    if s.is_null() {
-        print!(" ");
-        return;
-    }
-    let cstr = unsafe { CStr::from_ptr(s) };
-    match cstr.to_str() {
-        Ok(text) => print!("{} ", text),
-        Err(_) => print!("<?> "),
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn hyper_rt_print_newline() {
-    println!();
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn hyper_rt_pow_i64(base: i64, exp: i64) -> i64 {
-    if exp < 0 {
-        return 0;
-    }
-    let mut result: i64 = 1;
-    let mut b = base;
-    let mut e = exp as u64;
-    while e > 0 {
-        if e & 1 == 1 {
-            result = result.wrapping_mul(b);
-        }
-        b = b.wrapping_mul(b);
-        e >>= 1;
-    }
-    result
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn hyper_rt_pow_f64(base: f64, exp: f64) -> f64 {
-    base.powf(exp)
 }
 
 struct RuntimeIds {
@@ -96,8 +73,14 @@ struct RuntimeIds {
     print_f64: FuncId,
     print_str: FuncId,
     print_nl: FuncId,
+    print_list: FuncId,
+    print_dict: FuncId,
     pow_i64: FuncId,
     pow_f64: FuncId,
+    list_new: FuncId,
+    list_push: FuncId,
+    dict_new: FuncId,
+    dict_push: FuncId,
 }
 
 fn make_flags(is_pic: bool) -> Result<settings::Flags, String> {
@@ -139,6 +122,20 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
             .declare_function("hyper_rt_print_newline", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
+    let print_list = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_print_list", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let print_dict = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_print_dict", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
     let pow_i64 = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -157,13 +154,53 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
             .declare_function("hyper_rt_pow_f64", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
+    let list_new = {
+        let mut sig = module.make_signature();
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_list_new", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let list_push = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_list_push", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let dict_new = {
+        let mut sig = module.make_signature();
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_dict_new", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let dict_push = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_dict_push", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
     Ok(RuntimeIds {
         print_i64,
         print_f64,
         print_str,
         print_nl,
+        print_list,
+        print_dict,
         pow_i64,
         pow_f64,
+        list_new,
+        list_push,
+        dict_new,
+        dict_push,
     })
 }
 
@@ -202,30 +239,18 @@ fn named_kind(map: &HashMap<String, ValueKind>, name: &str) -> ValueKind {
 }
 
 fn i64_to_f64(builder: &mut FunctionBuilder, v: Value) -> Value {
-    builder
-        .ins()
-        .bitcast(types::F64, MemFlags::new(), v)
+    builder.ins().bitcast(types::F64, MemFlags::new(), v)
 }
 
 fn f64_to_i64(builder: &mut FunctionBuilder, v: Value) -> Value {
-    builder
-        .ins()
-        .bitcast(types::I64, MemFlags::new(), v)
+    builder.ins().bitcast(types::I64, MemFlags::new(), v)
 }
 
 pub fn dump_ir(module: &IrModule) {
     println!("{}", module);
 }
 
-pub fn jit_execute(module: &IrModule) -> Result<(), String> {
-    let flags = make_flags(false)?;
-    let isa_builder =
-        cranelift_native::builder().map_err(|msg| format!("host unsupported: {msg}"))?;
-    let isa = isa_builder
-        .finish(flags)
-        .map_err(|e| e.to_string())?;
-
-    let mut jit_builder = JITBuilder::with_isa(isa, default_libcall_names());
+fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_print_i64", hyper_rt_print_i64 as *const u8);
     jit_builder.symbol("hyper_rt_print_f64", hyper_rt_print_f64 as *const u8);
     jit_builder.symbol("hyper_rt_print_str", hyper_rt_print_str as *const u8);
@@ -233,13 +258,29 @@ pub fn jit_execute(module: &IrModule) -> Result<(), String> {
         "hyper_rt_print_newline",
         hyper_rt_print_newline as *const u8,
     );
+    jit_builder.symbol("hyper_rt_print_list", hyper_rt_print_list as *const u8);
+    jit_builder.symbol("hyper_rt_print_dict", hyper_rt_print_dict as *const u8);
     jit_builder.symbol("hyper_rt_pow_i64", hyper_rt_pow_i64 as *const u8);
     jit_builder.symbol("hyper_rt_pow_f64", hyper_rt_pow_f64 as *const u8);
+    jit_builder.symbol("hyper_rt_list_new", hyper_rt_list_new as *const u8);
+    jit_builder.symbol("hyper_rt_list_push", hyper_rt_list_push as *const u8);
+    jit_builder.symbol("hyper_rt_dict_new", hyper_rt_dict_new as *const u8);
+    jit_builder.symbol("hyper_rt_dict_push", hyper_rt_dict_push as *const u8);
+}
+
+pub fn jit_execute(module: &IrModule) -> Result<(), String> {
+    let flags = make_flags(false)?;
+    let isa_builder =
+        cranelift_native::builder().map_err(|msg| format!("host unsupported: {msg}"))?;
+    let isa = isa_builder.finish(flags).map_err(|e| e.to_string())?;
+
+    let mut jit_builder = JITBuilder::with_isa(isa, default_libcall_names());
+    register_jit_symbols(&mut jit_builder);
 
     let mut jit = JITModule::new(jit_builder);
     let mut ctx = jit.make_context();
     let mut func_ctx = FunctionBuilderContext::new();
-    let mut strings = StringPool::new();
+    let mut strings = StringData::new();
 
     let runtime = declare_runtime(&mut jit)?;
     let func_ids = declare_user_funcs(&mut jit, module)?;
@@ -277,8 +318,6 @@ pub fn jit_execute(module: &IrModule) -> Result<(), String> {
     let code = jit.get_finalized_function(main_id);
     let main_fn: extern "C" fn() -> i64 = unsafe { mem::transmute(code) };
     let _ = main_fn();
-    // Keep interned strings alive for the duration of JIT execution.
-    drop(strings);
     Ok(())
 }
 
@@ -286,16 +325,14 @@ pub fn emit_object(module: &IrModule, out_path: &str) -> Result<(), String> {
     let flags = make_flags(true)?;
     let isa_builder =
         cranelift_native::builder().map_err(|msg| format!("host unsupported: {msg}"))?;
-    let isa = isa_builder
-        .finish(flags)
-        .map_err(|e| e.to_string())?;
+    let isa = isa_builder.finish(flags).map_err(|e| e.to_string())?;
 
     let builder = ObjectBuilder::new(isa, "hyper", default_libcall_names())
         .map_err(|e| e.to_string())?;
     let mut obj = ObjectModule::new(builder);
     let mut ctx = obj.make_context();
     let mut func_ctx = FunctionBuilderContext::new();
-    let mut strings = StringPool::new();
+    let mut strings = StringData::new();
 
     let runtime = declare_runtime(&mut obj)?;
     let func_ids = declare_user_funcs(&mut obj, module)?;
@@ -331,8 +368,60 @@ pub fn emit_object(module: &IrModule, out_path: &str) -> Result<(), String> {
     let product = obj.finish();
     let bytes = product.emit().map_err(|e| e.to_string())?;
     std::fs::write(out_path, &bytes).map_err(|e| e.to_string())?;
-    // String pool must outlive emit if ConstStr baked host pointers (MVP limitation).
-    drop(strings);
+    Ok(())
+}
+
+fn runtime_c_path() -> Result<PathBuf, String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest.join("runtime").join("hyper_rt.c");
+    if !path.exists() {
+        return Err(format!("runtime source not found: {}", path.display()));
+    }
+    Ok(path)
+}
+
+fn find_cc() -> Result<&'static str, String> {
+    for cand in ["cc", "clang", "gcc"] {
+        if Command::new(cand)
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return Ok(cand);
+        }
+    }
+    Err("no C compiler found (tried cc, clang, gcc)".to_string())
+}
+
+pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
+    let tmp_dir = std::env::temp_dir();
+    let obj_path = tmp_dir.join(format!(
+        "hyper_{}.o",
+        std::process::id()
+    ));
+    let obj_str = obj_path
+        .to_str()
+        .ok_or_else(|| "temp object path is not valid UTF-8".to_string())?;
+
+    emit_object(module, obj_str)?;
+
+    let rt = runtime_c_path()?;
+    let cc = find_cc()?;
+    let status = Command::new(cc)
+        .arg(obj_str)
+        .arg(rt.as_os_str())
+        .arg("-o")
+        .arg(out_path)
+        .arg("-lm")
+        .status()
+        .map_err(|e| format!("failed to invoke {cc}: {e}"))?;
+
+    let _ = std::fs::remove_file(&obj_path);
+
+    if !status.success() {
+        return Err(format!("{cc} failed with status {status}"));
+    }
     Ok(())
 }
 
@@ -345,7 +434,7 @@ fn define_function<M: Module>(
     body: &[IrInstr],
     func_ids: &HashMap<String, FuncId>,
     runtime: &RuntimeIds,
-    strings: &mut StringPool,
+    strings: &mut StringData,
 ) -> Result<(), String> {
     let mut sig = module.make_signature();
     for _ in params {
@@ -455,6 +544,19 @@ fn define_function<M: Module>(
                         ensure_val(*a, &mut builder, &mut next_var, &mut value_vars);
                     }
                 }
+                IrInstr::MakeList { dest, items } => {
+                    ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
+                    for a in items {
+                        ensure_val(*a, &mut builder, &mut next_var, &mut value_vars);
+                    }
+                }
+                IrInstr::MakeDict { dest, entries } => {
+                    ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
+                    for (k, v) in entries {
+                        ensure_val(*k, &mut builder, &mut next_var, &mut value_vars);
+                        ensure_val(*v, &mut builder, &mut next_var, &mut value_vars);
+                    }
+                }
                 IrInstr::Print { args } => {
                     for a in args {
                         ensure_val(*a, &mut builder, &mut next_var, &mut value_vars);
@@ -512,8 +614,9 @@ fn define_function<M: Module>(
                     value_kinds.insert(*dest, ValueKind::None_);
                 }
                 IrInstr::ConstStr { dest, value } => {
-                    let ptr = strings.intern(value);
-                    let v = builder.ins().iconst(types::I64, ptr);
+                    let data_id = strings.define(module, value)?;
+                    let gv = module.declare_data_in_func(data_id, &mut builder.func);
+                    let v = builder.ins().global_value(types::I64, gv);
                     builder.def_var(value_vars[dest], v);
                     value_kinds.insert(*dest, ValueKind::Str);
                 }
@@ -567,7 +670,8 @@ fn define_function<M: Module>(
                         && matches!(
                             op,
                             IrOp::Add | IrOp::Sub | IrOp::Mul | IrOp::Div | IrOp::Pow
-                        ) {
+                        )
+                    {
                         let lf = if lk == ValueKind::F64 {
                             i64_to_f64(&mut builder, l)
                         } else {
@@ -722,6 +826,51 @@ fn define_function<M: Module>(
                     builder.def_var(value_vars[dest], ret);
                     value_kinds.insert(*dest, ValueKind::I64);
                 }
+                IrInstr::MakeList { dest, items } => {
+                    let fnew =
+                        module.declare_func_in_func(runtime.list_new, &mut builder.func);
+                    let call = builder.ins().call(fnew, &[]);
+                    let list = builder.inst_results(call)[0];
+                    builder.def_var(value_vars[dest], list);
+                    value_kinds.insert(*dest, ValueKind::List);
+
+                    let fpush =
+                        module.declare_func_in_func(runtime.list_push, &mut builder.func);
+                    for item in items {
+                        let val = builder.use_var(value_vars[item]);
+                        let kind =
+                            builder
+                                .ins()
+                                .iconst(types::I64, kind_of(&value_kinds, *item).as_i64());
+                        builder.ins().call(fpush, &[list, val, kind]);
+                    }
+                }
+                IrInstr::MakeDict { dest, entries } => {
+                    let fnew =
+                        module.declare_func_in_func(runtime.dict_new, &mut builder.func);
+                    let call = builder.ins().call(fnew, &[]);
+                    let dict = builder.inst_results(call)[0];
+                    builder.def_var(value_vars[dest], dict);
+                    value_kinds.insert(*dest, ValueKind::Dict);
+
+                    let fpush =
+                        module.declare_func_in_func(runtime.dict_push, &mut builder.func);
+                    for (k, v) in entries {
+                        let key = builder.use_var(value_vars[k]);
+                        let key_kind =
+                            builder
+                                .ins()
+                                .iconst(types::I64, kind_of(&value_kinds, *k).as_i64());
+                        let val = builder.use_var(value_vars[v]);
+                        let val_kind =
+                            builder
+                                .ins()
+                                .iconst(types::I64, kind_of(&value_kinds, *v).as_i64());
+                        builder
+                            .ins()
+                            .call(fpush, &[dict, key, key_kind, val, val_kind]);
+                    }
+                }
                 IrInstr::Print { args } => {
                     for a in args {
                         let v = builder.use_var(value_vars[a]);
@@ -735,6 +884,16 @@ fn define_function<M: Module>(
                             ValueKind::Str => {
                                 let fref = module
                                     .declare_func_in_func(runtime.print_str, &mut builder.func);
+                                builder.ins().call(fref, &[v]);
+                            }
+                            ValueKind::List => {
+                                let fref = module
+                                    .declare_func_in_func(runtime.print_list, &mut builder.func);
+                                builder.ins().call(fref, &[v]);
+                            }
+                            ValueKind::Dict => {
+                                let fref = module
+                                    .declare_func_in_func(runtime.print_dict, &mut builder.func);
                                 builder.ins().call(fref, &[v]);
                             }
                             ValueKind::I64 | ValueKind::Bool | ValueKind::None_ => {
@@ -772,9 +931,7 @@ fn define_function<M: Module>(
                     builder.ins().brif(c, t, &[], e, &[]);
                     terminated = true;
                 }
-                IrInstr::ParallelForBegin { .. } | IrInstr::ParallelForEnd => {
-                    // No-op: parallel loops are lowered sequentially in the compiler.
-                }
+                IrInstr::ParallelForBegin { .. } | IrInstr::ParallelForEnd => {}
             }
         }
 
