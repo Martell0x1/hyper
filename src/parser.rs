@@ -1059,26 +1059,27 @@ impl Parser {
 
         self.consume(TokenType::In, "Expect 'in' after loop variable.")?;
 
-        let start_expr;
-        let end_expr;
-
-        if self.match_types(&[TokenType::Range]) {
+        let iter = if self.match_types(&[TokenType::Range]) {
             self.consume(TokenType::LeftParen, "Expect '(' after 'range'.")?;
             let first_arg = self.expression()?;
 
-            if self.match_types(&[TokenType::Comma]) {
-                start_expr = first_arg;
-                end_expr = self.expression()?;
+            let (start_expr, end_expr) = if self.match_types(&[TokenType::Comma]) {
+                (first_arg, self.expression()?)
             } else {
-                start_expr = Expr::Literal(Literal::Number("0".to_string()));
-                end_expr = first_arg;
-            }
+                (
+                    Expr::Literal(Literal::Number("0".to_string())),
+                    first_arg,
+                )
+            };
 
             self.consume(TokenType::RightParen, "Expect ')' after range arguments.")?;
+            ForIter::Range {
+                start: start_expr,
+                end: end_expr,
+            }
         } else {
-            start_expr = Expr::Literal(Literal::Number("0".to_string()));
-            end_expr = self.expression()?;
-        }
+            ForIter::Iterable(self.expression()?)
+        };
 
         if self.check(&TokenType::Colon) {
             self.advance();
@@ -1098,8 +1099,7 @@ impl Parser {
             kind,
             line,
             var: var_name,
-            start: start_expr,
-            end: end_expr,
+            iter,
             body: Box::new(body),
         })
     }
