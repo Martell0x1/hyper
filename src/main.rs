@@ -17,7 +17,11 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
         eprintln!(
-            "Usage: {} <tokenize|parse|evaluate|run|typecheck|compile> <filename>",
+            "Usage: {} <tokenize|parse|evaluate|run|typecheck|compile> <filename> [options]\n\
+             \n\
+             compile <file>                 JIT execute\n\
+             compile <file> --emit-ir       print IR only\n\
+             compile <file> --emit-obj [path]  emit object (default a.o)",
             args[0]
         );
         return;
@@ -48,10 +52,34 @@ fn main() {
             semantic::run_typecheck(file_contents);
         }
         "compile" => {
-            compiler::run_compile(file_contents);
+            let mode = parse_compile_mode(&args[3..]);
+            compiler::run_compile(file_contents, mode);
         }
         _ => {
             println!("Unknown command: {}", command);
+        }
+    }
+}
+
+fn parse_compile_mode(args: &[String]) -> compiler::CompileMode {
+    if args.is_empty() {
+        return compiler::CompileMode::Jit;
+    }
+    match args[0].as_str() {
+        "--emit-ir" => compiler::CompileMode::EmitIr,
+        "--emit-obj" => {
+            let path = args
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| "a.o".to_string());
+            compiler::CompileMode::EmitObj { path }
+        }
+        other => {
+            eprintln!("Unknown compile option: {other}");
+            eprintln!(
+                "Expected: --emit-ir | --emit-obj [path]"
+            );
+            std::process::exit(64);
         }
     }
 }
