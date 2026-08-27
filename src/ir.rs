@@ -62,6 +62,19 @@ pub enum IrInstr {
         index: ValueId,
         value: ValueId,
     },
+    ListLen {
+        dest: ValueId,
+        list: ValueId,
+    },
+    ValueToStr {
+        dest: ValueId,
+        src: ValueId,
+    },
+    StrConcat {
+        dest: ValueId,
+        left: ValueId,
+        right: ValueId,
+    },
     Print { args: Vec<ValueId> },
     Return { value: Option<ValueId> },
     Jump { target: BlockId },
@@ -178,6 +191,11 @@ impl fmt::Display for IrInstr {
                 index,
                 value,
             } => write!(f, "  index_set v{}[v{}] = v{}", object, index, value),
+            IrInstr::ListLen { dest, list } => write!(f, "  v{} = list_len v{}", dest, list),
+            IrInstr::ValueToStr { dest, src } => write!(f, "  v{} = value_to_str v{}", dest, src),
+            IrInstr::StrConcat { dest, left, right } => {
+                write!(f, "  v{} = str_concat v{} v{}", dest, left, right)
+            }
             IrInstr::Print { args } => {
                 let args_str: Vec<String> = args.iter().map(|a| format!("v{}", a)).collect();
                 write!(f, "  print {}", args_str.join(", "))
