@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
 pub const KIND_I64: i64 = 0;
@@ -297,4 +297,42 @@ pub extern "C" fn hyper_rt_dict_set(
             payload: value,
         },
     ));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_list_len(list: i64) -> i64 {
+    if list == 0 {
+        return 0;
+    }
+    let list = unsafe { &*(list as *const RtList) };
+    list.items.len() as i64
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_value_to_str(payload: i64, kind: i64) -> i64 {
+    let s = format_value(&RtValue { kind, payload });
+    match CString::new(s) {
+        Ok(c) => c.into_raw() as i64,
+        Err(_) => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_str_concat(left: i64, right: i64) -> i64 {
+    let a = if left == 0 {
+        String::new()
+    } else {
+        let cstr = unsafe { CStr::from_ptr(left as *const c_char) };
+        cstr.to_str().unwrap_or("").to_string()
+    };
+    let b = if right == 0 {
+        String::new()
+    } else {
+        let cstr = unsafe { CStr::from_ptr(right as *const c_char) };
+        cstr.to_str().unwrap_or("").to_string()
+    };
+    match CString::new(format!("{}{}", a, b)) {
+        Ok(c) => c.into_raw() as i64,
+        Err(_) => 0,
+    }
 }
