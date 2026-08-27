@@ -27,7 +27,7 @@ Hyper is being developed to solve the trade-off between developer efficiency and
 
 We follow standard commit message conventions to keep our git history clean, readable, and easy to parse automatically.
 
-For guidelines on commit messages and history management, see the [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md).
+For guidelines on commit messages and history management, see [doc/COMMIT_CONVENTION.md](doc/COMMIT_CONVENTION.md).
 
 ## Contributing
 

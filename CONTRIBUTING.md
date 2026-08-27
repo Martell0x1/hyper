@@ -19,7 +19,7 @@ If you want to add code or fix bugs:
 
 ## Code Guidelines
 
-* **Commit Messages:** Contributors must create commit messages with a [prefix](COMMIT_CONVENTION.md) (e.g., `feat:`, `fix:`, `docs:`).
+* **Commit Messages:** Contributors must create commit messages with a [prefix](doc/COMMIT_CONVENTION.md) (e.g., `feat:`, `fix:`, `docs:`, `ci:`).
 * **Readability First:** Keep the core interpreter code clean, well-commented, and maintainable.
 * **Testing:** Ensure your changes do not break existing interpreter behaviors.
 
