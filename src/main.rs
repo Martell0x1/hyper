@@ -4,14 +4,21 @@ use std::fs;
 mod ast;
 mod scanner;
 mod parser;
+mod frontend;
 mod environment;
 mod text_utils;
 mod interpreter;
+mod semantic;
+mod ir;
+mod compiler;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: {} <command> <filename>", args[0]);
+        eprintln!(
+            "Usage: {} <tokenize|parse|evaluate|run|typecheck|compile> <filename>",
+            args[0]
+        );
         return;
     }
 
@@ -35,6 +42,12 @@ fn main() {
         }
         "run" => {
             crate::interpreter::run_program(file_contents);
+        }
+        "typecheck" => {
+            semantic::run_typecheck(file_contents);
+        }
+        "compile" => {
+            compiler::run_compile(file_contents);
         }
         _ => {
             println!("Unknown command: {}", command);
