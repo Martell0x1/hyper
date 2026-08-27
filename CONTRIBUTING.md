@@ -17,6 +17,12 @@ If you want to add code or fix bugs:
 2. Make your changes and commit them with clear, concise messages using standard prefixes (e.g., `feat:`, `fix:`, `docs:`).
 3. Push to your fork and submit a **Pull Request (PR)** to the `main` branch.
 
+## Commit Conventions
+
+We follow standard commit message conventions to keep our git history clean, readable, and easy to parse automatically.
+
+For guidelines on commit messages and history management, see [doc/COMMIT_CONVENTION.md](doc/COMMIT_CONVENTION.md).
+
 ## Code Guidelines
 
 * **Commit Messages:** Contributors must create commit messages with a [prefix](doc/COMMIT_CONVENTION.md) (e.g., `feat:`, `fix:`, `docs:`, `ci:`).
