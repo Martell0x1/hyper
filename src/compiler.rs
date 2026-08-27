@@ -463,8 +463,9 @@ impl Lowerer {
             BinOp::Le => IrOp::Le,
             BinOp::Gt => IrOp::Gt,
             BinOp::Ge => IrOp::Ge,
-            BinOp::And => IrOp::And,
-            BinOp::Or => IrOp::Or,
+            BinOp::And | BinOp::Or => {
+                unreachable!("and/or are lowered with short-circuit CFG")
+            }
         }
     }
 
@@ -520,16 +521,94 @@ impl Lowerer {
                 dest
             }
             Expr::Binary { op, left, right } => {
-                let l = self.lower_expr(left);
-                let r = self.lower_expr(right);
-                let dest = self.fresh_value();
-                self.emit(IrInstr::Binary {
-                    dest,
-                    op: Self::bin_op(op),
-                    left: l,
-                    right: r,
-                });
-                dest
+                match op {
+                    BinOp::And => {
+                        // Short-circuit: if left is falsy, yield left; else yield right.
+                        let l = self.lower_expr(left);
+                        let then_b = self.fresh_block();
+                        let else_b = self.fresh_block();
+                        let merge_b = self.fresh_block();
+                        let result_name = format!("__and_{}", then_b);
+
+                        self.emit(IrInstr::Branch {
+                            cond: l,
+                            then_block: then_b,
+                            else_block: else_b,
+                        });
+
+                        self.emit(IrInstr::Label { block: then_b });
+                        let r = self.lower_expr(right);
+                        self.emit(IrInstr::Store {
+                            name: result_name.clone(),
+                            value: r,
+                        });
+                        self.emit(IrInstr::Jump { target: merge_b });
+
+                        self.emit(IrInstr::Label { block: else_b });
+                        self.emit(IrInstr::Store {
+                            name: result_name.clone(),
+                            value: l,
+                        });
+                        self.emit(IrInstr::Jump { target: merge_b });
+
+                        self.emit(IrInstr::Label { block: merge_b });
+                        let dest = self.fresh_value();
+                        self.emit(IrInstr::Load {
+                            dest,
+                            name: result_name,
+                        });
+                        dest
+                    }
+                    BinOp::Or => {
+                        // Short-circuit: if left is truthy, yield left; else yield right.
+                        let l = self.lower_expr(left);
+                        let then_b = self.fresh_block();
+                        let else_b = self.fresh_block();
+                        let merge_b = self.fresh_block();
+                        let result_name = format!("__or_{}", then_b);
+
+                        self.emit(IrInstr::Branch {
+                            cond: l,
+                            then_block: then_b,
+                            else_block: else_b,
+                        });
+
+                        self.emit(IrInstr::Label { block: then_b });
+                        self.emit(IrInstr::Store {
+                            name: result_name.clone(),
+                            value: l,
+                        });
+                        self.emit(IrInstr::Jump { target: merge_b });
+
+                        self.emit(IrInstr::Label { block: else_b });
+                        let r = self.lower_expr(right);
+                        self.emit(IrInstr::Store {
+                            name: result_name.clone(),
+                            value: r,
+                        });
+                        self.emit(IrInstr::Jump { target: merge_b });
+
+                        self.emit(IrInstr::Label { block: merge_b });
+                        let dest = self.fresh_value();
+                        self.emit(IrInstr::Load {
+                            dest,
+                            name: result_name,
+                        });
+                        dest
+                    }
+                    other => {
+                        let l = self.lower_expr(left);
+                        let r = self.lower_expr(right);
+                        let dest = self.fresh_value();
+                        self.emit(IrInstr::Binary {
+                            dest,
+                            op: Self::bin_op(other),
+                            left: l,
+                            right: r,
+                        });
+                        dest
+                    }
+                }
             }
             Expr::Assign { name, value } => {
                 self.note_struct_binding(name, value);
