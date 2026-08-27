@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::rc::Rc;
+use crate::ast::Stmt;
 use crate::text_utils::call_string_method;
 
 #[derive(Debug, Clone)]
@@ -63,7 +64,7 @@ pub enum HyperValue {
     Function {
         name: String,
         params: Vec<String>,
-        body: String,
+        body: Rc<Stmt>,
         is_strict: bool,
         closure: Rc<RefCell<Environment>>,
     },
@@ -94,8 +95,8 @@ impl PartialEq for HyperValue {
             }
             (HyperValue::MmapFile { path: a, .. }, HyperValue::MmapFile { path: b, .. }) => a == b,
             (HyperValue::NativeFunction(a), HyperValue::NativeFunction(b)) => a == b,
-            (HyperValue::Function { name: n1, params: p1, body: b1, is_strict: s1, .. }, HyperValue::Function { name: n2, params: p2, body: b2, is_strict: s2, .. }) => {
-                n1 == n2 && p1 == p2 && b1 == b2 && s1 == s2
+            (HyperValue::Function { name: n1, params: p1, is_strict: s1, .. }, HyperValue::Function { name: n2, params: p2, is_strict: s2, .. }) => {
+                n1 == n2 && p1 == p2 && s1 == s2
             }
             _ => false,
         }
