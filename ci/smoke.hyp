@@ -10,6 +10,19 @@ p.move(5, 5)
 print(p.x)
 print(p.y)
 
+struct Animal:
+    let name: string
+
+struct Dog:
+    let animal: Animal
+    let breed: string
+
+let base = Animal(name: "Rex")
+let dog = Dog(animal: base, breed: "Bulldog")
+let a = dog.animal
+print(a.name)
+print(dog.breed)
+
 fn add(a, b):
     return a + b
 
