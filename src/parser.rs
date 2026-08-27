@@ -569,6 +569,14 @@ impl Parser {
             }
         }
 
+        if self.match_types(&[TokenType::Import]) {
+            return self.import_statement();
+        }
+
+        if self.match_types(&[TokenType::From]) {
+            return self.import_from_statement();
+        }
+
         if self.match_types(&[TokenType::Struct]) {
             return self.struct_declaration();
         }
@@ -594,6 +602,81 @@ impl Parser {
         }
 
         self.statement()
+    }
+
+    fn import_statement(&mut self) -> Result<Stmt, ()> {
+        let line = self.previous().line as u32;
+        let module = self
+            .consume(TokenType::Identifier, "Expect module name after 'import'.")?
+            .lexeme
+            .clone();
+
+        let alias = if self.match_types(&[TokenType::As]) {
+            Some(
+                self.consume(TokenType::Identifier, "Expect alias after 'as'.")?
+                    .lexeme
+                    .clone(),
+            )
+        } else {
+            None
+        };
+
+        if self.check(&TokenType::Newline) {
+            self.advance();
+        }
+
+        Ok(Stmt::Import {
+            line,
+            module,
+            alias,
+        })
+    }
+
+    fn import_from_statement(&mut self) -> Result<Stmt, ()> {
+        let line = self.previous().line as u32;
+        let module = self
+            .consume(TokenType::Identifier, "Expect module name after 'from'.")?
+            .lexeme
+            .clone();
+
+        self.consume(TokenType::Import, "Expect 'import' after module name.")?;
+
+        let mut names = Vec::new();
+        loop {
+            let name = self
+                .consume(TokenType::Identifier, "Expect name to import.")?
+                .lexeme
+                .clone();
+            let alias = if self.match_types(&[TokenType::As]) {
+                Some(
+                    self.consume(TokenType::Identifier, "Expect alias after 'as'.")?
+                        .lexeme
+                        .clone(),
+                )
+            } else {
+                None
+            };
+            names.push(ImportName { name, alias });
+
+            if !self.match_types(&[TokenType::Comma]) {
+                break;
+            }
+        }
+
+        if names.is_empty() {
+            eprintln!("[line {}] Error: Expected at least one name after 'import'.", line);
+            return Err(());
+        }
+
+        if self.check(&TokenType::Newline) {
+            self.advance();
+        }
+
+        Ok(Stmt::ImportFrom {
+            line,
+            module,
+            names,
+        })
     }
 
     fn struct_declaration(&mut self) -> Result<Stmt, ()> {
