@@ -378,8 +378,8 @@ fn match_char (
                 "print" => TokenType::Print,
                 "input" => TokenType::Input,
 
-                "array" => TokenType::Array,
-                "dict" => TokenType::Dict,
+                "array" | "Array" => TokenType::Array,
+                "dict" | "Dict" => TokenType::Dict,
 
                 "with" => TokenType::With,
                 "as" => TokenType::As,
