@@ -1,10 +1,107 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::{cell::RefCell, io};
 use std::rc::Rc;
 use crate::ast::*;
 use crate::environment::{Environment, HyperValue};
+use crate::module;
+
+thread_local! {
+    static MODULE_RUNTIME: RefCell<Option<ModuleRuntime>> = const { RefCell::new(None) };
+}
+
+struct ModuleRuntime {
+    base_dir: PathBuf,
+    cache: HashMap<String, HyperValue>,
+    loading: HashSet<String>,
+}
+
+impl ModuleRuntime {
+    fn new(entry_file: &Path) -> Self {
+        let base_dir = entry_file
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        ModuleRuntime {
+            base_dir,
+            cache: HashMap::new(),
+            loading: HashSet::new(),
+        }
+    }
+}
+
+fn load_module(module_name: &str, line: u32) -> HyperValue {
+    let (path, already) = MODULE_RUNTIME.with(|cell| {
+        let mut rt = cell.borrow_mut();
+        let rt = rt
+            .as_mut()
+            .expect("module runtime not initialized; pass entry file path to run/compile");
+        if let Some(cached) = rt.cache.get(module_name) {
+            return (None, Some(cached.clone()));
+        }
+        if rt.loading.contains(module_name) {
+            eprintln!(
+                "[line {}] Error: circular import involving module '{}'.",
+                line, module_name
+            );
+            std::process::exit(70);
+        }
+        let path = match module::resolve_module_path(&rt.base_dir, module_name) {
+            Ok(p) => p,
+            Err(msg) => {
+                eprintln!("[line {}] Error: {}.", line, msg);
+                std::process::exit(70);
+            }
+        };
+        rt.loading.insert(module_name.to_string());
+        (Some(path), None)
+    });
+
+    if let Some(cached) = already {
+        return cached;
+    }
+    let path = path.expect("module path");
+
+    let source = match module::read_module_source(&path) {
+        Ok(s) => s,
+        Err(msg) => {
+            eprintln!("[line {}] Error: {}.", line, msg);
+            std::process::exit(70);
+        }
+    };
+    let stmts = match crate::driver::parse_program(&source) {
+        Ok(s) => s,
+        Err(()) => {
+            eprintln!(
+                "[line {}] Error: syntax error in module '{}'.",
+                line, module_name
+            );
+            std::process::exit(65);
+        }
+    };
+
+    let mod_env = Rc::new(RefCell::new(Environment::new()));
+    for stmt in &stmts {
+        execute(stmt, Rc::clone(&mod_env));
+    }
+    let exports = mod_env.borrow().snapshot_bindings();
+    let module_val = HyperValue::Module {
+        name: module_name.to_string(),
+        exports,
+    };
+
+    MODULE_RUNTIME.with(|cell| {
+        let mut rt = cell.borrow_mut();
+        let rt = rt.as_mut().unwrap();
+        rt.loading.remove(module_name);
+        rt.cache
+            .insert(module_name.to_string(), module_val.clone());
+    });
+
+    module_val
+}
 
 pub enum ExecResult {
     Ok,
@@ -334,21 +431,34 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
         }
         Expr::GetField { object, field } => {
             let target = env.borrow().get(object, line);
-            if let HyperValue::Instance {
-                fields,
-                field_indices,
-                ..
-            } = target
-            {
-                if let Some(&idx) = field_indices.get(field) {
-                    Some(fields.borrow()[idx].clone())
-                } else {
-                    eprintln!("[line {}] Error: Undefined field '{}'.", line, field);
+            match target {
+                HyperValue::Instance {
+                    fields,
+                    field_indices,
+                    ..
+                } => {
+                    if let Some(&idx) = field_indices.get(field) {
+                        Some(fields.borrow()[idx].clone())
+                    } else {
+                        eprintln!("[line {}] Error: Undefined field '{}'.", line, field);
+                        std::process::exit(70);
+                    }
+                }
+                HyperValue::Module { name, exports } => {
+                    if let Some(val) = exports.get(field) {
+                        Some(val.clone())
+                    } else {
+                        eprintln!(
+                            "[line {}] Error: module '{}' has no export '{}'.",
+                            line, name, field
+                        );
+                        std::process::exit(70);
+                    }
+                }
+                _ => {
+                    eprintln!("[line {}] Error: Only instances and modules have fields.", line);
                     std::process::exit(70);
                 }
-            } else {
-                eprintln!("[line {}] Error: Only instances have fields.", line);
-                std::process::exit(70);
             }
         }
         Expr::SetField {
@@ -420,6 +530,54 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                 } else if methods.contains_key(method) {
                     eprintln!("[line {}] Error: Method '{}' not found.", line, method);
                     std::process::exit(70);
+                }
+            }
+
+            if let HyperValue::Module { name, exports } = &target_val {
+                match exports.get(method) {
+                    Some(HyperValue::Function {
+                        params,
+                        body,
+                        closure,
+                        ..
+                    }) => {
+                        let call_env =
+                            Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(
+                                closure,
+                            ))));
+                        if params.len() != evaluated_args.len() {
+                            eprintln!(
+                                "Expected {} arguments but got {}.\n[line {}]",
+                                params.len(),
+                                evaluated_args.len(),
+                                line
+                            );
+                            std::process::exit(70);
+                        }
+                        for (param_name, arg_value) in params.iter().zip(evaluated_args.iter()) {
+                            call_env
+                                .borrow_mut()
+                                .define(param_name.clone(), arg_value.clone(), true);
+                        }
+                        return match execute(body, call_env) {
+                            ExecResult::Return(val) => Some(val),
+                            ExecResult::Ok => Some(HyperValue::None),
+                        };
+                    }
+                    Some(_) => {
+                        eprintln!(
+                            "[line {}] Error: '{}.{}' is not callable.",
+                            line, name, method
+                        );
+                        std::process::exit(70);
+                    }
+                    None => {
+                        eprintln!(
+                            "[line {}] Error: module '{}' has no export '{}'.",
+                            line, name, method
+                        );
+                        std::process::exit(70);
+                    }
                 }
             }
 
@@ -960,6 +1118,42 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             }
             ExecResult::Ok
         }
+        Stmt::Import {
+            line,
+            module,
+            alias,
+        } => {
+            let module_val = load_module(module, *line);
+            let bind_name = alias.as_ref().unwrap_or(module).clone();
+            env.borrow_mut().define(bind_name, module_val, false);
+            ExecResult::Ok
+        }
+        Stmt::ImportFrom {
+            line,
+            module,
+            names,
+        } => {
+            let module_val = load_module(module, *line);
+            let HyperValue::Module { name, exports } = module_val else {
+                unreachable!("load_module always returns Module");
+            };
+            for item in names {
+                match exports.get(&item.name) {
+                    Some(val) => {
+                        let bind = item.alias.as_ref().unwrap_or(&item.name).clone();
+                        env.borrow_mut().define(bind, val.clone(), false);
+                    }
+                    None => {
+                        eprintln!(
+                            "[line {}] Error: module '{}' has no export '{}'.",
+                            line, name, item.name
+                        );
+                        std::process::exit(70);
+                    }
+                }
+            }
+            ExecResult::Ok
+        }
     }
 }
 
@@ -986,7 +1180,11 @@ pub fn run_evaluate(file_contents: String) {
     }
 }
 
-pub fn run_program(file_contents: String) {
+pub fn run_program(file_contents: String, entry_path: &str) {
+    MODULE_RUNTIME.with(|cell| {
+        *cell.borrow_mut() = Some(ModuleRuntime::new(Path::new(entry_path)));
+    });
+
     let statements = match crate::driver::parse_program(&file_contents) {
         Ok(stmts) => stmts,
         Err(()) => {
@@ -1006,4 +1204,8 @@ pub fn run_program(file_contents: String) {
     for stmt in statements {
         execute(&stmt, Rc::clone(&env));
     }
+
+    MODULE_RUNTIME.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
 }
