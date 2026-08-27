@@ -759,98 +759,125 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             kind,
             line,
             var,
-            start,
-            end,
+            iter,
             body,
         } => {
-            let start_val = evaluate(start, *line, Rc::clone(&env))
-                .as_ref()
-                .map(to_i64)
-                .unwrap_or(0);
-            let end_val = evaluate(end, *line, Rc::clone(&env))
-                .as_ref()
-                .map(to_i64)
-                .unwrap_or(0);
+            match iter {
+                ForIter::Range { start, end } => {
+                    let start_val = evaluate(start, *line, Rc::clone(&env))
+                        .as_ref()
+                        .map(to_i64)
+                        .unwrap_or(0);
+                    let end_val = evaluate(end, *line, Rc::clone(&env))
+                        .as_ref()
+                        .map(to_i64)
+                        .unwrap_or(0);
 
-            let is_parallel =
-                matches!(kind, ForKind::Parallel | ForKind::ParallelVectorized);
-            let is_vectorized =
-                matches!(kind, ForKind::Vectorized | ForKind::ParallelVectorized);
+                    let is_parallel =
+                        matches!(kind, ForKind::Parallel | ForKind::ParallelVectorized);
+                    let is_vectorized =
+                        matches!(kind, ForKind::Vectorized | ForKind::ParallelVectorized);
 
-            if is_parallel {
-                let num_threads = std::thread::available_parallelism()
-                    .map(|n| n.get())
-                    .unwrap_or(4);
-                let total_items = (end_val - start_val).max(0);
-                if total_items > 0 {
-                    let chunk_size =
-                        (total_items + num_threads as i64 - 1) / num_threads as i64;
-                    let vec_step: i64 = if is_vectorized { 4 } else { 1 };
-                    let body_stmt = (*body).clone();
-                    let var_name = var.clone();
+                    if is_parallel {
+                        let num_threads = std::thread::available_parallelism()
+                            .map(|n| n.get())
+                            .unwrap_or(4);
+                        let total_items = (end_val - start_val).max(0);
+                        if total_items > 0 {
+                            let chunk_size =
+                                (total_items + num_threads as i64 - 1) / num_threads as i64;
+                            let vec_step: i64 = if is_vectorized { 4 } else { 1 };
+                            let body_stmt = (*body).clone();
+                            let var_name = var.clone();
 
-                    std::thread::scope(|s| {
-                        for t in 0..num_threads {
-                            let t_start = start_val + t as i64 * chunk_size;
-                            let t_end = (t_start + chunk_size).min(end_val);
-                            if t_start >= end_val {
-                                break;
-                            }
-
-                            let var_n = var_name.clone();
-                            let b_stmt = body_stmt.clone();
-
-                            s.spawn(move || {
-                                let thread_local_rc =
-                                    Rc::new(RefCell::new(Environment::new()));
-                                let loop_env = Rc::new(RefCell::new(
-                                    Environment::new_with_enclosing(thread_local_rc),
-                                ));
-
-                                let mut i = t_start;
-                                while i < t_end {
-                                    let lane_end = (i + vec_step).min(t_end);
-                                    while i < lane_end {
-                                        loop_env.borrow_mut().define(
-                                            var_n.clone(),
-                                            HyperValue::I64(i),
-                                            true,
-                                        );
-                                        execute(&b_stmt, Rc::clone(&loop_env));
-                                        i += 1;
+                            std::thread::scope(|s| {
+                                for t in 0..num_threads {
+                                    let t_start = start_val + t as i64 * chunk_size;
+                                    let t_end = (t_start + chunk_size).min(end_val);
+                                    if t_start >= end_val {
+                                        break;
                                     }
+
+                                    let var_n = var_name.clone();
+                                    let b_stmt = body_stmt.clone();
+
+                                    s.spawn(move || {
+                                        let thread_local_rc =
+                                            Rc::new(RefCell::new(Environment::new()));
+                                        let loop_env = Rc::new(RefCell::new(
+                                            Environment::new_with_enclosing(thread_local_rc),
+                                        ));
+
+                                        let mut i = t_start;
+                                        while i < t_end {
+                                            let lane_end = (i + vec_step).min(t_end);
+                                            while i < lane_end {
+                                                loop_env.borrow_mut().define(
+                                                    var_n.clone(),
+                                                    HyperValue::I64(i),
+                                                    true,
+                                                );
+                                                execute(&b_stmt, Rc::clone(&loop_env));
+                                                i += 1;
+                                            }
+                                        }
+                                    });
                                 }
                             });
                         }
-                    });
+                    } else if is_vectorized {
+                        let mut i = start_val;
+                        while i < end_val {
+                            let lane_end = (i + 4).min(end_val);
+                            while i < lane_end {
+                                let loop_env = Rc::new(RefCell::new(
+                                    Environment::new_with_enclosing(Rc::clone(&env)),
+                                ));
+                                loop_env
+                                    .borrow_mut()
+                                    .define(var.clone(), HyperValue::I64(i), true);
+                                if let ExecResult::Return(val) = execute(body, loop_env) {
+                                    return ExecResult::Return(val);
+                                }
+                                i += 1;
+                            }
+                        }
+                    } else {
+                        for i in start_val..end_val {
+                            let loop_env = Rc::new(RefCell::new(
+                                Environment::new_with_enclosing(Rc::clone(&env)),
+                            ));
+                            loop_env
+                                .borrow_mut()
+                                .define(var.clone(), HyperValue::I64(i), true);
+                            if let ExecResult::Return(val) = execute(body, loop_env) {
+                                return ExecResult::Return(val);
+                            }
+                        }
+                    }
                 }
-            } else if is_vectorized {
-                let mut i = start_val;
-                while i < end_val {
-                    let lane_end = (i + 4).min(end_val);
-                    while i < lane_end {
+                ForIter::Iterable(iterable) => {
+                    let collection = evaluate(iterable, *line, Rc::clone(&env))
+                        .unwrap_or(HyperValue::None);
+                    let items: Vec<HyperValue> = match collection {
+                        HyperValue::List(items) => items,
+                        HyperValue::Array { elements, .. } => elements,
+                        other => {
+                            eprintln!(
+                                "[line {}] Error: for-in expects a list, got {}.",
+                                line, other
+                            );
+                            std::process::exit(70);
+                        }
+                    };
+                    for item in items {
                         let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(
                             Rc::clone(&env),
                         )));
-                        loop_env
-                            .borrow_mut()
-                            .define(var.clone(), HyperValue::I64(i), true);
-                        if let ExecResult::Return(val) = execute(body, loop_env) {
+                        loop_env.borrow_mut().define(var.clone(), item, true);
+                        if let ExecResult::Return(val) = execute(body, Rc::clone(&loop_env)) {
                             return ExecResult::Return(val);
                         }
-                        i += 1;
-                    }
-                }
-            } else {
-                for i in start_val..end_val {
-                    let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(
-                        Rc::clone(&env),
-                    )));
-                    loop_env
-                        .borrow_mut()
-                        .define(var.clone(), HyperValue::I64(i), true);
-                    if let ExecResult::Return(val) = execute(body, loop_env) {
-                        return ExecResult::Return(val);
                     }
                 }
             }
