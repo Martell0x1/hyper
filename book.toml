@@ -1,0 +1,16 @@
+[book]
+title = "Hyper"
+description = "Official documentation for the Hyper programming language"
+authors = ["Hyper Contributors"]
+language = "en"
+src = "doc"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/muhammadyusufpov/hyper"
+edit-url-template = "https://github.com/muhammadyusufpov/hyper/edit/main/{path}"
+site-url = "/"
