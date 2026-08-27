@@ -3,41 +3,12 @@ use std::fs::File;
 use std::io::Write;
 use std::{cell::RefCell, io};
 use std::rc::Rc;
+use crate::ast::*;
 use crate::environment::{Environment, HyperValue};
 
 pub enum ExecResult {
     Ok,
     Return(HyperValue),
-}
-
-fn clean_group_expressions(mut input: String) -> String {
-    while input.starts_with("(group ") && input.ends_with(')') {
-        input = input[7..input.len() - 1].to_string();
-    } 
-    input
-}
-
-fn unescape_string_literal(s: &str) -> String {
-    let mut out = String::new();
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.next() {
-                Some('\\') => out.push('\\'),
-                Some('"') => out.push('"'),
-                Some('n') => out.push('\n'),
-                Some('t') => out.push('\t'),
-                Some(other) => {
-                    out.push('\\');
-                    out.push(other);
-                }
-                None => out.push('\\'),
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }
 
 fn is_truthy(value: &HyperValue) -> bool {
@@ -48,101 +19,7 @@ fn is_truthy(value: &HyperValue) -> bool {
     }
 }
 
-fn split_binary_args(inner: &str) -> Option<(String, String)> {
-    let mut bracket_count = 0;
-    let mut in_string = false;
-    let mut escape = false;
-    let chars: Vec<char> = inner.chars().collect();
-
-    for (i, &ch) in chars.iter().enumerate() {
-        if in_string {
-            if escape {
-                escape = false;
-            } else if ch == '\\' {
-                escape = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-
-        match ch {
-            '"' => in_string = true,
-            '(' => bracket_count += 1,
-            ')' => bracket_count -= 1,
-            ' ' if bracket_count == 0 => {
-                let left = chars[..i].iter().collect::<String>();
-                let right = chars[i + 1..].iter().collect::<String>();
-                return Some((left, right));
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn find_top_level_colon(s: &str) -> Option<usize> {
-    let mut bracket_count = 0;
-    let mut in_string = false;
-    let mut escape = false;
-    for (i, ch) in s.char_indices() {
-        if in_string {
-            if escape {
-                escape = false;
-            } else if ch == '\\' {
-                escape = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_string = true,
-            '(' => bracket_count += 1,
-            ')' => bracket_count -= 1,
-            ':' if bracket_count == 0 => return Some(i),
-            _ => {}
-        }
-    }
-    None
-}
-
-fn split_block_statements(inner: &str) -> Vec<String> {
-    let mut stmts = Vec::new();
-    let mut current = String::new();
-    let mut bracket_count = 0;
-
-    for ch in inner.chars() {
-        if ch == '(' { bracket_count += 1; }
-        else if ch == ')' { bracket_count -= 1; }
-        current.push(ch);
-
-        if bracket_count == 0 {
-            let trimmed = current.trim();
-            if !trimmed.is_empty() { stmts.push(trimmed.to_string()); }
-            current.clear();
-        }
-    }
-    stmts
-}
-
-fn eval_binary_op<F>(inner: &str, line: u32, env: Rc<RefCell<Environment>>, op: F) -> Option<HyperValue>
-where
-    F: FnOnce(&HyperValue, &HyperValue) -> Option<HyperValue>,
-{
-    let (left_str, right_str) = split_binary_args(inner)?;
-    let left_val = evaluate_str(left_str, line, Rc::clone(&env))?;
-    let right_val = evaluate_str(right_str, line, Rc::clone(&env))?;
-
-    if let Some(res) = op(&left_val, &right_val) {
-        Some(res)
-    } else {
-        eprintln!("[line {}] Type Error: Invalid operand types for operation.", line);
-        std::process::exit(70);
-    }
-}
-
-fn coerce_to_type(value: HyperValue, type_name: &str, line: u32) -> HyperValue {
+fn coerce_named(value: HyperValue, type_name: &str, line: u32) -> HyperValue {
     let ty = match type_name {
         "int8" => "i8",
         "int16" => "i16",
@@ -219,706 +96,634 @@ fn coerce_to_type(value: HyperValue, type_name: &str, line: u32) -> HyperValue {
     }
 }
 
-fn evaluate_str(ast_string: String, line: u32, env: Rc<RefCell<Environment>>) -> Option<HyperValue> {
-    let cleaned = clean_group_expressions(ast_string);
-
-    if cleaned.starts_with("let_ref:") {
-        return Some(env.borrow().get(&cleaned[8..], line));
+fn coerce_to_type(value: HyperValue, type_ann: &TypeAnn, line: u32) -> HyperValue {
+    match type_ann {
+        TypeAnn::None => value,
+        TypeAnn::Named(name) => coerce_named(value, name, line),
+        TypeAnn::Array { .. } | TypeAnn::Dict { .. } => value,
     }
+}
 
-    if cleaned.starts_with("(f_string line:") && cleaned.ends_with(')') {
-        let space_idx = cleaned.find(' ').unwrap();
-        let rest = &cleaned[space_idx + 1..cleaned.len() - 1];
-        let line_space_idx = rest.find(' ').unwrap();
-        let line_num: u32 = rest[5..line_space_idx].parse().unwrap_or(1);
-        let brackets_content = rest[line_space_idx + 1..].trim();
-        
-        let inner = if brackets_content.starts_with('[') && brackets_content.ends_with(']') {
-            &brackets_content[1..brackets_content.len() - 1]
-        } else {
-            brackets_content
-        };
-
-        let mut evaluated_string = String::new();
-        if !inner.trim().is_empty() {
-            let mut current_parts = inner.to_string();
-            while let Some((left, right)) = split_binary_args(&current_parts) {
-                if let Some(val) = evaluate_str(left, line_num, Rc::clone(&env)) {
-                    evaluated_string.push_str(&val.to_string());
-                }
-                current_parts = right;
+fn literal_to_value(lit: &Literal) -> HyperValue {
+    match lit {
+        Literal::None => HyperValue::None,
+        Literal::Bool(b) => HyperValue::Boolean(*b),
+        Literal::Number(n) => {
+            if let Ok(num) = n.parse::<i32>() {
+                HyperValue::I32(num)
+            } else if let Ok(num) = n.parse::<i64>() {
+                HyperValue::I64(num)
+            } else if let Ok(num) = n.parse::<f64>() {
+                HyperValue::F64(num)
+            } else {
+                HyperValue::None
             }
-            if !current_parts.trim().is_empty() {
-                if let Some(val) = evaluate_str(current_parts.trim().to_string(), line_num, Rc::clone(&env)) {
-                    evaluated_string.push_str(&val.to_string());
+        }
+        Literal::String(s) => HyperValue::String(s.clone()),
+    }
+}
+
+fn function_from_decl(
+    decl: &FunctionDecl,
+    env: Rc<RefCell<Environment>>,
+) -> HyperValue {
+    HyperValue::Function {
+        name: decl.name.clone(),
+        params: decl.params.iter().map(|p| p.name.clone()).collect(),
+        body: Rc::new(*decl.body.clone()),
+        is_strict: decl.is_strict,
+        closure: env,
+    }
+}
+
+fn to_i64(value: &HyperValue) -> i64 {
+    match value {
+        HyperValue::I64(val) => *val,
+        HyperValue::I32(val) => *val as i64,
+        HyperValue::I16(val) => *val as i64,
+        HyperValue::I8(val) => *val as i64,
+        HyperValue::U64(val) => *val as i64,
+        HyperValue::U32(val) => *val as i64,
+        HyperValue::U16(val) => *val as i64,
+        HyperValue::U8(val) => *val as i64,
+        HyperValue::F64(val) => *val as i64,
+        HyperValue::F32(val) => *val as i64,
+        _ => 0,
+    }
+}
+
+fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<HyperValue> {
+    match expr {
+        Expr::Literal(lit) => Some(literal_to_value(lit)),
+        Expr::Variable { name, line: var_line } => {
+            Some(env.borrow().get(name, *var_line))
+        }
+        Expr::Group(inner) => evaluate(inner, line, env),
+        Expr::Unary { op, right } => {
+            let val = evaluate(right, line, Rc::clone(&env))?;
+            match op {
+                UnaryOp::Neg => {
+                    if let Some(res) = val.negate() {
+                        Some(res)
+                    } else {
+                        eprintln!("[line {}] Type Error: Invalid operand types for operation.", line);
+                        std::process::exit(70);
+                    }
+                }
+                UnaryOp::Not => Some(HyperValue::Boolean(!is_truthy(&val))),
+            }
+        }
+        Expr::Binary { op, left, right } => {
+            match op {
+                BinOp::And => {
+                    let left_val = evaluate(left, line, Rc::clone(&env))?;
+                    if !is_truthy(&left_val) {
+                        return Some(left_val);
+                    }
+                    evaluate(right, line, env)
+                }
+                BinOp::Or => {
+                    let left_val = evaluate(left, line, Rc::clone(&env))?;
+                    if is_truthy(&left_val) {
+                        return Some(left_val);
+                    }
+                    evaluate(right, line, env)
+                }
+                BinOp::Eq => {
+                    let l = evaluate(left, line, Rc::clone(&env))?;
+                    let r = evaluate(right, line, Rc::clone(&env))?;
+                    Some(HyperValue::Boolean(l == r))
+                }
+                BinOp::Ne => {
+                    let l = evaluate(left, line, Rc::clone(&env))?;
+                    let r = evaluate(right, line, Rc::clone(&env))?;
+                    Some(HyperValue::Boolean(l != r))
+                }
+                other => {
+                    let left_val = evaluate(left, line, Rc::clone(&env))?;
+                    let right_val = evaluate(right, line, Rc::clone(&env))?;
+                    let res = match other {
+                        BinOp::Add => left_val.add(&right_val),
+                        BinOp::Sub => left_val.sub(&right_val),
+                        BinOp::Mul => left_val.mul(&right_val),
+                        BinOp::Div => left_val.div(&right_val),
+                        BinOp::Rem => left_val.rem(&right_val),
+                        BinOp::Pow => left_val.pow(&right_val),
+                        BinOp::Gt => left_val.greater(&right_val),
+                        BinOp::Lt => left_val.less(&right_val),
+                        BinOp::Ge => left_val.greater_equal(&right_val),
+                        BinOp::Le => left_val.less_equal(&right_val),
+                        BinOp::And | BinOp::Or | BinOp::Eq | BinOp::Ne => unreachable!(),
+                    };
+                    if let Some(v) = res {
+                        Some(v)
+                    } else {
+                        eprintln!("[line {}] Type Error: Invalid operand types for operation.", line);
+                        std::process::exit(70);
+                    }
                 }
             }
         }
-        return Some(HyperValue::String(evaluated_string));
-    }
-
-    if cleaned.starts_with("(call_method ") && cleaned.ends_with(')') {
-        let inner = &cleaned[13..cleaned.len() - 1];
-        
-        let parts: Vec<&str> = inner.splitn(3, ' ').collect();
-        if parts.len() >= 2 {
-            let var_name = parts[0];
-            let method_name = parts[1];
-            let args_raw = if parts.len() == 3 { parts[2] } else { "[]" };
-
-            let target_val = env.borrow().get(var_name, line);
-
-            let mut evaluated_args = Vec::new();
-            let args_trimmed = args_raw.trim();
-            if args_trimmed.starts_with('[') && args_trimmed.ends_with(']') && args_trimmed.len() > 2 {
-                let args_inner = &args_trimmed[1..args_trimmed.len() - 1];
-                let mut current_args = args_inner.to_string();
-                
-                while let Some((left, right)) = split_binary_args(&current_args) {
-                    if let Some(val) = evaluate_str(left, line, Rc::clone(&env)) {
-                        evaluated_args.push(val);
-                    }
-                    current_args = right;
-                }
-                if !current_args.trim().is_empty() {
-                    if let Some(val) = evaluate_str(current_args.trim().to_string(), line, Rc::clone(&env)) {
-                        evaluated_args.push(val);
-                    }
-                }
-            }
-
-            if let HyperValue::Instance { ref methods, .. } = target_val {
-                if let Some((_is_pub, HyperValue::Function { params, body, closure, .. })) = methods.get(method_name) {
-                    let method_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
-                    method_env.borrow_mut().define("self".to_string(), target_val.clone(), true);
-
-                    for (param_name, arg_value) in params.iter().skip(1).zip(evaluated_args.iter()) {
-                        method_env.borrow_mut().define(param_name.clone(), arg_value.clone(), true);
-                    }
-
-                    match execute_statement(&body, method_env) {
-                        ExecResult::Return(val) => return Some(val),
-                        ExecResult::Ok => return Some(HyperValue::None),
-                    }
+        Expr::Assign { name, value } => {
+            let val = evaluate(value, line, Rc::clone(&env))?;
+            env.borrow_mut().assign(name, val.clone(), line);
+            Some(val)
+        }
+        Expr::GetField { object, field } => {
+            let target = env.borrow().get(object, line);
+            if let HyperValue::Instance {
+                fields,
+                field_indices,
+                ..
+            } = target
+            {
+                if let Some(&idx) = field_indices.get(field) {
+                    Some(fields.borrow()[idx].clone())
                 } else {
-                    eprintln!("[line {}] Error: Method '{}' not found.", line, method_name);
+                    eprintln!("[line {}] Error: Undefined field '{}'.", line, field);
                     std::process::exit(70);
                 }
-            }
-
-            return target_val.call_method(method_name, &evaluated_args, line);
-        }
-    }
-
-    if cleaned.starts_with("(get_field ") && cleaned.ends_with(')') {
-        let inner = &cleaned[11..cleaned.len() - 1];
-        if let Some(space_idx) = inner.find(' ') {
-            let object_name = &inner[..space_idx];
-            let field_name = &inner[space_idx + 1..];
-            let target = env.borrow().get(object_name, line);
-            if let HyperValue::Instance { fields, field_indices, .. } = target {
-                if let Some(&idx) = field_indices.get(field_name) {
-                    return Some(fields.borrow()[idx].clone());
-                }
-                eprintln!("[line {}] Error: Undefined field '{}'.", line, field_name);
-                std::process::exit(70);
-            }
-            eprintln!("[line {}] Error: Only instances have fields.", line);
-            std::process::exit(70);
-        }
-    }
-
-    if cleaned.starts_with("(set_field ") && cleaned.ends_with(')') {
-        let inner = &cleaned[11..cleaned.len() - 1];
-        if let Some((object_name, rest)) = split_binary_args(inner) {
-            if let Some((field_name, value_expr)) = split_binary_args(&rest) {
-                let value = evaluate_str(value_expr, line, Rc::clone(&env))?;
-                let target = env.borrow().get(&object_name, line);
-                if let HyperValue::Instance { fields, field_indices, .. } = target {
-                    if let Some(&idx) = field_indices.get(&field_name) {
-                        fields.borrow_mut()[idx] = value.clone();
-                        return Some(value);
-                    }
-                    eprintln!("[line {}] Error: Undefined field '{}'.", line, field_name);
-                    std::process::exit(70);
-                }
+            } else {
                 eprintln!("[line {}] Error: Only instances have fields.", line);
                 std::process::exit(70);
             }
         }
-    }
-
-    if cleaned.starts_with("(list ") && cleaned.ends_with(')') {
-        let inner = &cleaned[6..cleaned.len() - 1];
-        let mut elements = Vec::new();
-        if !inner.trim().is_empty() {
-            let mut current_elements = inner.to_string();
-            while let Some((left, right)) = split_binary_args(&current_elements) {
-                if let Some(val) = evaluate_str(left, line, Rc::clone(&env)) {
-                    elements.push(val);
+        Expr::SetField {
+            object,
+            field,
+            value,
+        } => {
+            let val = evaluate(value, line, Rc::clone(&env))?;
+            let target = env.borrow().get(object, line);
+            if let HyperValue::Instance {
+                fields,
+                field_indices,
+                ..
+            } = target
+            {
+                if let Some(&idx) = field_indices.get(field) {
+                    fields.borrow_mut()[idx] = val.clone();
+                    Some(val)
+                } else {
+                    eprintln!("[line {}] Error: Undefined field '{}'.", line, field);
+                    std::process::exit(70);
                 }
-                current_elements = right;
-            }
-            if !current_elements.trim().is_empty() {
-                if let Some(val) = evaluate_str(current_elements.trim().to_string(), line, Rc::clone(&env)) {
-                    elements.push(val);
-                }
+            } else {
+                eprintln!("[line {}] Error: Only instances have fields.", line);
+                std::process::exit(70);
             }
         }
-        return Some(HyperValue::List(elements));
-    }
-
-    if cleaned.starts_with("(dict ") && cleaned.ends_with(')') {
-        let inner = &cleaned[6..cleaned.len() - 1];
-        let mut entries = HashMap::new();
-        if !inner.trim().is_empty() {
-            let mut current = inner.to_string();
-            let mut parts = Vec::new();
-            while let Some((left, right)) = split_binary_args(&current) {
-                parts.push(left);
-                current = right;
-            }
-            if !current.trim().is_empty() {
-                parts.push(current.trim().to_string());
+        Expr::Call { callee, args } => evaluate_call(callee, args, line, env),
+        Expr::CallMethod {
+            object,
+            method,
+            args,
+        } => {
+            let target_val = env.borrow().get(object, line);
+            let mut evaluated_args = Vec::new();
+            for arg in args {
+                evaluated_args.push(evaluate(arg, line, Rc::clone(&env))?);
             }
 
-            for part in parts {
-                if let Some(colon_idx) = find_top_level_colon(&part) {
-                    let key_expr = part[..colon_idx].trim().to_string();
-                    let val_expr = part[colon_idx + 1..].trim().to_string();
-                    let key_val = evaluate_str(key_expr, line, Rc::clone(&env))?;
-                    let value = evaluate_str(val_expr, line, Rc::clone(&env))?;
-                    entries.insert(key_val.to_string(), value);
-                }
-            }
-        }
-        return Some(HyperValue::Dict {
-            key_type: "string".to_string(),
-            val_type: "any".to_string(),
-            entries,
-        });
-    }
+            if let HyperValue::Instance { ref methods, .. } = target_val {
+                if let Some((
+                    _is_pub,
+                    HyperValue::Function {
+                        params,
+                        body,
+                        closure,
+                        ..
+                    },
+                )) = methods.get(method)
+                {
+                    let method_env =
+                        Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(
+                            closure,
+                        ))));
+                    method_env
+                        .borrow_mut()
+                        .define("self".to_string(), target_val.clone(), true);
 
-    if cleaned.starts_with("(assign ") && cleaned.ends_with(')') {
-        let inner = &cleaned[8..cleaned.len() - 1];
-        if let Some(space_idx) = inner.find(' ') {
-            let let_name = &inner[..space_idx];
-            let value_expr = &inner[space_idx + 1..];
-            if let Some(value) = evaluate_str(value_expr.to_string(), line, Rc::clone(&env)) {
-                env.borrow_mut().assign(let_name, value.clone(), line);
-                return Some(value);
-            }
-        }
-    }
-
-    let is_or = cleaned.starts_with("(or ");
-    let is_and = cleaned.starts_with("(and ");
-    if (is_or || is_and) && cleaned.ends_with(')') {
-        let offset = if is_or { 4 } else { 5 };
-        let inner = &cleaned[offset..cleaned.len() - 1];
-        if let Some((left_str, right_str)) = split_binary_args(inner) {
-            if let Some(left_val) = evaluate_str(left_str, line, Rc::clone(&env)) {
-                let left_truthy = is_truthy(&left_val);
-                if (is_or && left_truthy) || (is_and && !left_truthy) { return Some(left_val); }
-                return evaluate_str(right_str, line, Rc::clone(&env));
-            }
-        }
-    }
-
-    if cleaned.starts_with("(call ") && cleaned.ends_with(')') {
-        let inner = cleaned[6..cleaned.len() - 1].trim();
-        let (callee_str, args_str) = split_binary_args(inner)
-            .map(|(l, r)| (l, Some(r)))
-            .unwrap_or_else(|| (inner.to_string(), None));
-
-        if let Some(call_val) = evaluate_str(callee_str, line, Rc::clone(&env)) {
-            match call_val {
-                HyperValue::NativeFunction(name) if name == "input" => {
-                    if let Some(args_raw) = args_str {
-                        if !args_raw.trim().is_empty() {
-                            if let Some(prompt_val) = evaluate_str(args_raw.trim().to_string(), line, Rc::clone(&env)) {
-                                println!("{}", prompt_val);
-                                let _ = io::stdout().flush();
-                            }
-                        }
+                    for (param_name, arg_value) in params.iter().skip(1).zip(evaluated_args.iter()) {
+                        method_env
+                            .borrow_mut()
+                            .define(param_name.clone(), arg_value.clone(), true);
                     }
 
-                    let mut input_buffer = String::new();
-                    if io::stdin().read_line(&mut input_buffer).is_ok() {
-                        let trimmed = input_buffer.trim_end_matches(&['\r', '\n'][..]).to_string();
-                        return Some(HyperValue::String(trimmed));
-                    } else {
-                        eprintln!("[line {}] Error: Failed to read  line from stdin.", line);
-                        std::process::exit(70);
-                    }
-                }
-                HyperValue::NativeFunction(name) if name == "clock" => {
-                    if args_str.as_ref().map_or(false, |s| !s.trim().is_empty()) {
-                        eprintln!("Expected 0 arguments but got more.\n[line {}]", line);
-                        std::process::exit(70);
-                    }
-                    let duration = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
-                    return Some(HyperValue::F64(duration.as_secs_f64()));
-                }
-                HyperValue::Function { params, body, closure, .. } => {
-                    let mut evaluated_args = Vec::new();
-                    if let Some(args_raw) = args_str {
-                        let mut current_args = args_raw;
-                        while let Some((arg, rest)) = split_binary_args(&current_args) {
-                            if let Some(val) = evaluate_str(arg, line, Rc::clone(&env)) { evaluated_args.push(val); }
-                            current_args = rest;
-                        }
-                        if !current_args.trim().is_empty() {
-                            if let Some(val) = evaluate_str(current_args.trim().to_string(), line, Rc::clone(&env)) {
-                                evaluated_args.push(val);
-                            }
-                        }
-                    }
-
-                    if evaluated_args.len() != params.len() {
-                        eprintln!("Expected {} arguments but got {}.\n[line {}]", params.len(), evaluated_args.len(), line);
-                        std::process::exit(70);
-                    }
-
-                    let closure_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
-                    for (param_name, arg_value) in params.iter().zip(evaluated_args) {
-                        closure_env.borrow_mut().define(param_name.clone(), arg_value, false);
-                    }
-
-                    match execute_statement(&body, closure_env) {
-                        ExecResult::Return(val) => return Some(val),
-                        ExecResult::Ok => return Some(HyperValue::None),
-                    }
-                }
-                HyperValue::StructDef { name, fields, methods, .. } => {
-                    let mut positional_args = Vec::new();
-                    let mut named_args: HashMap<String, HyperValue> = HashMap::new();
-
-                    if let Some(args_raw) = args_str {
-                        let mut current_args = args_raw;
-                        let mut arg_parts = Vec::new();
-                        while let Some((arg, rest)) = split_binary_args(&current_args) {
-                            arg_parts.push(arg);
-                            current_args = rest;
-                        }
-                        if !current_args.trim().is_empty() {
-                            arg_parts.push(current_args.trim().to_string());
-                        }
-
-                        for arg in arg_parts {
-                            if let Some(eq_idx) = arg.find('=') {
-                                let field_name = arg[..eq_idx].to_string();
-                                let value_expr = arg[eq_idx + 1..].to_string();
-                                if let Some(val) = evaluate_str(value_expr, line, Rc::clone(&env)) {
-                                    named_args.insert(field_name, val);
-                                }
-                            } else if let Some(val) = evaluate_str(arg, line, Rc::clone(&env)) {
-                                positional_args.push(val);
-                            }
-                        }
-                    }
-
-                    let mut instance_fields_vec = Vec::new();
-                    let mut field_indices = HashMap::new();
-                    let mut field_visibility = HashMap::new();
-
-                    for (idx, (f_name, _, is_pub, _, _)) in fields.iter().enumerate() {
-                        let initial = named_args.get(f_name).cloned().unwrap_or(HyperValue::None);
-                        instance_fields_vec.push(initial);
-                        field_indices.insert(f_name.clone(), idx);
-                        field_visibility.insert(f_name.clone(), *is_pub);
-                    }
-
-                    let instance = HyperValue::Instance {
-                        struct_name: name.clone(),
-                        fields: Rc::new(RefCell::new(instance_fields_vec)),
-                        field_indices,
-                        field_visibility,
-                        methods: methods.clone(),
+                    return match execute(body, method_env) {
+                        ExecResult::Return(val) => Some(val),
+                        ExecResult::Ok => Some(HyperValue::None),
                     };
-
-                    if let Some((_is_pub, HyperValue::Function { params, body, closure, .. })) = methods.get("__init__") {
-                        let init_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
-                        init_env.borrow_mut().define("self".to_string(), instance.clone(), true);
-
-                        let mut init_args = positional_args;
-                        if init_args.is_empty() && !named_args.is_empty() {
-                            for (f_name, _, _, _, _) in fields.iter() {
-                                if let Some(val) = named_args.get(f_name) {
-                                    init_args.push(val.clone());
-                                }
-                            }
-                        }
-
-                        for (param_name, arg_value) in params.iter().skip(1).zip(init_args) {
-                            init_env.borrow_mut().define(param_name.clone(), arg_value, true);
-                        }
-
-                        execute_statement(&body, init_env);
-                    }
-                    return Some(instance);
-                }
-                _ => {
-                    eprintln!("Can only call functions and classes.\n[line {}]", line);
+                } else if methods.contains_key(method) {
+                    eprintln!("[line {}] Error: Method '{}' not found.", line, method);
                     std::process::exit(70);
                 }
             }
+
+            target_val.call_method(method, &evaluated_args, line)
         }
-        return None;
-    }
-
-    if cleaned.ends_with(')') {
-        if cleaned.starts_with("(+ ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.add(b)); }
-        if cleaned.starts_with("(* ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.mul(b)); }
-        if cleaned.starts_with("(/ ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.div(b)); }
-        if cleaned.starts_with("(% ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.rem(b)); }
-        if cleaned.starts_with("(** ") { return eval_binary_op(&cleaned[4..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.pow(b)); }
-        if cleaned.starts_with("(> ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.greater(b)); }
-        if cleaned.starts_with("(< ") { return eval_binary_op(&cleaned[3..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.less(b)); }
-        if cleaned.starts_with("(>= ") { return eval_binary_op(&cleaned[4..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.greater_equal(b)); }
-        if cleaned.starts_with("(<= ") { return eval_binary_op(&cleaned[4..cleaned.len() - 1], line, Rc::clone(&env), |a, b| a.less_equal(b)); }
-
-        if cleaned.starts_with("(- ") {
-            let inner = &cleaned[3..cleaned.len() - 1];
-            if let Some((left_str, right_str)) = split_binary_args(inner) {
-                let left_val = evaluate_str(left_str, line, Rc::clone(&env))?;
-                let right_val = evaluate_str(right_str, line, Rc::clone(&env))?;
-                return left_val.sub(&right_val);
-            } else {
-                let val = evaluate_str(inner.trim().to_string(), line, Rc::clone(&env))?;
-                return val.negate();
+        Expr::List(items) => {
+            let mut elements = Vec::new();
+            for item in items {
+                elements.push(evaluate(item, line, Rc::clone(&env))?);
             }
+            Some(HyperValue::List(elements))
         }
-
-        if cleaned.starts_with("(not ") {
-            let inner = cleaned[5..cleaned.len() - 1].to_string();
-            let val = evaluate_str(inner, line, Rc::clone(&env))?;
-            return Some(HyperValue::Boolean(!is_truthy(&val)));
+        Expr::Dict(entries) => {
+            let mut map = HashMap::new();
+            for (key_expr, val_expr) in entries {
+                let key_val = evaluate(key_expr, line, Rc::clone(&env))?;
+                let value = evaluate(val_expr, line, Rc::clone(&env))?;
+                map.insert(key_val.to_string(), value);
+            }
+            Some(HyperValue::Dict {
+                key_type: "string".to_string(),
+                val_type: "any".to_string(),
+                entries: map,
+            })
         }
-
-        if cleaned.starts_with("(== ") {
-            let (left_str, right_str) = split_binary_args(&cleaned[4..cleaned.len() - 1])?;
-            let l = evaluate_str(left_str, line, Rc::clone(&env))?;
-            let r = evaluate_str(right_str, line, Rc::clone(&env))?;
-            return Some(HyperValue::Boolean(l == r));
+        Expr::FString { line: f_line, parts } => {
+            let mut evaluated_string = String::new();
+            for part in parts {
+                match part {
+                    FStringPart::Literal(s) => evaluated_string.push_str(s),
+                    FStringPart::Expr(e) => {
+                        if let Some(val) = evaluate(e, *f_line, Rc::clone(&env)) {
+                            evaluated_string.push_str(&val.to_string());
+                        }
+                    }
+                }
+            }
+            Some(HyperValue::String(evaluated_string))
         }
-
-        if cleaned.starts_with("(!= ") {
-            let (left_str, right_str) = split_binary_args(&cleaned[4..cleaned.len() - 1])?;
-            let l = evaluate_str(left_str, line, Rc::clone(&env))?;
-            let r = evaluate_str(right_str, line, Rc::clone(&env))?;
-            return Some(HyperValue::Boolean(l != r));
-        }
-    }
-
-    match cleaned.as_str() {
-        "true" => Some(HyperValue::Boolean(true)),
-        "false" => Some(HyperValue::Boolean(false)),
-        "None" => Some(HyperValue::None),
-        _ => {
-            if let Ok(num) = cleaned.parse::<i32>() {
-                Some(HyperValue::I32(num))
-            } else if let Ok(num) = cleaned.parse::<i64>() {
-                Some(HyperValue::I64(num))
-            } else if let Ok(num) = cleaned.parse::<f64>() {
-                Some(HyperValue::F64(num))
-            } else if cleaned.starts_with('"') && cleaned.ends_with('"') && cleaned.len() >= 2 {
-                Some(HyperValue::String(unescape_string_literal(&cleaned[1..cleaned.len() - 1])))
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            let cond_val = evaluate(condition, line, Rc::clone(&env))?;
+            if is_truthy(&cond_val) {
+                evaluate(then_branch, line, env)
             } else {
-                None
+                evaluate(else_branch, line, env)
             }
         }
     }
 }
 
-fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
-    if stmt.starts_with("(let line:") {
-        let trimmed = &stmt[10..stmt.len() - 1];
-        let parts: Vec<&str> = trimmed.splitn(5, ' ').collect();
-        if parts.len() >= 4 {
-            let line_num: u32 = parts[0].parse().unwrap();
-            let is_mutable = parts[1] == "mut";
-            let let_name = parts[2].to_string();
-            let initializer_expr = if parts.len() == 5 {
-                parts[4].to_string()
-            } else if parts[3].starts_with("type:") {
-                "None".to_string()
-            } else {
-                parts[3].to_string()
-            };
+fn evaluate_call(
+    callee: &Expr,
+    args: &[CallArg],
+    line: u32,
+    env: Rc<RefCell<Environment>>,
+) -> Option<HyperValue> {
+    let call_val = evaluate(callee, line, Rc::clone(&env))?;
 
-            let type_annotation = if parts[3].starts_with("type:") {
-                &parts[3][5..]
-            } else {
-                "None"
-            };
-
-            let value = if initializer_expr == "None" {
-                HyperValue::None
-            } else {
-                let raw = evaluate_str(initializer_expr, line_num, Rc::clone(&env)).unwrap_or(HyperValue::None);
-                coerce_to_type(raw, type_annotation, line_num)
-            };
-            env.borrow_mut().define(let_name, value, is_mutable);
-        }
-    } else if stmt.starts_with("(expr line:") {
-        let rest = &stmt[11..];
-        let space_idx = rest.find(' ').unwrap();
-        let line_num: u32 = rest[..space_idx].parse().unwrap();
-        evaluate_str(rest[space_idx + 1..rest.len() - 1].to_string(), line_num, Rc::clone(&env));
-    } else if stmt.starts_with("(print line:") {
-        let rest = &stmt[12..];
-        let space_idx = rest.find(' ').unwrap();
-        let line_num: u32 = rest[..space_idx].parse().unwrap();
-        let exprs_str = rest[space_idx + 1..rest.len() - 1].to_string();
-        let mut evaluated_results = Vec::new();
-
-        if exprs_str.contains(' ') {
-            let mut current_exprs = exprs_str;
-            while let Some((left, right)) = split_binary_args(&current_exprs) {
-                if let Some(val) = evaluate_str(left, line_num, Rc::clone(&env)) {
-                    evaluated_results.push(val.to_string());
+    match call_val {
+        HyperValue::NativeFunction(name) if name == "input" => {
+            if let Some(CallArg::Positional(prompt_expr)) = args.first() {
+                if let Some(prompt_val) = evaluate(prompt_expr, line, Rc::clone(&env)) {
+                    println!("{}", prompt_val);
+                    let _ = io::stdout().flush();
                 }
-                current_exprs = right;
-            }
-            if !current_exprs.trim().is_empty() {
-                if let Some(val) = evaluate_str(current_exprs.trim().to_string(), line_num, Rc::clone(&env)) {
-                    evaluated_results.push(val.to_string());
+            } else if let Some(CallArg::Named { value, .. }) = args.first() {
+                if let Some(prompt_val) = evaluate(value, line, Rc::clone(&env)) {
+                    println!("{}", prompt_val);
+                    let _ = io::stdout().flush();
                 }
             }
-        } else {
-            if let Some(val) = evaluate_str(exprs_str, line_num, Rc::clone(&env)) {
-                evaluated_results.push(val.to_string());
-            }
-        }
 
-        println!("{}", evaluated_results.join(" "));
-    } else if stmt.starts_with("(block ") && stmt.ends_with(')') {
-        let inner = &stmt[7..stmt.len() - 1];
-        let block_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
-        for sub_stmt in split_block_statements(inner) {
-            if let ExecResult::Return(val) = execute_statement(&sub_stmt, Rc::clone(&block_env)) {
-                return ExecResult::Return(val);
-            }
-        }
-    } else if stmt.starts_with("(struct ") {
-        let trimmed = &stmt[8..stmt.len() - 1];
-        let space_idx = trimmed.find(' ').unwrap();
-        let struct_name = trimmed[..space_idx].to_string();
-        let rest = &trimmed[space_idx + 1..];
-
-        let trait_start = rest.find("trait:").unwrap() + 6;
-        let trait_end = rest.find(" fields:[").unwrap();
-        let implemented_trait = rest[trait_start..trait_end].to_string();
-
-        if !implemented_trait.is_empty() {
-            let trait_check = env.borrow().get(&implemented_trait, 0);
-            if !matches!(trait_check, HyperValue::TraitDef { .. }) {
-                eprintln!("Error: Trait '{}' is not defined.", implemented_trait);
+            let mut input_buffer = String::new();
+            if io::stdin().read_line(&mut input_buffer).is_ok() {
+                let trimmed = input_buffer.trim_end_matches(&['\r', '\n'][..]).to_string();
+                Some(HyperValue::String(trimmed))
+            } else {
+                eprintln!("[line {}] Error: Failed to read  line from stdin.", line);
                 std::process::exit(70);
             }
         }
-
-        let fields_start = rest.find("fields:[").unwrap() + 8;
-        let fields_end = rest.find("] methods:[").unwrap();
-        let fields_str = &rest[fields_start..fields_end];
-
-        let mut fields = Vec::new();
-        let mut field_indices = HashMap::new();
-        let mut field_visibility = HashMap::new();
-
-        if !fields_str.trim().is_empty() {
-            for (idx, f) in fields_str.split(", ").enumerate() {
-                let parts: Vec<&str> = f.splitn(2, ':').collect();
-                let f_name = parts[0].to_string();
-                let is_pub = f.contains("pub:true");
-                let is_mut = f.contains("mut:true");
-
-                fields.push((f_name.clone(), "any".to_string(), is_pub, is_mut, idx));
-                field_indices.insert(f_name.clone(), idx);
-                field_visibility.insert(f_name, is_pub);
+        HyperValue::NativeFunction(name) if name == "clock" => {
+            if !args.is_empty() {
+                eprintln!("Expected 0 arguments but got more.\n[line {}]", line);
+                std::process::exit(70);
             }
+            let duration = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap();
+            Some(HyperValue::F64(duration.as_secs_f64()))
         }
-
-        let methods_start = rest.find("methods:[").unwrap() + 9;
-        let methods_end = rest.len() - 1;
-        let methods_str = &rest[methods_start..methods_end];
-
-        let mut methods_map = HashMap::new();
-        if !methods_str.trim().is_empty() {
-            for m_ast in split_block_statements(methods_str) {
-                if m_ast.starts_with("(pub:") {
-                    let is_pub = m_ast.starts_with("(pub:true");
-                    let real_fn_start = m_ast.find("(fn ").unwrap();
-                    let fn_ast = &m_ast[real_fn_start..];
-                    
-                    let m_trimmed = &fn_ast[4..fn_ast.len() - 1];
-                    let m_space = m_trimmed.find(' ').unwrap();
-                    let m_name = m_trimmed[..m_space].to_string();
-                    
-                    let rest_m = &m_trimmed[m_space + 1..];
-                    let is_strict = rest_m.starts_with("strict:true");
-                    let p_start = rest_m.find("(params ").unwrap() + 8;
-                    let p_end = rest_m.find(')').unwrap();
-                    let params = rest_m[p_start..p_end].split_whitespace().map(|s| s.to_string()).collect();
-                    let body_str = rest_m[p_end + 2..].to_string();
-
-                    let func_val = HyperValue::Function {
-                        name: m_name.clone(),
-                        params,
-                        body: body_str,
-                        is_strict,
-                        closure: Rc::clone(&env),
-                    };
-                    methods_map.insert(m_name, (is_pub, func_val));
-                }
-            }
-        }
-
-        let struct_def = HyperValue::StructDef {
-            name: struct_name.clone(),
-            implemented_trait,
-            fields,
-            methods: methods_map,
-        };
-
-        env.borrow_mut().define(struct_name, struct_def, false);
-    } else if stmt.starts_with("(trait ") {
-        let trimmed = &stmt[7..stmt.len() - 1];
-        let space_idx = trimmed.find(' ').unwrap();
-        let trait_name = trimmed[..space_idx].to_string();
-        let rest = &trimmed[space_idx + 1..];
-
-        let mut method_names = Vec::new();
-        if let Some(start) = rest.find("methods:[") {
-            let methods_str = &rest[start + 9..rest.len() - 1];
-            for m_ast in split_block_statements(methods_str) {
-                if m_ast.starts_with("(fn ") {
-                    let m_trimmed = &m_ast[4..m_ast.len() - 1];
-                    if let Some(m_space) = m_trimmed.find(' ') {
-                        method_names.push(m_trimmed[..m_space].to_string());
+        HyperValue::Function {
+            params,
+            body,
+            closure,
+            ..
+        } => {
+            let mut evaluated_args = Vec::new();
+            for arg in args {
+                match arg {
+                    CallArg::Positional(e) | CallArg::Named { value: e, .. } => {
+                        evaluated_args.push(evaluate(e, line, Rc::clone(&env))?);
                     }
                 }
             }
+
+            if evaluated_args.len() != params.len() {
+                eprintln!(
+                    "Expected {} arguments but got {}.\n[line {}]",
+                    params.len(),
+                    evaluated_args.len(),
+                    line
+                );
+                std::process::exit(70);
+            }
+
+            let closure_env =
+                Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
+            for (param_name, arg_value) in params.iter().zip(evaluated_args) {
+                closure_env
+                    .borrow_mut()
+                    .define(param_name.clone(), arg_value, false);
+            }
+
+            match execute(&body, closure_env) {
+                ExecResult::Return(val) => Some(val),
+                ExecResult::Ok => Some(HyperValue::None),
+            }
         }
+        HyperValue::StructDef {
+            name,
+            fields,
+            methods,
+            ..
+        } => {
+            let mut positional_args = Vec::new();
+            let mut named_args: HashMap<String, HyperValue> = HashMap::new();
 
-        let trait_def = HyperValue::TraitDef {
-            name: trait_name.clone(),
-            methods: method_names,
-        };
-        env.borrow_mut().define(trait_name, trait_def, false);
+            for arg in args {
+                match arg {
+                    CallArg::Named { name, value } => {
+                        if let Some(val) = evaluate(value, line, Rc::clone(&env)) {
+                            named_args.insert(name.clone(), val);
+                        }
+                    }
+                    CallArg::Positional(e) => {
+                        if let Some(val) = evaluate(e, line, Rc::clone(&env)) {
+                            positional_args.push(val);
+                        }
+                    }
+                }
+            }
 
-    } else if stmt.starts_with("(if ") && stmt.ends_with(')') {
-        let inner = &stmt[4..stmt.len() - 1];
-        if let Some((cond_str, rest)) = split_binary_args(inner) {
-            if let Some(cond_val) = evaluate_str(cond_str, 1, Rc::clone(&env)) {
-                let target = if is_truthy(&cond_val) {
-                    split_binary_args(&rest).map(|(then_s, _)| then_s).unwrap_or(rest.clone())
-                } else {
-                    split_binary_args(&rest).map(|(_, else_s)| else_s).unwrap_or_default()
-                };
-    
-                if !target.trim().is_empty() {
-                    let res = execute_statement(&target, Rc::clone(&env));
+            let mut instance_fields_vec = Vec::new();
+            let mut field_indices = HashMap::new();
+            let mut field_visibility = HashMap::new();
+
+            for (idx, (f_name, _, is_pub, _, _)) in fields.iter().enumerate() {
+                let initial = named_args.get(f_name).cloned().unwrap_or(HyperValue::None);
+                instance_fields_vec.push(initial);
+                field_indices.insert(f_name.clone(), idx);
+                field_visibility.insert(f_name.clone(), *is_pub);
+            }
+
+            let instance = HyperValue::Instance {
+                struct_name: name.clone(),
+                fields: Rc::new(RefCell::new(instance_fields_vec)),
+                field_indices,
+                field_visibility,
+                methods: methods.clone(),
+            };
+
+            if let Some((
+                _is_pub,
+                HyperValue::Function {
+                    params,
+                    body,
+                    closure,
+                    ..
+                },
+            )) = methods.get("__init__")
+            {
+                let init_env =
+                    Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(
+                        closure,
+                    ))));
+                init_env
+                    .borrow_mut()
+                    .define("self".to_string(), instance.clone(), true);
+
+                let mut init_args = positional_args;
+                if init_args.is_empty() && !named_args.is_empty() {
+                    for (f_name, _, _, _, _) in fields.iter() {
+                        if let Some(val) = named_args.get(f_name) {
+                            init_args.push(val.clone());
+                        }
+                    }
+                }
+
+                for (param_name, arg_value) in params.iter().skip(1).zip(init_args) {
+                    init_env
+                        .borrow_mut()
+                        .define(param_name.clone(), arg_value, true);
+                }
+
+                execute(body, init_env);
+            }
+            Some(instance)
+        }
+        _ => {
+            eprintln!("Can only call functions and classes.\n[line {}]", line);
+            std::process::exit(70);
+        }
+    }
+}
+
+fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
+    match stmt {
+        Stmt::Let {
+            line,
+            is_mutable,
+            name,
+            type_ann,
+            initializer,
+        } => {
+            let raw = evaluate(initializer, *line, Rc::clone(&env)).unwrap_or(HyperValue::None);
+            let value = coerce_to_type(raw, type_ann, *line);
+            env.borrow_mut()
+                .define(name.clone(), value, *is_mutable);
+            ExecResult::Ok
+        }
+        Stmt::Expr { line, expr } => {
+            evaluate(expr, *line, env);
+            ExecResult::Ok
+        }
+        Stmt::Print { line, values } => {
+            let mut evaluated_results = Vec::new();
+            for value in values {
+                if let Some(val) = evaluate(value, *line, Rc::clone(&env)) {
+                    evaluated_results.push(val.to_string());
+                }
+            }
+            println!("{}", evaluated_results.join(" "));
+            ExecResult::Ok
+        }
+        Stmt::Block(statements) => {
+            let block_env =
+                Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+            for sub_stmt in statements {
+                if let ExecResult::Return(val) = execute(sub_stmt, Rc::clone(&block_env)) {
+                    return ExecResult::Return(val);
+                }
+            }
+            ExecResult::Ok
+        }
+        Stmt::Struct {
+            name,
+            implemented_trait,
+            fields,
+            methods,
+        } => {
+            let trait_name = implemented_trait.clone().unwrap_or_default();
+            if !trait_name.is_empty() {
+                let trait_check = env.borrow().get(&trait_name, 0);
+                if !matches!(trait_check, HyperValue::TraitDef { .. }) {
+                    eprintln!("Error: Trait '{}' is not defined.", trait_name);
+                    std::process::exit(70);
+                }
+            }
+
+            let mut field_defs = Vec::new();
+            for (idx, field) in fields.iter().enumerate() {
+                field_defs.push((
+                    field.name.clone(),
+                    field.type_name.clone(),
+                    field.is_pub,
+                    field.is_mut,
+                    idx,
+                ));
+            }
+
+            let mut methods_map = HashMap::new();
+            for method in methods {
+                let func_val = function_from_decl(&method.function, Rc::clone(&env));
+                methods_map.insert(method.function.name.clone(), (method.is_pub, func_val));
+            }
+
+            let struct_def = HyperValue::StructDef {
+                name: name.clone(),
+                implemented_trait: trait_name,
+                fields: field_defs,
+                methods: methods_map,
+            };
+            env.borrow_mut().define(name.clone(), struct_def, false);
+            ExecResult::Ok
+        }
+        Stmt::Trait { name, methods } => {
+            let method_names: Vec<String> = methods.iter().map(|m| m.name.clone()).collect();
+            let trait_def = HyperValue::TraitDef {
+                name: name.clone(),
+                methods: method_names,
+            };
+            env.borrow_mut().define(name.clone(), trait_def, false);
+            ExecResult::Ok
+        }
+        Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            if let Some(cond_val) = evaluate(condition, 1, Rc::clone(&env)) {
+                if is_truthy(&cond_val) {
+                    let res = execute(then_branch, env);
+                    if matches!(res, ExecResult::Return(_)) {
+                        return res;
+                    }
+                } else if let Some(else_b) = else_branch {
+                    let res = execute(else_b, env);
                     if matches!(res, ExecResult::Return(_)) {
                         return res;
                     }
                 }
             }
+            ExecResult::Ok
         }
-    } else if stmt.starts_with("(while ") && stmt.ends_with(')') {
-        let inner = &stmt[7..stmt.len() - 1];
-        let rest = if inner.starts_with("line:") {
-            match inner.find(' ') {
-                Some(idx) => &inner[idx + 1..],
-                None => inner,
-            }
-        } else {
-            inner
-        };
-        if let Some((cond_str, body_str)) = split_binary_args(rest) {
-            while let Some(cond_val) = evaluate_str(cond_str.clone(), 1, Rc::clone(&env)) {
+        Stmt::While {
+            line,
+            condition,
+            body,
+        } => {
+            while let Some(cond_val) = evaluate(condition, *line, Rc::clone(&env)) {
                 if is_truthy(&cond_val) {
-                    if let ExecResult::Return(val) = execute_statement(&body_str, Rc::clone(&env)) {
+                    if let ExecResult::Return(val) = execute(body, Rc::clone(&env)) {
                         return ExecResult::Return(val);
                     }
-                } else { break; }
-            }
-        }
-    } else if stmt.starts_with("(for_seq line:") || stmt.starts_with("(for_par line:") || stmt.starts_with("(for_vec line:") || stmt.starts_with("(for_par_vec line:") {
-        let is_parallel = stmt.starts_with("(for_par line:") || stmt.starts_with("(for_par_vec line:");
-        let is_vectorized = stmt.starts_with("(for_vec line:") || stmt.starts_with("(for_par_vec line:");
-
-        let tag_len = if stmt.starts_with("(for_seq line:") { 14 }
-                      else if stmt.starts_with("(for_par line:") { 14 }
-                      else if stmt.starts_with("(for_vec line:") { 14 }
-                      else { 18 };
-
-        let rest = &stmt[tag_len..stmt.len() - 1];
-        let parts: Vec<&str> = rest.splitn(5, ' ').collect();
-        if parts.len() == 5 {
-            let line_num: u32 = parts[0].parse().unwrap_or(1);
-            let var_name = parts[1].to_string();
-            let start_expr = parts[2].to_string();
-            let end_expr = parts[3].to_string();
-            let body_str = parts[4].to_string();
-
-            let parse_to_i64 = |expr: &str| -> i64 {
-                match evaluate_str(expr.to_string(), line_num, Rc::clone(&env)) {
-                    Some(HyperValue::I64(val)) => val,
-                    Some(HyperValue::I32(val)) => val as i64,
-                    Some(HyperValue::I16(val)) => val as i64,
-                    Some(HyperValue::I8(val)) => val as i64,
-                    Some(HyperValue::U64(val)) => val as i64,
-                    Some(HyperValue::U32(val)) => val as i64,
-                    Some(HyperValue::U16(val)) => val as i64,
-                    Some(HyperValue::U8(val)) => val as i64,
-                    Some(HyperValue::F64(val)) => val as i64,
-                    Some(HyperValue::F32(val)) => val as i64,
-                     _ => 0,
+                } else {
+                    break;
                 }
-            }; 
-            
-            let start_val = parse_to_i64(&start_expr);
-            let end_val = parse_to_i64(&end_expr);
+            }
+            ExecResult::Ok
+        }
+        Stmt::For {
+            kind,
+            line,
+            var,
+            start,
+            end,
+            body,
+        } => {
+            let start_val = evaluate(start, *line, Rc::clone(&env))
+                .as_ref()
+                .map(to_i64)
+                .unwrap_or(0);
+            let end_val = evaluate(end, *line, Rc::clone(&env))
+                .as_ref()
+                .map(to_i64)
+                .unwrap_or(0);
+
+            let is_parallel =
+                matches!(kind, ForKind::Parallel | ForKind::ParallelVectorized);
+            let is_vectorized =
+                matches!(kind, ForKind::Vectorized | ForKind::ParallelVectorized);
 
             if is_parallel {
-                let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+                let num_threads = std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4);
                 let total_items = (end_val - start_val).max(0);
                 if total_items > 0 {
-                    let chunk_size = (total_items + num_threads as i64 - 1) / num_threads as i64;
+                    let chunk_size =
+                        (total_items + num_threads as i64 - 1) / num_threads as i64;
                     let vec_step: i64 = if is_vectorized { 4 } else { 1 };
-                    
+                    let body_stmt = (*body).clone();
+                    let var_name = var.clone();
+
                     std::thread::scope(|s| {
                         for t in 0..num_threads {
                             let t_start = start_val + t as i64 * chunk_size;
                             let t_end = (t_start + chunk_size).min(end_val);
-                            if t_start >= end_val { break; }
-                            
+                            if t_start >= end_val {
+                                break;
+                            }
+
                             let var_n = var_name.clone();
-                            let b_str = body_str.clone();
+                            let b_stmt = body_stmt.clone();
 
                             s.spawn(move || {
-                                let thread_local_env = Environment::new();         
-                                let thread_local_rc = Rc::new(RefCell::new(thread_local_env));
-                                thread_local_rc.borrow_mut().define(
-                                    "clock".to_string(),
-                                    HyperValue::NativeFunction("clock".to_string()),
-                                    false,
-                                );
-                                thread_local_rc.borrow_mut().define(
-                                    "input".to_string(),
-                                    HyperValue::NativeFunction("input".to_string()),
-                                    false,
-                                );
-                                let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(thread_local_rc)));
-            
+                                let thread_local_rc =
+                                    Rc::new(RefCell::new(Environment::new()));
+                                let loop_env = Rc::new(RefCell::new(
+                                    Environment::new_with_enclosing(thread_local_rc),
+                                ));
+
                                 let mut i = t_start;
                                 while i < t_end {
                                     let lane_end = (i + vec_step).min(t_end);
                                     while i < lane_end {
-                                        loop_env.borrow_mut().define(var_n.clone(), HyperValue::I64(i), true);
-                                        execute_statement(&b_str, Rc::clone(&loop_env));
+                                        loop_env.borrow_mut().define(
+                                            var_n.clone(),
+                                            HyperValue::I64(i),
+                                            true,
+                                        );
+                                        execute(&b_stmt, Rc::clone(&loop_env));
                                         i += 1;
                                     }
                                 }
@@ -931,9 +736,13 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
                 while i < end_val {
                     let lane_end = (i + 4).min(end_val);
                     while i < lane_end {
-                        let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
-                        loop_env.borrow_mut().define(var_name.clone(), HyperValue::I64(i), true);
-                        if let ExecResult::Return(val) = execute_statement(&body_str, loop_env) {
+                        let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(
+                            Rc::clone(&env),
+                        )));
+                        loop_env
+                            .borrow_mut()
+                            .define(var.clone(), HyperValue::I64(i), true);
+                        if let ExecResult::Return(val) = execute(body, loop_env) {
                             return ExecResult::Return(val);
                         }
                         i += 1;
@@ -941,125 +750,97 @@ fn execute_statement(stmt: &str, env: Rc<RefCell<Environment>>) -> ExecResult {
                 }
             } else {
                 for i in start_val..end_val {
-                    let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
-                    loop_env.borrow_mut().define(var_name.clone(), HyperValue::I64(i), true);
-                    if let ExecResult::Return(val) = execute_statement(&body_str, loop_env) {
+                    let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(
+                        Rc::clone(&env),
+                    )));
+                    loop_env
+                        .borrow_mut()
+                        .define(var.clone(), HyperValue::I64(i), true);
+                    if let ExecResult::Return(val) = execute(body, loop_env) {
                         return ExecResult::Return(val);
                     }
-                } 
+                }
             }
+            ExecResult::Ok
         }
-    } else if stmt.starts_with("(fn ") {
-        let trimmed = &stmt[4..stmt.len() - 1];
-        let space_idx = trimmed.find(' ').unwrap();
-        let func_name = trimmed[..space_idx].to_string();
-        let rest = &trimmed[space_idx + 1..];
-
-        let is_strict = rest.starts_with("strict:true");
- 
-        let params_start = rest.find("(params ").unwrap() + 8;
-        let params_end = rest.find(')').unwrap();
-        let params = rest[params_start..params_end]
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
-        let body_str = rest[params_end + 2..].to_string();
-
-        env.borrow_mut().define(
-            func_name.clone(),
-            HyperValue::Function { 
-                name: func_name, 
-                params, 
-                body: body_str, 
-                is_strict, 
-                closure: Rc::clone(&env) 
-            },
-            false,
-        );
-    } else if stmt.starts_with("(return line:") {
-        let rest = &stmt[13..stmt.len() - 1];
-        let space_idx = rest.find(' ').unwrap();
-        let line_num: u32 = rest[..space_idx].parse().unwrap();
-        let inner_expr = &rest[space_idx + 1..];
-
-        let value = if inner_expr == "None" {
-            HyperValue::None
-        } else {
-            evaluate_str(inner_expr.to_string(), line_num, Rc::clone(&env)).unwrap_or(HyperValue::None)
-        };
-        return ExecResult::Return(value);
-    } else if stmt.starts_with("(with_mmap line:") {
-        let rest = &stmt[16..stmt.len() - 1];
-        let parts: Vec<&str> = rest.splitn(3, ' ').collect();
-        if parts.len() == 3 {
-            let line_num: u32 = parts[0].parse().unwrap();
-            let path_expr = parts[1].to_string();
-            let rest_inner = parts[2];
-    
-            let path_val = evaluate_str(path_expr, line_num, Rc::clone(&env)).unwrap_or(HyperValue::None);
+        Stmt::Function(decl) => {
+            let func_val = function_from_decl(decl, Rc::clone(&env));
+            env.borrow_mut()
+                .define(decl.name.clone(), func_val, false);
+            ExecResult::Ok
+        }
+        Stmt::Return { line, value } => {
+            let val = evaluate(value, *line, env).unwrap_or(HyperValue::None);
+            ExecResult::Return(val)
+        }
+        Stmt::WithMmap {
+            line,
+            path,
+            var,
+            body,
+        } => {
+            let path_val = evaluate(path, *line, Rc::clone(&env)).unwrap_or(HyperValue::None);
             let file_path = match path_val {
                 HyperValue::String(s) => s,
                 _ => "".to_string(),
             };
-    
-            let space_idx = rest_inner.find(' ').unwrap();
-            let var_name = rest_inner[..space_idx].to_string();
-            let body_str = rest_inner[space_idx + 1..].to_string();
-    
+
             if let Ok(file) = File::open(&file_path) {
                 let mmap_val = HyperValue::MmapFile {
                     file: Rc::new(RefCell::new(file)),
                     path: file_path,
                 };
-                let block_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
-                block_env.borrow_mut().define(var_name, mmap_val, false);
-                execute_statement(&body_str, block_env);
+                let block_env =
+                    Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+                block_env.borrow_mut().define(var.clone(), mmap_val, false);
+                execute(body, block_env);
             } else {
-                eprintln!("[line {}] Error: Could not open file '{}'", line_num, file_path);
+                eprintln!(
+                    "[line {}] Error: Could not open file '{}'",
+                    line, file_path
+                );
             }
+            ExecResult::Ok
         }
     }
-
-    ExecResult::Ok
 }
 
 pub fn run_evaluate(file_contents: String) {
     let (tokens, error) = crate::scanner::scan_tokens(&file_contents);
-    if error { std::process::exit(65); }
+    if error {
+        std::process::exit(65);
+    }
 
     let mut parser = crate::parser::Parser::new(tokens);
     let env = Rc::new(RefCell::new(Environment::new()));
 
-    env.borrow_mut().define("input".to_string(), HyperValue::NativeFunction("input".to_string()), false);
-    env.borrow_mut().define("clock".to_string(), HyperValue::NativeFunction("clock".to_string()), false);
-
     match parser.parse() {
-        Ok(ast_string) => {
-            if let Some(result) = evaluate_str(ast_string, 1, Rc::clone(&env)) {
+        Ok(ast) => {
+            if let Some(result) = evaluate(&ast, 1, Rc::clone(&env)) {
                 println!("{}", result);
             } else {
                 std::process::exit(65);
             }
         }
-        Err(_) => { std::process::exit(65); }
+        Err(_) => {
+            std::process::exit(65);
+        }
     }
 }
 
 pub fn run_program(file_contents: String) {
     let (tokens, error) = crate::scanner::scan_tokens(&file_contents);
-    if error { std::process::exit(65); }
+    if error {
+        std::process::exit(65);
+    }
 
     let mut parser = crate::parser::Parser::new(tokens);
     let env = Rc::new(RefCell::new(Environment::new()));
-    env.borrow_mut().define("clock".to_string(), HyperValue::NativeFunction("clock".to_string()), false);
-
-    env.borrow_mut().define("input".to_string(), HyperValue::NativeFunction("input".to_string()), false);
-    env.borrow_mut().define("clock".to_string(), HyperValue::NativeFunction("clock".to_string()), false);
 
     match parser.parse_statements() {
         Ok(statements) => {
             for stmt in statements {
-                execute_statement(&stmt, Rc::clone(&env));
+                execute(&stmt, Rc::clone(&env));
             }
         }
         Err(_) => {
