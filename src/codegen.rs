@@ -18,7 +18,8 @@ use crate::runtime::{
     hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
     hyper_rt_list_set, hyper_rt_pow_f64, hyper_rt_pow_i64, hyper_rt_print_dict,
     hyper_rt_print_f64, hyper_rt_print_i64, hyper_rt_print_list, hyper_rt_print_newline,
-    hyper_rt_print_str, hyper_rt_print_struct, hyper_rt_print_value, hyper_rt_str_concat,
+    hyper_rt_print_separator, hyper_rt_print_str, hyper_rt_print_struct, hyper_rt_print_value,
+    hyper_rt_str_concat,
     hyper_rt_struct_get, hyper_rt_struct_new, hyper_rt_struct_set, hyper_rt_value_to_str,
 };
 
@@ -81,6 +82,7 @@ struct RuntimeIds {
     print_f64: FuncId,
     print_str: FuncId,
     print_nl: FuncId,
+    print_sep: FuncId,
     print_list: FuncId,
     print_dict: FuncId,
     print_value: FuncId,
@@ -140,6 +142,12 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         let sig = module.make_signature();
         module
             .declare_function("hyper_rt_print_newline", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let print_sep = {
+        let sig = module.make_signature();
+        module
+            .declare_function("hyper_rt_print_separator", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
     let print_list = {
@@ -324,6 +332,7 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         print_f64,
         print_str,
         print_nl,
+        print_sep,
         print_list,
         print_dict,
         print_value,
@@ -354,9 +363,13 @@ fn declare_user_funcs<M: Module>(
     let mut func_ids: HashMap<String, FuncId> = HashMap::new();
     for func in &ir.functions {
         let mut sig = module.make_signature();
+        // Arguments and results are passed as (payload, kind) pairs so values
+        // keep their type across call boundaries.
         for _ in &func.params {
             sig.params.push(AbiParam::new(types::I64));
+            sig.params.push(AbiParam::new(types::I64));
         }
+        sig.returns.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
         let id = module
             .declare_function(&func.name, Linkage::Local, &sig)
@@ -400,6 +413,10 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol(
         "hyper_rt_print_newline",
         hyper_rt_print_newline as *const u8,
+    );
+    jit_builder.symbol(
+        "hyper_rt_print_separator",
+        hyper_rt_print_separator as *const u8,
     );
     jit_builder.symbol("hyper_rt_print_list", hyper_rt_print_list as *const u8);
     jit_builder.symbol("hyper_rt_print_dict", hyper_rt_print_dict as *const u8);
@@ -453,6 +470,7 @@ pub fn jit_execute(module: &IrModule) -> Result<(), String> {
             &func_ids,
             &runtime,
             &mut strings,
+            true,
         )?;
     }
 
@@ -466,6 +484,7 @@ pub fn jit_execute(module: &IrModule) -> Result<(), String> {
         &func_ids,
         &runtime,
         &mut strings,
+        false,
     )?;
 
     jit.finalize_definitions().map_err(|e| e.to_string())?;
@@ -505,6 +524,7 @@ pub fn emit_object(module: &IrModule, out_path: &str) -> Result<(), String> {
             &func_ids,
             &runtime,
             &mut strings,
+            true,
         )?;
     }
 
@@ -518,6 +538,7 @@ pub fn emit_object(module: &IrModule, out_path: &str) -> Result<(), String> {
         &func_ids,
         &runtime,
         &mut strings,
+        false,
     )?;
 
     let product = obj.finish();
@@ -590,12 +611,17 @@ fn define_function<M: Module>(
     func_ids: &HashMap<String, FuncId>,
     runtime: &RuntimeIds,
     strings: &mut StringData,
+    returns_kind: bool,
 ) -> Result<(), String> {
     let mut sig = module.make_signature();
     for _ in params {
         sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
     }
     sig.returns.push(AbiParam::new(types::I64));
+    if returns_kind {
+        sig.returns.push(AbiParam::new(types::I64));
+    }
 
     ctx.func = Function::new();
     ctx.func.signature = sig;
@@ -639,10 +665,14 @@ fn define_function<M: Module>(
         let param_vals: Vec<Value> = builder.block_params(entry).to_vec();
         for (i, name) in params.iter().enumerate() {
             let var = declare_var(&mut builder, &mut next_var);
-            builder.def_var(var, param_vals[i]);
+            builder.def_var(var, param_vals[i * 2]);
             named_vars.insert(name.clone(), var);
             named_defs.insert(name.clone());
-            named_kinds.insert(name.clone(), ValueKind::I64);
+
+            let kv = declare_var(&mut builder, &mut next_var);
+            builder.def_var(kv, param_vals[i * 2 + 1]);
+            named_kind_vars.insert(name.clone(), kv);
+            named_kinds.insert(name.clone(), ValueKind::Dynamic);
         }
 
         let ensure_val = |id: ValueId,
@@ -776,6 +806,19 @@ fn define_function<M: Module>(
             }
         }
 
+        // Every named slot carries a runtime kind so a name written with
+        // different kinds on different paths stays printable/inspectable.
+        let named_names: Vec<String> = named_vars.keys().cloned().collect();
+        for name in named_names {
+            if named_kind_vars.contains_key(&name) {
+                continue;
+            }
+            let kv = declare_var(&mut builder, &mut next_var);
+            let init = builder.ins().iconst(types::I64, ValueKind::I64.as_i64());
+            builder.def_var(kv, init);
+            named_kind_vars.insert(name, kv);
+        }
+
         for instr in body {
             match instr {
                 IrInstr::Label { block } => {
@@ -837,20 +880,24 @@ fn define_function<M: Module>(
                     let val = builder.use_var(value_vars[value]);
                     builder.def_var(named_vars[name], val);
                     let vk = kind_of(&value_kinds, *value);
-                    named_kinds.insert(name.clone(), vk);
-                    if vk == ValueKind::Dynamic {
-                        if let Some(kv) = kind_vars.get(value) {
-                            let k = builder.use_var(*kv);
-                            let named_kv = if let Some(existing) = named_kind_vars.get(name) {
-                                *existing
-                            } else {
-                                let v = declare_var(&mut builder, &mut next_var);
-                                named_kind_vars.insert(name.clone(), v);
-                                v
-                            };
-                            builder.def_var(named_kv, k);
+
+                    let runtime_kind = if vk == ValueKind::Dynamic {
+                        match kind_vars.get(value) {
+                            Some(kv) => builder.use_var(*kv),
+                            None => builder.ins().iconst(types::I64, 0),
                         }
+                    } else {
+                        builder.ins().iconst(types::I64, vk.as_i64())
+                    };
+                    if let Some(kv) = named_kind_vars.get(name) {
+                        builder.def_var(*kv, runtime_kind);
                     }
+
+                    let merged = match named_kinds.get(name) {
+                        Some(prev) if *prev != vk => ValueKind::Dynamic,
+                        _ => vk,
+                    };
+                    named_kinds.insert(name.clone(), merged);
                 }
                 IrInstr::Unary { dest, op, src } => {
                     let s = builder.use_var(value_vars[src]);
@@ -1030,15 +1077,31 @@ fn define_function<M: Module>(
                         .get(func)
                         .copied()
                         .ok_or_else(|| format!("codegen: unknown function '{func}'"))?;
-                    let arg_vals: Vec<Value> = args
-                        .iter()
-                        .map(|a| builder.use_var(value_vars[a]))
-                        .collect();
+                    let mut arg_vals: Vec<Value> = Vec::with_capacity(args.len() * 2);
+                    for a in args {
+                        let v = builder.use_var(value_vars[a]);
+                        let k = match kind_of(&value_kinds, *a) {
+                            ValueKind::Dynamic => match kind_vars.get(a) {
+                                Some(kv) => builder.use_var(*kv),
+                                None => builder.ins().iconst(types::I64, 0),
+                            },
+                            other => builder.ins().iconst(types::I64, other.as_i64()),
+                        };
+                        arg_vals.push(v);
+                        arg_vals.push(k);
+                    }
                     let fref = module.declare_func_in_func(id, &mut builder.func);
                     let call = builder.ins().call(fref, &arg_vals);
-                    let ret = builder.inst_results(call)[0];
-                    builder.def_var(value_vars[dest], ret);
-                    value_kinds.insert(*dest, ValueKind::I64);
+                    let results = builder.inst_results(call).to_vec();
+                    builder.def_var(value_vars[dest], results[0]);
+                    if results.len() > 1 {
+                        let kv = declare_var(&mut builder, &mut next_var);
+                        builder.def_var(kv, results[1]);
+                        kind_vars.insert(*dest, kv);
+                        value_kinds.insert(*dest, ValueKind::Dynamic);
+                    } else {
+                        value_kinds.insert(*dest, ValueKind::I64);
+                    }
                 }
                 IrInstr::MakeList { dest, items } => {
                     let fnew =
@@ -1237,7 +1300,12 @@ fn define_function<M: Module>(
                     builder.ins().call(fref, &[obj, idx, val, val_kind]);
                 }
                 IrInstr::Print { args } => {
-                    for a in args {
+                    for (i, a) in args.iter().enumerate() {
+                        if i > 0 {
+                            let sep_ref = module
+                                .declare_func_in_func(runtime.print_sep, &mut builder.func);
+                            builder.ins().call(sep_ref, &[]);
+                        }
                         let v = builder.use_var(value_vars[a]);
                         match kind_of(&value_kinds, *a) {
                             ValueKind::Dynamic => {
@@ -1274,7 +1342,16 @@ fn define_function<M: Module>(
                                     .declare_func_in_func(runtime.print_struct, &mut builder.func);
                                 builder.ins().call(fref, &[v]);
                             }
-                            ValueKind::I64 | ValueKind::Bool | ValueKind::None_ => {
+                            kind @ (ValueKind::Bool | ValueKind::None_) => {
+                                let k =
+                                    builder.ins().iconst(types::I64, kind.as_i64());
+                                let fref = module.declare_func_in_func(
+                                    runtime.print_value,
+                                    &mut builder.func,
+                                );
+                                builder.ins().call(fref, &[v, k]);
+                            }
+                            ValueKind::I64 => {
                                 let fref = module
                                     .declare_func_in_func(runtime.print_i64, &mut builder.func);
                                 builder.ins().call(fref, &[v]);
@@ -1290,7 +1367,25 @@ fn define_function<M: Module>(
                         Some(id) => builder.use_var(value_vars[id]),
                         None => builder.ins().iconst(types::I64, 0),
                     };
-                    builder.ins().return_(&[v]);
+                    if returns_kind {
+                        let k = match value {
+                            Some(id) => match kind_of(&value_kinds, *id) {
+                                ValueKind::Dynamic => match kind_vars.get(id) {
+                                    Some(kv) => builder.use_var(*kv),
+                                    None => builder.ins().iconst(types::I64, 0),
+                                },
+                                other => {
+                                    builder.ins().iconst(types::I64, other.as_i64())
+                                }
+                            },
+                            None => builder
+                                .ins()
+                                .iconst(types::I64, ValueKind::None_.as_i64()),
+                        };
+                        builder.ins().return_(&[v, k]);
+                    } else {
+                        builder.ins().return_(&[v]);
+                    }
                     terminated = true;
                 }
                 IrInstr::Jump { target } => {
@@ -1315,7 +1410,15 @@ fn define_function<M: Module>(
 
         if !terminated {
             let zero = builder.ins().iconst(types::I64, 0);
-            builder.ins().return_(&[zero]);
+            if returns_kind {
+                // Falling off the end yields None, matching the interpreter.
+                let none = builder
+                    .ins()
+                    .iconst(types::I64, ValueKind::None_.as_i64());
+                builder.ins().return_(&[zero, none]);
+            } else {
+                builder.ins().return_(&[zero]);
+            }
         }
 
         builder.seal_all_blocks();
