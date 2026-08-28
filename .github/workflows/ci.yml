@@ -36,3 +36,11 @@ jobs:
         run: |
           cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
           /tmp/hyper_smoke
+
+      - name: Interpreter and compiler output parity
+        run: |
+          cargo run --quiet -- run ci/smoke.hyp > /tmp/out_run.txt
+          cargo run --quiet -- compile ci/smoke.hyp > /tmp/out_jit.txt
+          /tmp/hyper_smoke > /tmp/out_exe.txt
+          diff /tmp/out_run.txt /tmp/out_jit.txt
+          diff /tmp/out_run.txt /tmp/out_exe.txt
