@@ -25,7 +25,7 @@ Hyper is being developed to solve the trade-off between developer efficiency and
 
 ## Building from source
 
-Hyper has no official release yet. To clone, build, aend run the toolchain, see [Building from source](doc/building.md).
+Hyper has no official release yet. To clone, build, and run the toolchain, see [Building from source](doc/building.md).
 
 ## Contributing
 
