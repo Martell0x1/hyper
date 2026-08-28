@@ -10,6 +10,17 @@ p.move(5, 5)
 print(p.x)
 print(p.y)
 
+struct Counter:
+    let mut value: i32
+
+    fn __init__(ref self, start: i32):
+        self.value = start
+
+    fn label(ref self):
+        return f"count={self.value}"
+
+let c = Counter(value: 7)
+
 struct Animal:
     let name: string
 
@@ -37,3 +48,24 @@ print(false and boom())
 print(true or boom())
 print(true and false)
 print(false or true)
+
+print(true, false, None)
+print("multi", 1, 2.5, nums)
+
+fn greet(who):
+    return f"hi {who}"
+
+fn nothing():
+    return None
+
+print(greet("Hyper"))
+print(greet(nums[0]))
+print(nothing())
+print(f"greeting: {greet(\"CI\")}")
+
+from strmod import shout
+import strmod as sm
+
+print(shout("loud"))
+print(sm.pair("x", 2))
+print(c.label())
