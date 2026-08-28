@@ -1,0 +1,6 @@
+# Module exporting typed helpers for CI smoke.
+fn shout(text):
+    return f"{text}!"
+
+fn pair(a, b):
+    return [a, b]
