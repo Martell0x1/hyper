@@ -100,30 +100,35 @@ fn key_to_string(key: i64, key_kind: i64) -> String {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_print_i64(v: i64) {
-    print!("{} ", v);
+    print!("{}", v);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_print_f64(v: f64) {
-    print!("{} ", v);
+    print!("{}", v);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_print_str(s: *const i8) {
     if s.is_null() {
-        print!(" ");
         return;
     }
     let cstr = unsafe { CStr::from_ptr(s) };
     match cstr.to_str() {
-        Ok(text) => print!("{} ", text),
-        Err(_) => print!("<?> "),
+        Ok(text) => print!("{}", text),
+        Err(_) => print!("<?>"),
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_print_newline() {
     println!();
+}
+
+/// Separator emitted between `print` arguments (interpreter joins with a space).
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_print_separator() {
+    print!(" ");
 }
 
 #[unsafe(no_mangle)]
@@ -170,11 +175,11 @@ pub extern "C" fn hyper_rt_list_push(list: i64, value: i64, kind: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_print_list(list: i64) {
     if list == 0 {
-        print!("[] ");
+        print!("[]");
         return;
     }
     let list = unsafe { &*(list as *const RtList) };
-    print!("{} ", format_list(list));
+    print!("{}", format_list(list));
 }
 
 #[unsafe(no_mangle)]
@@ -210,16 +215,16 @@ pub extern "C" fn hyper_rt_dict_push(
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_print_dict(dict: i64) {
     if dict == 0 {
-        print!("{{}} ");
+        print!("{{}}");
         return;
     }
     let dict = unsafe { &*(dict as *const RtDict) };
-    print!("{} ", format_dict(dict));
+    print!("{}", format_dict(dict));
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_print_value(payload: i64, kind: i64) {
-    print!("{} ", format_value(&RtValue { kind, payload }));
+    print!("{}", format_value(&RtValue { kind, payload }));
 }
 
 #[unsafe(no_mangle)]
@@ -403,9 +408,9 @@ pub extern "C" fn hyper_rt_struct_set(obj: i64, field: i64, value: i64, kind: i6
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_print_struct(obj: i64) {
     if obj == 0 {
-        print!("{{}} ");
+        print!("{{}}");
         return;
     }
     let st = unsafe { &*(obj as *const RtStruct) };
-    print!("{} ", format_struct(st));
+    print!("{}", format_struct(st));
 }
