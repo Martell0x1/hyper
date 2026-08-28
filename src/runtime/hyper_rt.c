@@ -45,23 +45,27 @@ typedef struct {
 extern int64_t __main__(void);
 
 void hyper_rt_print_i64(int64_t v) {
-    printf("%lld ", (long long)v);
+    printf("%lld", (long long)v);
 }
 
 void hyper_rt_print_f64(double v) {
-    printf("%g ", v);
+    printf("%g", v);
 }
 
 void hyper_rt_print_str(const char *s) {
     if (!s) {
-        printf(" ");
         return;
     }
-    printf("%s ", s);
+    printf("%s", s);
 }
 
 void hyper_rt_print_newline(void) {
     printf("\n");
+}
+
+/* Separator emitted between `print` arguments (interpreter joins with a space). */
+void hyper_rt_print_separator(void) {
+    putchar(' ');
 }
 
 int64_t hyper_rt_pow_i64(int64_t base, int64_t exp) {
@@ -196,11 +200,10 @@ void hyper_rt_list_push(int64_t list_h, int64_t value, int64_t kind) {
 
 void hyper_rt_print_list(int64_t list_h) {
     if (!list_h) {
-        printf("[] ");
+        printf("[]");
         return;
     }
     format_list((const RtList *)(intptr_t)list_h);
-    putchar(' ');
 }
 
 int64_t hyper_rt_dict_new(void) {
@@ -258,11 +261,10 @@ void hyper_rt_dict_push(
 
 void hyper_rt_print_dict(int64_t dict_h) {
     if (!dict_h) {
-        printf("{} ");
+        printf("{}");
         return;
     }
     format_dict((const RtDict *)(intptr_t)dict_h);
-    putchar(' ');
 }
 
 void hyper_rt_print_value(int64_t payload, int64_t kind) {
@@ -270,7 +272,6 @@ void hyper_rt_print_value(int64_t payload, int64_t kind) {
     v.kind = kind;
     v.payload = payload;
     format_value(&v);
-    putchar(' ');
 }
 
 int64_t hyper_rt_list_get(int64_t list_h, int64_t index, int64_t *out_kind) {
@@ -485,11 +486,10 @@ void hyper_rt_struct_set(int64_t obj, int64_t field, int64_t value, int64_t kind
 
 void hyper_rt_print_struct(int64_t obj) {
     if (!obj) {
-        printf("{} ");
+        printf("{}");
         return;
     }
     format_struct((const RtStruct *)(intptr_t)obj);
-    putchar(' ');
 }
 
 int main(void) {
