@@ -101,3 +101,29 @@ let big = small.grown(3)
 print(describe(small))
 print(describe(big))
 print(big.size)
+
+# Numbers keep their type and their digits everywhere.
+print(1.0 / 3.0)
+print(0.1 + 0.2)
+print(2.0)
+print(2.5 ** 2.0)
+print(3.141592653589793)
+print(123456789 * 1000)
+
+# Dicts print in insertion order.
+print({"b": 1, "a": 2})
+
+# Functions may be called before they are defined.
+fn first(n: i64) -> i64:
+    return second(n) + 1
+
+fn second(n: i64) -> i64:
+    return n * 2
+
+print(first(4))
+
+# An inferred counter accepts the i64 coming out of range.
+let mut total = 0
+for i in range(4):
+    total = total + i
+print(total)
