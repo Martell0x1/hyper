@@ -1,11 +1,10 @@
 //! JSON support for the `json` builtin module: `loads`, `dumps`, `load`, `dump`.
 //!
 //! Parsing walks the source bytes once and builds Hyper values directly, so no
-//! intermediate document tree is allocated. Object keys are emitted in sorted
-//! order because Hyper dicts are hash maps and would otherwise print differently
-//! on every run.
+//! intermediate document tree is allocated. Object keys keep the order they were
+//! inserted in, so a document survives a load/dump round trip unchanged.
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use crate::environment::HyperValue;
 
@@ -90,7 +89,7 @@ impl<'a> Parser<'a> {
 
     fn parse_object(&mut self) -> Result<HyperValue, String> {
         self.expect(b'{')?;
-        let mut entries = HashMap::new();
+        let mut entries = IndexMap::new();
         self.skip_whitespace();
         if self.peek() == Some(b'}') {
             self.pos += 1;
@@ -265,7 +264,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn new_dict(entries: HashMap<String, HyperValue>) -> HyperValue {
+fn new_dict(entries: IndexMap<String, HyperValue>) -> HyperValue {
     HyperValue::Dict {
         key_type: "string".to_string(),
         val_type: "any".to_string(),
@@ -295,11 +294,9 @@ fn write_value(
         HyperValue::List(items) => write_array(items, indent, depth, out)?,
         HyperValue::Array { elements, .. } => write_array(elements, indent, depth, out)?,
         HyperValue::Dict { entries, .. } => {
-            let mut keys: Vec<&String> = entries.keys().collect();
-            keys.sort();
-            let pairs: Vec<(&str, &HyperValue)> = keys
-                .into_iter()
-                .map(|k| (k.as_str(), entries.get(k).unwrap()))
+            let pairs: Vec<(&str, &HyperValue)> = entries
+                .iter()
+                .map(|(k, v)| (k.as_str(), v))
                 .collect();
             write_object(&pairs, indent, depth, out)?;
         }
@@ -309,8 +306,9 @@ fn write_value(
             ..
         } => {
             let borrowed = fields.borrow();
+            // Declaration order, so a struct serializes the way it was written.
             let mut names: Vec<&String> = field_indices.keys().collect();
-            names.sort();
+            names.sort_by_key(|name| field_indices[*name]);
             let pairs: Vec<(&str, &HyperValue)> = names
                 .into_iter()
                 .map(|name| (name.as_str(), &borrowed[field_indices[name]]))
@@ -434,7 +432,7 @@ fn type_label(value: &HyperValue) -> &'static str {
 mod tests {
     use super::*;
 
-    fn dict_of(value: &HyperValue) -> &HashMap<String, HyperValue> {
+    fn dict_of(value: &HyperValue) -> &IndexMap<String, HyperValue> {
         match value {
             HyperValue::Dict { entries, .. } => entries,
             other => panic!("expected a dict, got {:?}", other),
@@ -480,11 +478,11 @@ mod tests {
     }
 
     #[test]
-    fn stringify_is_deterministic() {
+    fn stringify_keeps_key_order() {
         let value = parse("{\"b\": 1, \"a\": [true, null]}").unwrap();
         assert_eq!(
             stringify(&value, 0).unwrap(),
-            "{\"a\":[true,null],\"b\":1}"
+            "{\"b\":1,\"a\":[true,null]}"
         );
     }
 
