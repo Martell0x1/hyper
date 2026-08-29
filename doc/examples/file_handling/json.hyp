@@ -1,0 +1,19 @@
+# json is a builtin module
+import json
+
+let config = {"name": "Hyper", "version": 1, "fast": true}
+
+# Value <-> string
+let text = json.dumps(config)
+let parsed = json.loads(text)
+print(parsed["name"])
+
+# Value <-> file, with 2-space indentation
+with open("config.json", "w") as f:
+    json.dump(config, f, 2)
+
+with open("config.json", "r") as f:
+    let loaded = json.load(f)
+    print(loaded["version"])
+
+# syntax
