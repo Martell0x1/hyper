@@ -236,11 +236,16 @@ impl Parser {
         Ok(expr)
     }
 
+    fn skip_layout_tokens(&mut self) {
+        while self.match_types(&[TokenType::Newline, TokenType::Indent, TokenType::Dedent]) {}
+    }
+
     fn parse_collection_after_open(
         &mut self,
         close: TokenType,
         close_msg: &str,
     ) -> Result<Expr, ()> {
+        self.skip_layout_tokens();
         if self.check(&close) {
             self.advance();
             return Ok(Expr::List(Vec::new()));
@@ -253,6 +258,7 @@ impl Parser {
             let mut entries = vec![(first_key, first_val)];
 
             while self.match_types(&[TokenType::Comma]) {
+                self.skip_layout_tokens();
                 if self.check(&close) {
                     break;
                 }
@@ -262,18 +268,21 @@ impl Parser {
                 entries.push((key, value));
             }
 
+            self.skip_layout_tokens();
             self.consume(close, close_msg)?;
             return Ok(Expr::Dict(entries));
         }
 
         let mut elements = vec![first_key];
         while self.match_types(&[TokenType::Comma]) {
+            self.skip_layout_tokens();
             if self.check(&close) {
                 break;
             }
             elements.push(self.expression()?);
         }
 
+        self.skip_layout_tokens();
         self.consume(close, close_msg)?;
         Ok(Expr::List(elements))
     }
@@ -438,6 +447,123 @@ impl Parser {
         )
     }
 
+    fn parse_type_ann(&mut self) -> Result<TypeAnn, ()> {
+        if self.match_types(&[TokenType::Array]) {
+            self.consume(TokenType::LeftBracket, "Expect '[' after 'Array'.")?;
+            let inner_type = self.consume_type_name("Expect array element type.")?;
+            self.consume(TokenType::RightBracket, "Expect ']' after array type.")?;
+            Ok(TypeAnn::Array { inner: inner_type })
+        } else if self.match_types(&[TokenType::Dict]) {
+            self.consume(TokenType::LeftBracket, "Expect '[' after 'Dict'.")?;
+            let key_type = self.consume_type_name("Expect dictionary key type.")?;
+            self.consume(
+                TokenType::Comma,
+                "Expect ',' between dictionary key and value types.",
+            )?;
+            let val_type = self.consume_type_name("Expect dictionary value type.")?;
+            self.consume(
+                TokenType::RightBracket,
+                "Expect ']' after dictionary types.",
+            )?;
+            Ok(TypeAnn::Dict {
+                key: key_type,
+                value: val_type,
+            })
+        } else {
+            let type_name = self.consume_type_name("Expect type name.")?;
+            Ok(TypeAnn::Named(type_name))
+        }
+    }
+
+    fn type_ann_to_string(ann: &TypeAnn) -> String {
+        match ann {
+            TypeAnn::None => String::new(),
+            TypeAnn::Named(name) => name.clone(),
+            TypeAnn::Array { inner } => format!("Array[{}]", inner),
+            TypeAnn::Dict { key, value } => format!("Dict[{}, {}]", key, value),
+        }
+    }
+
+    /// `name: Array[i32] = [...]` without a leading `let`.
+    fn looks_like_typed_binding(&self) -> bool {
+        let mut i = self.current;
+        if i >= self.tokens.len() || self.tokens[i].token_type != TokenType::Identifier {
+            return false;
+        }
+        i += 1;
+        if i >= self.tokens.len() || self.tokens[i].token_type != TokenType::Colon {
+            return false;
+        }
+        i += 1;
+        i = match self.type_annotation_end(i) {
+            Some(end) => end,
+            None => return false,
+        };
+        i < self.tokens.len() && self.tokens[i].token_type == TokenType::Equal
+    }
+
+    fn type_annotation_end(&self, mut i: usize) -> Option<usize> {
+        if i >= self.tokens.len() {
+            return None;
+        }
+        match &self.tokens[i].token_type {
+            TokenType::Array => {
+                i += 1;
+                if i >= self.tokens.len() || self.tokens[i].token_type != TokenType::LeftBracket {
+                    return None;
+                }
+                i += 1;
+                while i < self.tokens.len()
+                    && !matches!(
+                        self.tokens[i].token_type,
+                        TokenType::RightBracket | TokenType::Comma
+                    )
+                {
+                    i += 1;
+                }
+                if i >= self.tokens.len() || self.tokens[i].token_type != TokenType::RightBracket {
+                    return None;
+                }
+                Some(i + 1)
+            }
+            TokenType::Dict => {
+                i += 1;
+                if i >= self.tokens.len() || self.tokens[i].token_type != TokenType::LeftBracket {
+                    return None;
+                }
+                i += 1;
+                while i < self.tokens.len() && self.tokens[i].token_type != TokenType::RightBracket
+                {
+                    i += 1;
+                }
+                if i >= self.tokens.len() || self.tokens[i].token_type != TokenType::RightBracket {
+                    return None;
+                }
+                Some(i + 1)
+            }
+            ty if Self::is_type_token(ty) => Some(i + 1),
+            _ => None,
+        }
+    }
+
+    fn typed_binding_declaration(&mut self) -> Result<Stmt, ()> {
+        let line = self.peek().line as u32;
+        let name_token = self
+            .consume(TokenType::Identifier, "Expect variable name.")?
+            .clone();
+        self.consume(TokenType::Colon, "Expect ':' after variable name.")?;
+        let type_ann = self.parse_type_ann()?;
+        self.consume(TokenType::Equal, "Expect '=' after type annotation.")?;
+        let initializer = self.expression()?;
+        Ok(Stmt::Let {
+            line,
+            is_mutable: false,
+            name: name_token.lexeme,
+            type_ann,
+            initializer,
+        })
+    }
+
     fn consume_type_name(&mut self, message: &str) -> Result<String, ()> {
         let token = self.peek().clone();
         if Self::is_type_token(&token.token_type) {
@@ -595,6 +721,10 @@ impl Parser {
 
         if self.match_types(&[TokenType::Let]) {
             return self.let_declaration();
+        }
+
+        if self.looks_like_typed_binding() {
+            return self.typed_binding_declaration();
         }
 
         if self.match_types(&[TokenType::For]) {
@@ -803,7 +933,7 @@ impl Parser {
                 let param_name = param_token.lexeme.clone();
 
                 let type_ann = if self.match_types(&[TokenType::Colon]) {
-                    Some(self.consume_type_name("Expect parameter type.")?)
+                    Some(Self::type_ann_to_string(&self.parse_type_ann()?))
                 } else {
                     None
                 };
@@ -822,7 +952,7 @@ impl Parser {
         self.consume(TokenType::RightParen, "Expect ')' after parameters.")?;
 
         let return_type = if self.match_types(&[TokenType::Arrow]) {
-            Some(self.consume_type_name("Expect return type after '->'.")?)
+            Some(Self::type_ann_to_string(&self.parse_type_ann()?))
         } else {
             None
         };
@@ -875,35 +1005,7 @@ impl Parser {
         let let_name = name_token.lexeme;
 
         let type_ann = if self.match_types(&[TokenType::Colon]) {
-            if self.match_types(&[TokenType::Array]) {
-                self.consume(TokenType::LeftBracket, "Expect '[' after 'Array'.")?;
-                let inner_type = self.peek().lexeme.clone();
-                self.advance();
-                self.consume(TokenType::RightBracket, "Expect ']' after array type.")?;
-                TypeAnn::Array { inner: inner_type }
-            } else if self.match_types(&[TokenType::Dict]) {
-                self.consume(TokenType::LeftBracket, "Expect '[' after 'Dict'.")?;
-                let key_type = self.peek().lexeme.clone();
-                self.advance();
-                self.consume(
-                    TokenType::Comma,
-                    "Expect ',' between dictionary key and value types.",
-                )?;
-                let val_type = self.peek().lexeme.clone();
-                self.advance();
-                self.consume(
-                    TokenType::RightBracket,
-                    "Expect ']' after dictionary types.",
-                )?;
-                TypeAnn::Dict {
-                    key: key_type,
-                    value: val_type,
-                }
-            } else {
-                let type_token = self.peek().clone();
-                self.advance();
-                TypeAnn::Named(type_token.lexeme)
-            }
+            self.parse_type_ann()?
         } else {
             TypeAnn::None
         };
@@ -1269,6 +1371,66 @@ impl Parser {
         let line = self.peek().line as u32;
         let expr = self.expression()?;
         Ok(Stmt::Expr { line, expr })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scanner::scan_tokens;
+
+    fn parse_program(source: &str) -> Vec<Stmt> {
+        let (tokens, error) = scan_tokens(source);
+        assert!(!error, "scan failed for: {}", source);
+        Parser::new(tokens)
+            .parse_statements()
+            .expect("parse failed")
+    }
+
+    #[test]
+    fn typed_binding_without_let() {
+        let stmts = parse_program("arr: Array[int32] = [1, 2]\n");
+        assert!(matches!(
+            &stmts[0],
+            Stmt::Let {
+                name,
+                type_ann: TypeAnn::Array { inner },
+                ..
+            } if name == "arr" && inner == "int32"
+        ));
+    }
+
+    #[test]
+    fn ref_param_accepts_array_type() {
+        let stmts = parse_program(
+            "fn process(ref arr: Array[int32]) -> int32:\n\
+             \x20   return arr[0]\n",
+        );
+        assert!(matches!(&stmts[0], Stmt::Function(_)));
+    }
+
+    #[test]
+    fn dict_typed_binding() {
+        let stmts = parse_program(
+            "scores: Dict[string, int32] = {\"math\": 100, \"physics\": 95}\n",
+        );
+        assert!(matches!(
+            &stmts[0],
+            Stmt::Let {
+                type_ann: TypeAnn::Dict { key, value },
+                ..
+            } if key == "string" && value == "int32"
+        ));
+    }
+
+    #[test]
+    fn multiline_dict_literal() {
+        parse_program(
+            "scores: Dict[string, int32] = {\n\
+             \x20   \"math\": 100,\n\
+             \x20   \"physics\": 95\n\
+             }\n",
+        );
     }
 }
 
