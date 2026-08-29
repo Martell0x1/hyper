@@ -20,8 +20,8 @@ use crate::runtime::{
     hyper_rt_print_f64, hyper_rt_print_i64, hyper_rt_print_list, hyper_rt_print_newline,
     hyper_rt_print_separator, hyper_rt_print_str, hyper_rt_print_struct, hyper_rt_print_value,
     hyper_rt_str_concat,
-    hyper_rt_struct_get, hyper_rt_struct_new, hyper_rt_struct_set, hyper_rt_value_eq,
-    hyper_rt_value_to_str,
+    hyper_rt_div_by_zero, hyper_rt_struct_get, hyper_rt_struct_new, hyper_rt_struct_set,
+    hyper_rt_value_eq, hyper_rt_value_to_str,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +100,7 @@ struct RuntimeIds {
     dict_set: FuncId,
     value_to_str: FuncId,
     value_eq: FuncId,
+    div_by_zero: FuncId,
     str_concat: FuncId,
     struct_new: FuncId,
     struct_get: FuncId,
@@ -295,6 +296,13 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
             .declare_function("hyper_rt_value_eq", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
+    let div_by_zero = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_div_by_zero", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
     let str_concat = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -361,6 +369,7 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         dict_set,
         value_to_str,
         value_eq,
+        div_by_zero,
         str_concat,
         struct_new,
         struct_get,
@@ -470,6 +479,7 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_dict_set", hyper_rt_dict_set as *const u8);
     jit_builder.symbol("hyper_rt_value_to_str", hyper_rt_value_to_str as *const u8);
     jit_builder.symbol("hyper_rt_value_eq", hyper_rt_value_eq as *const u8);
+    jit_builder.symbol("hyper_rt_div_by_zero", hyper_rt_div_by_zero as *const u8);
     jit_builder.symbol("hyper_rt_str_concat", hyper_rt_str_concat as *const u8);
     jit_builder.symbol("hyper_rt_struct_new", hyper_rt_struct_new as *const u8);
     jit_builder.symbol("hyper_rt_struct_get", hyper_rt_struct_get as *const u8);
@@ -803,6 +813,9 @@ fn define_function<M: Module>(
                     ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
                     ensure_val(*list, &mut builder, &mut next_var, &mut value_vars);
                 }
+                IrInstr::GuardDivisor { value, .. } => {
+                    ensure_val(*value, &mut builder, &mut next_var, &mut value_vars);
+                }
                 IrInstr::ValueToStr { dest, src } => {
                     ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
                     ensure_val(*src, &mut builder, &mut next_var, &mut value_vars);
@@ -959,6 +972,36 @@ fn define_function<M: Module>(
                     };
                     builder.def_var(value_vars[dest], v);
                     value_kinds.insert(*dest, out_kind);
+                }
+                IrInstr::GuardDivisor { value, line } => {
+                    let kind = kind_of(&value_kinds, *value);
+                    if kind != ValueKind::F64 {
+                        let v = builder.use_var(value_vars[value]);
+                        let zero = builder.ins().iconst(types::I64, 0);
+                        let mut is_zero = builder.ins().icmp(IntCC::Equal, v, zero);
+                        if kind == ValueKind::Dynamic {
+                            // A dynamic 0.0 has a zero payload but divides fine.
+                            let vk = kind_operand(&mut builder, &kind_vars, kind, *value);
+                            let f64_kind =
+                                builder.ins().iconst(types::I64, ValueKind::F64.as_i64());
+                            let not_float = builder.ins().icmp(IntCC::NotEqual, vk, f64_kind);
+                            is_zero = builder.ins().band(is_zero, not_float);
+                        }
+                        let err_block = builder.create_block();
+                        let ok_block = builder.create_block();
+                        builder.ins().brif(is_zero, err_block, &[], ok_block, &[]);
+
+                        builder.switch_to_block(err_block);
+                        builder.seal_block(err_block);
+                        let line_val = builder.ins().iconst(types::I64, *line as i64);
+                        let fref = module
+                            .declare_func_in_func(runtime.div_by_zero, &mut builder.func);
+                        builder.ins().call(fref, &[line_val]);
+                        builder.ins().jump(ok_block, &[]);
+
+                        builder.switch_to_block(ok_block);
+                        builder.seal_block(ok_block);
+                    }
                 }
                 IrInstr::Binary {
                     dest,
