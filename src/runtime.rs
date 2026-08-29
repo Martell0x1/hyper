@@ -356,6 +356,71 @@ pub extern "C" fn hyper_rt_str_concat(left: i64, right: i64) -> i64 {
     }
 }
 
+fn cstr_to_str<'a>(payload: i64) -> &'a str {
+    if payload == 0 {
+        return "";
+    }
+    unsafe { CStr::from_ptr(payload as *const c_char) }
+        .to_str()
+        .unwrap_or("")
+}
+
+/// Mirrors the interpreter's `==`: strings, lists and dicts compare by content,
+/// numbers promote to f64 when either side is a float, and struct instances are
+/// never equal to anything.
+fn values_equal(a: &RtValue, b: &RtValue) -> bool {
+    match (a.kind, b.kind) {
+        (KIND_STR, KIND_STR) => cstr_to_str(a.payload) == cstr_to_str(b.payload),
+        (KIND_NONE, KIND_NONE) => true,
+        (KIND_BOOL, KIND_BOOL) => a.payload == b.payload,
+        (KIND_F64, KIND_F64) => f64::from_bits(a.payload as u64) == f64::from_bits(b.payload as u64),
+        (KIND_F64, KIND_I64) => f64::from_bits(a.payload as u64) == b.payload as f64,
+        (KIND_I64, KIND_F64) => a.payload as f64 == f64::from_bits(b.payload as u64),
+        (KIND_I64, KIND_I64) => a.payload == b.payload,
+        (KIND_LIST, KIND_LIST) => {
+            if a.payload == 0 || b.payload == 0 {
+                return a.payload == b.payload;
+            }
+            let left = unsafe { &*(a.payload as *const RtList) };
+            let right = unsafe { &*(b.payload as *const RtList) };
+            left.items.len() == right.items.len()
+                && left
+                    .items
+                    .iter()
+                    .zip(right.items.iter())
+                    .all(|(x, y)| values_equal(x, y))
+        }
+        (KIND_DICT, KIND_DICT) => {
+            if a.payload == 0 || b.payload == 0 {
+                return a.payload == b.payload;
+            }
+            let left = unsafe { &*(a.payload as *const RtDict) };
+            let right = unsafe { &*(b.payload as *const RtDict) };
+            left.entries.len() == right.entries.len()
+                && left.entries.iter().all(|(key, value)| {
+                    right
+                        .entries
+                        .iter()
+                        .any(|(other_key, other)| other_key == key && values_equal(value, other))
+                })
+        }
+        _ => false,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_value_eq(a: i64, a_kind: i64, b: i64, b_kind: i64) -> i64 {
+    let left = RtValue {
+        kind: a_kind,
+        payload: a,
+    };
+    let right = RtValue {
+        kind: b_kind,
+        payload: b,
+    };
+    values_equal(&left, &right) as i64
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_struct_new(nfields: i64) -> i64 {
     let n = if nfields < 0 { 0 } else { nfields as usize };
@@ -413,4 +478,88 @@ pub extern "C" fn hyper_rt_print_struct(obj: i64) {
     }
     let st = unsafe { &*(obj as *const RtStruct) };
     print!("{}", format_struct(st));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn str_payload(text: &str) -> i64 {
+        CString::new(text).unwrap().into_raw() as i64
+    }
+
+    fn list_of(items: &[(i64, i64)]) -> i64 {
+        let list = hyper_rt_list_new();
+        for (payload, kind) in items {
+            hyper_rt_list_push(list, *payload, *kind);
+        }
+        list
+    }
+
+    #[test]
+    fn strings_compare_by_content() {
+        let a = str_payload("hyper");
+        let b = str_payload("hyper");
+        let c = str_payload("rust");
+        assert_ne!(a, b, "test needs two distinct allocations");
+        assert_eq!(hyper_rt_value_eq(a, KIND_STR, b, KIND_STR), 1);
+        assert_eq!(hyper_rt_value_eq(a, KIND_STR, c, KIND_STR), 0);
+    }
+
+    #[test]
+    fn lists_compare_element_wise() {
+        let a = list_of(&[(1, KIND_I64), (2, KIND_I64)]);
+        let b = list_of(&[(1, KIND_I64), (2, KIND_I64)]);
+        let c = list_of(&[(1, KIND_I64), (3, KIND_I64)]);
+        let short = list_of(&[(1, KIND_I64)]);
+        assert_eq!(hyper_rt_value_eq(a, KIND_LIST, b, KIND_LIST), 1);
+        assert_eq!(hyper_rt_value_eq(a, KIND_LIST, c, KIND_LIST), 0);
+        assert_eq!(hyper_rt_value_eq(a, KIND_LIST, short, KIND_LIST), 0);
+    }
+
+    #[test]
+    fn nested_lists_compare_by_content() {
+        let inner_a = list_of(&[(str_payload("x"), KIND_STR)]);
+        let inner_b = list_of(&[(str_payload("x"), KIND_STR)]);
+        let a = list_of(&[(inner_a, KIND_LIST)]);
+        let b = list_of(&[(inner_b, KIND_LIST)]);
+        assert_eq!(hyper_rt_value_eq(a, KIND_LIST, b, KIND_LIST), 1);
+    }
+
+    #[test]
+    fn dicts_ignore_entry_order() {
+        let a = hyper_rt_dict_new();
+        hyper_rt_dict_push(a, str_payload("x"), KIND_STR, 1, KIND_I64);
+        hyper_rt_dict_push(a, str_payload("y"), KIND_STR, 2, KIND_I64);
+        let b = hyper_rt_dict_new();
+        hyper_rt_dict_push(b, str_payload("y"), KIND_STR, 2, KIND_I64);
+        hyper_rt_dict_push(b, str_payload("x"), KIND_STR, 1, KIND_I64);
+        assert_eq!(hyper_rt_value_eq(a, KIND_DICT, b, KIND_DICT), 1);
+    }
+
+    #[test]
+    fn integers_and_floats_compare_numerically() {
+        let one = 1i64;
+        let one_point_zero = 1.0f64.to_bits() as i64;
+        assert_eq!(hyper_rt_value_eq(one, KIND_I64, one_point_zero, KIND_F64), 1);
+        assert_eq!(hyper_rt_value_eq(2, KIND_I64, one_point_zero, KIND_F64), 0);
+    }
+
+    #[test]
+    fn booleans_do_not_equal_integers() {
+        assert_eq!(hyper_rt_value_eq(1, KIND_BOOL, 1, KIND_BOOL), 1);
+        assert_eq!(hyper_rt_value_eq(1, KIND_BOOL, 1, KIND_I64), 0);
+    }
+
+    #[test]
+    fn struct_instances_are_never_equal() {
+        let obj = hyper_rt_struct_new(1);
+        assert_eq!(hyper_rt_value_eq(obj, KIND_STRUCT, obj, KIND_STRUCT), 0);
+    }
+
+    #[test]
+    fn none_equals_none_only() {
+        assert_eq!(hyper_rt_value_eq(0, KIND_NONE, 0, KIND_NONE), 1);
+        assert_eq!(hyper_rt_value_eq(0, KIND_NONE, 0, KIND_I64), 0);
+    }
 }
