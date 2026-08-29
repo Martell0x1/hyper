@@ -330,7 +330,19 @@ fn match_char (
         '0'..='9' => {
             let num_str = num_literals(ch, chars);
             let lit = if num_str.contains('.') {
-                num_str.parse::<f64>().map(|n| n.to_string()).unwrap_or(num_str.clone())
+                // Normalising through f64 drops the fraction of `1.0`, which would
+                // turn a float literal into an integer for every later stage.
+                num_str
+                    .parse::<f64>()
+                    .map(|n| {
+                        let text = n.to_string();
+                        if text.contains('.') || text.contains('e') || text.contains('E') {
+                            text
+                        } else {
+                            format!("{}.0", text)
+                        }
+                    })
+                    .unwrap_or(num_str.clone())
             } else {
                 num_str.clone()
             };
@@ -416,5 +428,33 @@ fn match_char (
             eprintln!("[line {}] Error: Unexpected character: {}", line, ch);
             *error = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn number_literals(source: &str) -> Vec<String> {
+        let (tokens, error) = scan_tokens(source);
+        assert!(!error, "source should scan: {}", source);
+        tokens
+            .into_iter()
+            .filter(|t| t.token_type == TokenType::Number)
+            .map(|t| t.literal)
+            .collect()
+    }
+
+    #[test]
+    fn float_literals_keep_their_fraction() {
+        assert_eq!(number_literals("1.0"), vec!["1.0".to_string()]);
+        assert_eq!(number_literals("2.50"), vec!["2.5".to_string()]);
+        assert_eq!(number_literals("0.000001"), vec!["0.000001".to_string()]);
+    }
+
+    #[test]
+    fn integer_literals_stay_integers() {
+        assert_eq!(number_literals("42"), vec!["42".to_string()]);
+        assert_eq!(number_literals("1_000"), vec!["1000".to_string()]);
     }
 }
