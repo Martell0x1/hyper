@@ -409,6 +409,12 @@ fn values_equal(a: &RtValue, b: &RtValue) -> bool {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_div_by_zero(line: i64) {
+    eprintln!("[line {}] Error: Division by zero.", line);
+    std::process::exit(70);
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_value_eq(a: i64, a_kind: i64, b: i64, b_kind: i64) -> i64 {
     let left = RtValue {
         kind: a_kind,

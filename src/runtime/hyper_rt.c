@@ -600,6 +600,12 @@ static int values_equal(RtValue a, RtValue b) {
     return 0;
 }
 
+void hyper_rt_div_by_zero(int64_t line) {
+    fflush(stdout);
+    fprintf(stderr, "[line %lld] Error: Division by zero.\n", (long long)line);
+    exit(70);
+}
+
 int64_t hyper_rt_value_eq(int64_t a, int64_t a_kind, int64_t b, int64_t b_kind) {
     RtValue left;
     RtValue right;
