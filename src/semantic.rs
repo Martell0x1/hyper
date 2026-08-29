@@ -152,6 +152,22 @@ impl TypeChecker {
     }
 
     fn resolve_type_name(&self, name: &str) -> HyperType {
+        if let Some(inner) = name
+            .strip_prefix("Array[")
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            return HyperType::Array(Box::new(self.resolve_type_name(inner.trim())));
+        }
+        if let Some(rest) = name
+            .strip_prefix("Dict[")
+            .and_then(|body| body.strip_suffix(']'))
+        {
+            if let Some((_key, val)) = rest.split_once(',') {
+                let _ = self.resolve_type_name(val.trim());
+            }
+            return HyperType::Dict;
+        }
+
         let ty = match name {
             "int8" => "i8",
             "int16" => "i16",
@@ -446,7 +462,7 @@ impl TypeChecker {
                 let ot = self.check_expr(object);
                 let _ = self.check_expr(index);
                 match ot {
-                    HyperType::List(inner) => *inner,
+                    HyperType::List(inner) | HyperType::Array(inner) => *inner,
                     HyperType::Dict => HyperType::Any,
                     HyperType::String => HyperType::String,
                     HyperType::Any => HyperType::Any,
