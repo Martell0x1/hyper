@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -264,9 +265,9 @@ fn literal_to_value(lit: &Literal) -> HyperValue {
         Literal::None => HyperValue::None,
         Literal::Bool(b) => HyperValue::Boolean(*b),
         Literal::Number(n) => {
-            if let Ok(num) = n.parse::<i32>() {
-                HyperValue::I32(num)
-            } else if let Ok(num) = n.parse::<i64>() {
+            // i64 like the compiled path, so the same program cannot overflow
+            // in one and not the other.
+            if let Ok(num) = n.parse::<i64>() {
                 HyperValue::I64(num)
             } else if let Ok(num) = n.parse::<f64>() {
                 HyperValue::F64(num)
@@ -630,7 +631,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             Some(HyperValue::List(elements))
         }
         Expr::Dict(entries) => {
-            let mut map = HashMap::new();
+            let mut map = IndexMap::new();
             for (key_expr, val_expr) in entries {
                 let key_val = evaluate(key_expr, line, Rc::clone(&env))?;
                 let value = evaluate(val_expr, line, Rc::clone(&env))?;
