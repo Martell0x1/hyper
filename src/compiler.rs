@@ -36,6 +36,8 @@ struct Lowerer {
     structs: HashMap<String, StructLayout>,
     /// local variable → struct type name (for field/method lowering)
     var_structs: HashMap<String, String>,
+    /// function name → struct type it returns, so `let p = make()` keeps methods
+    fn_struct_returns: HashMap<String, String>,
     /// Line of the statement being lowered, used for diagnostics.
     current_line: u32,
     /// Diagnostics collected while lowering, reported before codegen runs.
@@ -56,6 +58,7 @@ impl Lowerer {
             load_state: ModuleLoadState::new(entry_path),
             structs: HashMap::new(),
             var_structs: HashMap::new(),
+            fn_struct_returns: HashMap::new(),
             current_line: 0,
             errors: Vec::new(),
         }
@@ -101,8 +104,8 @@ impl Lowerer {
                 format!("struct '{}' has no field '{}'", name, field)
             }
             None => format!(
-                "cannot resolve field '{}' on '{}'; the compiler only supports struct fields",
-                field, object
+                "cannot resolve field '{}' on '{}'; annotate '{}' with its struct type so the compiler can find the field",
+                field, object, object
             ),
         }
     }
@@ -118,8 +121,8 @@ impl Lowerer {
                 format!("struct '{}' has no method '{}'", name, method)
             }
             None => format!(
-                "cannot resolve method '{}' on '{}'; the compiler only supports struct methods",
-                method, object
+                "cannot resolve method '{}' on '{}'; annotate '{}' with its struct type so the compiler can find the method",
+                method, object, object
             ),
         }
     }
@@ -128,12 +131,98 @@ impl Lowerer {
         format!("{}__{}", ir_name, method)
     }
 
+    /// Struct layout key for a type name, preferring the module-qualified one.
+    fn struct_key(&self, name: &str, module: Option<&str>) -> Option<String> {
+        if let Some(m) = module {
+            let mangled = module::mangle_module_fn(m, name);
+            if self.structs.contains_key(&mangled) {
+                return Some(mangled);
+            }
+        }
+        if self.structs.contains_key(name) {
+            return Some(name.to_string());
+        }
+        None
+    }
+
+    fn visit_returns(stmt: &Stmt, visit: &mut impl FnMut(&Expr)) {
+        match stmt {
+            Stmt::Return { value, .. } => visit(value),
+            Stmt::Block(stmts) => {
+                for s in stmts {
+                    Self::visit_returns(s, visit);
+                }
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                Self::visit_returns(then_branch, visit);
+                if let Some(other) = else_branch {
+                    Self::visit_returns(other, visit);
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::For { body, .. }
+            | Stmt::With { body, .. }
+            | Stmt::WithMmap { body, .. } => Self::visit_returns(body, visit),
+            _ => {}
+        }
+    }
+
+    /// Struct type a function hands back, from its annotation or its returns.
+    fn struct_return_of(&self, decl: &FunctionDecl, module: Option<&str>) -> Option<String> {
+        if let Some(ret) = &decl.return_type {
+            if let Some(key) = self.struct_key(ret, module) {
+                return Some(key);
+            }
+        }
+        let mut found: Option<String> = None;
+        Self::visit_returns(&decl.body, &mut |expr| {
+            if found.is_some() {
+                return;
+            }
+            found = match expr {
+                Expr::Call { callee, .. } => match callee.as_ref() {
+                    Expr::Variable { name, .. } => self.struct_key(name, module),
+                    _ => None,
+                },
+                Expr::Variable { name, .. } => self.var_structs.get(name).cloned(),
+                _ => None,
+            };
+        });
+        found
+    }
+
+    /// Bind struct-typed parameters so method calls inside the body resolve.
+    fn bind_param_structs(&mut self, params: &[Param], module: Option<&str>) {
+        for param in params {
+            if let Some(ty) = &param.type_ann {
+                if let Some(key) = self.struct_key(ty, module) {
+                    self.var_structs.insert(param.name.clone(), key);
+                }
+            }
+        }
+    }
+
+    fn note_struct_returns(&mut self, decl: &FunctionDecl, ir_name: &str, module: Option<&str>) {
+        if let Some(stype) = self.struct_return_of(decl, module) {
+            self.fn_struct_returns.insert(ir_name.to_string(), stype);
+        }
+    }
+
     fn note_struct_binding(&mut self, name: &str, initializer: &Expr) {
         match initializer {
             Expr::Call { callee, .. } => {
                 if let Expr::Variable { name: sn, .. } = callee.as_ref() {
                     if self.structs.contains_key(sn) {
                         self.var_structs.insert(name.to_string(), sn.clone());
+                        return;
+                    }
+                    let target = self.resolve_call_name(sn);
+                    if let Some(stype) = self.fn_struct_returns.get(&target).cloned() {
+                        self.var_structs.insert(name.to_string(), stype);
                     }
                 }
             }
@@ -144,6 +233,20 @@ impl Lowerer {
                     let key = module::mangle_module_fn(mod_name, method);
                     if self.structs.contains_key(&key) {
                         self.var_structs.insert(name.to_string(), key);
+                    } else if let Some(stype) = self.fn_struct_returns.get(&key).cloned() {
+                        self.var_structs.insert(name.to_string(), stype);
+                    }
+                    return;
+                }
+                if let Some(stype) = self.var_structs.get(object).cloned() {
+                    let ir_name = self
+                        .structs
+                        .get(&stype)
+                        .map(|l| l.ir_name.clone())
+                        .unwrap_or(stype);
+                    let key = Self::mangle_method(&ir_name, method);
+                    if let Some(ret) = self.fn_struct_returns.get(&key).cloned() {
+                        self.var_structs.insert(name.to_string(), ret);
                     }
                 }
             }
@@ -267,6 +370,7 @@ impl Lowerer {
 
         for method in methods {
             let mangled = Self::mangle_method(ir_name, &method.function.name);
+            self.note_struct_returns(&method.function, &mangled, None);
             let saved = std::mem::take(&mut self.current);
             let saved_next_value = self.next_value;
             let saved_next_block = self.next_block;
@@ -275,6 +379,7 @@ impl Lowerer {
             self.next_block = 0;
             self.var_structs
                 .insert("self".to_string(), name.to_string());
+            self.bind_param_structs(&method.function.params, None);
 
             self.lower_stmt(&method.function.body);
 
@@ -415,6 +520,7 @@ impl Lowerer {
         for (name, _fields, methods, ir_name) in &module_structs {
             for method in *methods {
                 let mangled = Self::mangle_method(ir_name, &method.function.name);
+                self.note_struct_returns(&method.function, &mangled, Some(module_name));
                 let saved = std::mem::take(&mut self.current);
                 let saved_next_value = self.next_value;
                 let saved_next_block = self.next_block;
@@ -423,6 +529,7 @@ impl Lowerer {
                 self.next_block = 0;
                 self.var_structs
                     .insert("self".to_string(), (*name).to_string());
+                self.bind_param_structs(&method.function.params, Some(module_name));
 
                 self.lower_stmt(&method.function.body);
 
@@ -449,17 +556,21 @@ impl Lowerer {
         for stmt in &stmts {
             match stmt {
                 Stmt::Function(decl) => {
+                    let ir_name = module::mangle_module_fn(module_name, &decl.name);
+                    self.note_struct_returns(decl, &ir_name, Some(module_name));
                     let saved_body_current = std::mem::take(&mut self.current);
                     let saved_next_value = self.next_value;
                     let saved_next_block = self.next_block;
+                    let saved_var_structs = self.var_structs.clone();
                     self.next_value = 0;
                     self.next_block = 0;
+                    self.bind_param_structs(&decl.params, Some(module_name));
 
                     self.lower_stmt(&decl.body);
 
                     let body = std::mem::take(&mut self.current);
                     self.functions.push(IrFunction {
-                        name: module::mangle_module_fn(module_name, &decl.name),
+                        name: ir_name,
                         params: decl.params.iter().map(|p| p.name.clone()).collect(),
                         body,
                     });
@@ -467,6 +578,7 @@ impl Lowerer {
                     self.current = saved_body_current;
                     self.next_value = saved_next_value;
                     self.next_block = saved_next_block;
+                    self.var_structs = saved_var_structs;
                 }
                 Stmt::Let {
                     name, initializer, ..
@@ -1217,11 +1329,14 @@ impl Lowerer {
                 }
             }
             Stmt::Function(decl) => {
+                self.note_struct_returns(decl, &decl.name, None);
                 let saved = std::mem::take(&mut self.current);
                 let saved_next_value = self.next_value;
                 let saved_next_block = self.next_block;
+                let saved_var_structs = self.var_structs.clone();
                 self.next_value = 0;
                 self.next_block = 0;
+                self.bind_param_structs(&decl.params, None);
 
                 // Params are referenced by name via Load in the body.
                 self.lower_stmt(&decl.body);
@@ -1236,6 +1351,7 @@ impl Lowerer {
                 self.current = saved;
                 self.next_value = saved_next_value;
                 self.next_block = saved_next_block;
+                self.var_structs = saved_var_structs;
             }
             Stmt::Return { value, .. } => {
                 // Bare `return` may be Literal::None from parser.
@@ -1388,6 +1504,42 @@ mod tests {
         );
         let module = module.expect("valid struct program should lower");
         assert!(module.functions.iter().any(|f| f.name == "Point__bump"));
+    }
+
+    #[test]
+    fn struct_returned_by_function_keeps_its_methods() {
+        let module = lower_source(
+            "struct Point:\n\
+             \x20   let mut x: i32\n\
+             \n\
+             \x20   fn bump(ref self, dx: i32):\n\
+             \x20       self.x = self.x + dx\n\
+             \n\
+             fn origin():\n\
+             \x20   return Point(x: 0)\n\
+             \n\
+             let p = origin()\n\
+             p.bump(2)\n",
+        );
+        module.expect("call returning a struct should lower");
+    }
+
+    #[test]
+    fn struct_typed_parameter_keeps_its_methods() {
+        let module = lower_source(
+            "struct Point:\n\
+             \x20   let mut x: i32\n\
+             \n\
+             \x20   fn bump(ref self, dx: i32):\n\
+             \x20       self.x = self.x + dx\n\
+             \n\
+             fn shift(p: Point):\n\
+             \x20   p.bump(1)\n\
+             \n\
+             let p = Point(x: 1)\n\
+             shift(p)\n",
+        );
+        module.expect("struct-typed parameter should lower");
     }
 
     #[test]
