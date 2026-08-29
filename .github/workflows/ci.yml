@@ -45,6 +45,18 @@ jobs:
           cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
           /tmp/hyper_smoke
 
+      - name: Division by zero parity
+        run: |
+          set +e
+          cargo run --quiet -- run ci/divzero.hyp > /tmp/dz_run.txt 2>&1
+          run_code=$?
+          cargo run --quiet -- compile ci/divzero.hyp > /tmp/dz_jit.txt 2>&1
+          jit_code=$?
+          set -e
+          test "$run_code" -eq 70
+          test "$jit_code" -eq 70
+          diff /tmp/dz_run.txt /tmp/dz_jit.txt
+
       - name: Interpreter and compiler output parity
         run: |
           cargo run --quiet -- run ci/smoke.hyp > /tmp/out_run.txt
