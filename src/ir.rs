@@ -37,6 +37,8 @@ pub enum IrInstr {
         left: ValueId,
         right: ValueId,
     },
+    /// Stop with a runtime error when an integer divisor is zero.
+    GuardDivisor { value: ValueId, line: u32 },
     Call {
         dest: ValueId,
         func: String,
@@ -163,6 +165,9 @@ impl fmt::Display for IrInstr {
                 left,
                 right,
             } => write!(f, "  v{} = {} v{} v{}", dest, op, left, right),
+            IrInstr::GuardDivisor { value, line } => {
+                write!(f, "  guard.divisor v{} line {}", value, line)
+            }
             IrInstr::Call { dest, func, args } => {
                 if args.is_empty() {
                     write!(f, "  v{} = call {}()", dest, func)
