@@ -83,6 +83,7 @@ impl Lowerer {
             | Stmt::Expr { line, .. }
             | Stmt::Return { line, .. }
             | Stmt::WithMmap { line, .. }
+            | Stmt::With { line, .. }
             | Stmt::Import { line, .. }
             | Stmt::ImportFrom { line, .. } => Some(*line),
             _ => None,
@@ -100,8 +101,8 @@ impl Lowerer {
                 format!("struct '{}' has no field '{}'", name, field)
             }
             None => format!(
-                "cannot determine the struct type of '{}' for field '{}'",
-                object, field
+                "cannot resolve field '{}' on '{}'; the compiler only supports struct fields",
+                field, object
             ),
         }
     }
@@ -117,8 +118,8 @@ impl Lowerer {
                 format!("struct '{}' has no method '{}'", name, method)
             }
             None => format!(
-                "cannot determine the struct type of '{}' for method '{}'",
-                object, method
+                "cannot resolve method '{}' on '{}'; the compiler only supports struct methods",
+                method, object
             ),
         }
     }
@@ -321,6 +322,14 @@ impl Lowerer {
         let stmts = match self.load_state.load_stmts(module_name) {
             Ok((_path, stmts)) => stmts,
             Err(msg) => {
+                if module::builtin_module_members(module_name).is_some() {
+                    self.current_line = line;
+                    self.error(format!(
+                        "module '{}' is a builtin module and is only available on the interpreter path",
+                        module_name
+                    ));
+                    return;
+                }
                 eprintln!("[line {}] Error: {}.", line, msg);
                 process::exit(70);
             }
@@ -1260,6 +1269,9 @@ impl Lowerer {
             Stmt::WithMmap { .. } => {
                 self.error("memory-mapped file blocks are not supported by the compiler yet");
             }
+            Stmt::With { .. } => {
+                self.error("'with' resource blocks are not supported by the compiler yet");
+            }
             Stmt::Import {
                 line,
                 module,
@@ -1417,7 +1429,7 @@ mod tests {
         let errors = errors_of("let q = 5\nprint(q.field)\n");
         assert_eq!(errors.len(), 1);
         assert!(
-            errors[0].contains("cannot determine the struct type of 'q'"),
+            errors[0].contains("cannot resolve field 'field' on 'q'"),
             "unexpected message: {}",
             errors[0]
         );
