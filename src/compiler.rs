@@ -798,6 +798,12 @@ impl Lowerer {
                     other => {
                         let l = self.lower_expr(left);
                         let r = self.lower_expr(right);
+                        if matches!(other, BinOp::Div | BinOp::Rem) {
+                            self.emit(IrInstr::GuardDivisor {
+                                value: r,
+                                line: self.current_line,
+                            });
+                        }
                         let dest = self.fresh_value();
                         self.emit(IrInstr::Binary {
                             dest,
@@ -1540,6 +1546,26 @@ mod tests {
              shift(p)\n",
         );
         module.expect("struct-typed parameter should lower");
+    }
+
+    fn guards_divisor(source: &str) -> bool {
+        let module = lower_source(source).expect("source should lower");
+        module
+            .main
+            .iter()
+            .chain(module.functions.iter().flat_map(|f| f.body.iter()))
+            .any(|i| matches!(i, IrInstr::GuardDivisor { .. }))
+    }
+
+    #[test]
+    fn division_guards_the_divisor() {
+        assert!(guards_divisor("let d = 0\nprint(10 / d)\n"));
+        assert!(guards_divisor("let d = 0\nprint(10 % d)\n"));
+    }
+
+    #[test]
+    fn multiplication_needs_no_guard() {
+        assert!(!guards_divisor("print(6 * 7)\n"));
     }
 
     #[test]
