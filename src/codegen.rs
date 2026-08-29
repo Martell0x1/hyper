@@ -20,7 +20,8 @@ use crate::runtime::{
     hyper_rt_print_f64, hyper_rt_print_i64, hyper_rt_print_list, hyper_rt_print_newline,
     hyper_rt_print_separator, hyper_rt_print_str, hyper_rt_print_struct, hyper_rt_print_value,
     hyper_rt_str_concat,
-    hyper_rt_struct_get, hyper_rt_struct_new, hyper_rt_struct_set, hyper_rt_value_to_str,
+    hyper_rt_struct_get, hyper_rt_struct_new, hyper_rt_struct_set, hyper_rt_value_eq,
+    hyper_rt_value_to_str,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +99,7 @@ struct RuntimeIds {
     dict_get: FuncId,
     dict_set: FuncId,
     value_to_str: FuncId,
+    value_eq: FuncId,
     str_concat: FuncId,
     struct_new: FuncId,
     struct_get: FuncId,
@@ -283,6 +285,16 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
             .declare_function("hyper_rt_value_to_str", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
+    let value_eq = {
+        let mut sig = module.make_signature();
+        for _ in 0..4 {
+            sig.params.push(AbiParam::new(types::I64));
+        }
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_value_eq", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
     let str_concat = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -348,6 +360,7 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         dict_get,
         dict_set,
         value_to_str,
+        value_eq,
         str_concat,
         struct_new,
         struct_get,
@@ -388,6 +401,29 @@ fn declare_user_funcs<M: Module>(
 
 fn kind_of(map: &HashMap<ValueId, ValueKind>, id: ValueId) -> ValueKind {
     map.get(&id).copied().unwrap_or(ValueKind::I64)
+}
+
+/// Kinds whose `==` cannot be a raw payload comparison.
+fn needs_runtime_eq(kind: ValueKind) -> bool {
+    matches!(
+        kind,
+        ValueKind::Str | ValueKind::List | ValueKind::Dict | ValueKind::Struct | ValueKind::Dynamic
+    )
+}
+
+fn kind_operand(
+    builder: &mut FunctionBuilder,
+    kind_vars: &HashMap<ValueId, Variable>,
+    kind: ValueKind,
+    id: ValueId,
+) -> Value {
+    match kind {
+        ValueKind::Dynamic => match kind_vars.get(&id) {
+            Some(kv) => builder.use_var(*kv),
+            None => builder.ins().iconst(types::I64, 0),
+        },
+        other => builder.ins().iconst(types::I64, other.as_i64()),
+    }
 }
 
 fn named_kind(map: &HashMap<String, ValueKind>, name: &str) -> ValueKind {
@@ -433,6 +469,7 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_dict_get", hyper_rt_dict_get as *const u8);
     jit_builder.symbol("hyper_rt_dict_set", hyper_rt_dict_set as *const u8);
     jit_builder.symbol("hyper_rt_value_to_str", hyper_rt_value_to_str as *const u8);
+    jit_builder.symbol("hyper_rt_value_eq", hyper_rt_value_eq as *const u8);
     jit_builder.symbol("hyper_rt_str_concat", hyper_rt_str_concat as *const u8);
     jit_builder.symbol("hyper_rt_struct_new", hyper_rt_struct_new as *const u8);
     jit_builder.symbol("hyper_rt_struct_get", hyper_rt_struct_get as *const u8);
@@ -943,6 +980,23 @@ fn define_function<M: Module>(
                             .declare_func_in_func(runtime.str_concat, &mut builder.func);
                         let call = builder.ins().call(fref, &[l, r]);
                         (builder.inst_results(call)[0], ValueKind::Str)
+                    } else if matches!(op, IrOp::Eq | IrOp::Ne)
+                        && (needs_runtime_eq(lk) || needs_runtime_eq(rk))
+                    {
+                        // Strings, containers and dynamic values compare by content.
+                        let lkind = kind_operand(&mut builder, &kind_vars, lk, *left);
+                        let rkind = kind_operand(&mut builder, &kind_vars, rk, *right);
+                        let fref =
+                            module.declare_func_in_func(runtime.value_eq, &mut builder.func);
+                        let call = builder.ins().call(fref, &[l, lkind, r, rkind]);
+                        let eq = builder.inst_results(call)[0];
+                        let v = if matches!(op, IrOp::Ne) {
+                            let one = builder.ins().iconst(types::I64, 1);
+                            builder.ins().bxor(eq, one)
+                        } else {
+                            eq
+                        };
+                        (v, ValueKind::Bool)
                     } else if is_float
                         && matches!(
                             op,
