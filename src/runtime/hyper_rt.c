@@ -48,8 +48,90 @@ void hyper_rt_print_i64(int64_t v) {
     printf("%lld", (long long)v);
 }
 
+/* Match Rust's Display for f64: the shortest digit string that round-trips,
+   always written in positional notation. `%g` would round to six digits. */
+static void format_double(double v, char *out, size_t cap) {
+    if (v != v) {
+        snprintf(out, cap, "NaN");
+        return;
+    }
+    if (v == INFINITY || v == -INFINITY) {
+        snprintf(out, cap, v > 0 ? "inf" : "-inf");
+        return;
+    }
+
+    char sci[64];
+    int prec;
+    for (prec = 0; prec <= 17; prec++) {
+        snprintf(sci, sizeof(sci), "%.*e", prec, v);
+        if (strtod(sci, NULL) == v) {
+            break;
+        }
+    }
+    if (prec > 17) {
+        snprintf(sci, sizeof(sci), "%.17e", v);
+    }
+
+    const char *p = sci;
+    int negative = 0;
+    if (*p == '-') {
+        negative = 1;
+        p++;
+    }
+    char digits[32];
+    size_t ndigits = 0;
+    while (*p && *p != 'e' && *p != 'E') {
+        if (*p >= '0' && *p <= '9' && ndigits + 1 < sizeof(digits)) {
+            digits[ndigits++] = *p;
+        }
+        p++;
+    }
+    digits[ndigits] = '\0';
+    int exp10 = (*p == 'e' || *p == 'E') ? atoi(p + 1) : 0;
+    while (ndigits > 1 && digits[ndigits - 1] == '0') {
+        digits[--ndigits] = '\0';
+    }
+
+    size_t pos = 0;
+    if (negative && pos + 1 < cap) {
+        out[pos++] = '-';
+    }
+    int point = exp10 + 1;
+    if (point <= 0) {
+        if (pos + 2 < cap) {
+            out[pos++] = '0';
+            out[pos++] = '.';
+        }
+        for (int i = 0; i < -point && pos + 1 < cap; i++) {
+            out[pos++] = '0';
+        }
+        for (size_t i = 0; i < ndigits && pos + 1 < cap; i++) {
+            out[pos++] = digits[i];
+        }
+    } else if ((size_t)point >= ndigits) {
+        for (size_t i = 0; i < ndigits && pos + 1 < cap; i++) {
+            out[pos++] = digits[i];
+        }
+        for (size_t i = ndigits; i < (size_t)point && pos + 1 < cap; i++) {
+            out[pos++] = '0';
+        }
+    } else {
+        for (size_t i = 0; i < ndigits && pos + 1 < cap; i++) {
+            if (i == (size_t)point && pos + 1 < cap) {
+                out[pos++] = '.';
+            }
+            if (pos + 1 < cap) {
+                out[pos++] = digits[i];
+            }
+        }
+    }
+    out[pos] = '\0';
+}
+
 void hyper_rt_print_f64(double v) {
-    printf("%g", v);
+    char buf[512];
+    format_double(v, buf, sizeof(buf));
+    fputs(buf, stdout);
 }
 
 void hyper_rt_print_str(const char *s) {
@@ -132,8 +214,10 @@ static void format_value(const RtValue *v) {
         break;
     case KIND_F64: {
         double d;
+        char buf[512];
         memcpy(&d, &v->payload, sizeof(d));
-        printf("%g", d);
+        format_double(d, buf, sizeof(buf));
+        fputs(buf, stdout);
         break;
     }
     case KIND_STR:
@@ -386,7 +470,7 @@ int64_t hyper_rt_value_to_str(int64_t payload, int64_t kind) {
     case KIND_F64: {
         double d;
         memcpy(&d, &payload, sizeof(d));
-        snprintf(buf, sizeof(buf), "%g", d);
+        format_double(d, buf, sizeof(buf));
         break;
     }
     case KIND_STR: {
