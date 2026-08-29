@@ -28,6 +28,7 @@ pub enum HyperType {
     Struct(String),
     Trait(String),
     Mmap,
+    File,
     Any,
 }
 
@@ -86,6 +87,16 @@ impl TypeChecker {
                 ty: HyperType::Function {
                     params: vec![],
                     ret: Box::new(HyperType::F64),
+                },
+                mutable: false,
+            },
+        );
+        tc.define(
+            "open",
+            Binding {
+                ty: HyperType::Function {
+                    params: vec![HyperType::Any],
+                    ret: Box::new(HyperType::File),
                 },
                 mutable: false,
             },
@@ -155,6 +166,7 @@ impl TypeChecker {
             "list" | "List" => HyperType::List(Box::new(HyperType::Any)),
             "dict" | "Dict" => HyperType::Dict,
             "mmap" | "Mmap" => HyperType::Mmap,
+            "file" | "File" => HyperType::File,
             other => {
                 if self.structs.contains_key(other) {
                     HyperType::Struct(other.to_string())
@@ -793,6 +805,15 @@ impl TypeChecker {
                         mutable: false,
                     },
                 );
+                self.check_stmt(body);
+                self.pop_scope();
+            }
+            Stmt::With {
+                value, var, body, ..
+            } => {
+                let ty = self.check_expr(value);
+                self.push_scope();
+                self.define(var, Binding { ty, mutable: false });
                 self.check_stmt(body);
                 self.pop_scope();
             }
