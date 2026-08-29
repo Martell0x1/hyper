@@ -32,6 +32,11 @@ jobs:
       - name: Interpreter smoke
         run: cargo run --quiet -- run ci/smoke.hyp
 
+      - name: File I/O and JSON smoke
+        run: |
+          cargo run --quiet -- run ci/io_smoke.hyp
+          rm -f ci_smoke_io.txt ci_smoke_io.json
+
       - name: Compiler JIT smoke
         run: cargo run --quiet -- compile ci/smoke.hyp
 
