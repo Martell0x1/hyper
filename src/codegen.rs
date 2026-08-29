@@ -1076,7 +1076,7 @@ fn define_function<M: Module>(
                     let id = func_ids
                         .get(func)
                         .copied()
-                        .ok_or_else(|| format!("codegen: unknown function '{func}'"))?;
+                        .ok_or_else(|| format!("Error: undefined function '{func}'."))?;
                     let mut arg_vals: Vec<Value> = Vec::with_capacity(args.len() * 2);
                     for a in args {
                         let v = builder.use_var(value_vars[a]);
