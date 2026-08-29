@@ -6,6 +6,8 @@ mod scanner;
 mod parser;
 mod driver;
 mod environment;
+mod fileio;
+mod json;
 mod text_utils;
 mod interpreter;
 mod semantic;
