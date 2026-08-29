@@ -36,6 +36,14 @@ pub fn mangle_module_fn(module: &str, func: &str) -> String {
     format!("{}__{}", module, func)
 }
 
+/// Members of modules implemented in Rust instead of in a `.hyp` file.
+pub fn builtin_module_members(module: &str) -> Option<&'static [&'static str]> {
+    match module {
+        "json" => Some(&["loads", "dumps", "load", "dump"]),
+        _ => None,
+    }
+}
+
 /// Track in-progress loads to detect import cycles.
 pub struct ModuleLoadState {
     pub base_dir: PathBuf,
