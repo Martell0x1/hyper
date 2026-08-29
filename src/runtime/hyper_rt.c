@@ -438,6 +438,94 @@ int64_t hyper_rt_str_concat(int64_t left, int64_t right) {
     return (int64_t)(intptr_t)out;
 }
 
+static double bits_to_double(int64_t bits) {
+    double d;
+    memcpy(&d, &bits, sizeof(d));
+    return d;
+}
+
+/* Mirrors the interpreter's ==: strings, lists and dicts compare by content,
+   numbers promote to double when either side is a float, and struct instances
+   are never equal to anything. */
+static int values_equal(RtValue a, RtValue b) {
+    if (a.kind == KIND_STR && b.kind == KIND_STR) {
+        const char *x = a.payload ? (const char *)(intptr_t)a.payload : "";
+        const char *y = b.payload ? (const char *)(intptr_t)b.payload : "";
+        return strcmp(x, y) == 0;
+    }
+    if (a.kind == KIND_NONE && b.kind == KIND_NONE) {
+        return 1;
+    }
+    if (a.kind == KIND_BOOL && b.kind == KIND_BOOL) {
+        return a.payload == b.payload;
+    }
+    if (a.kind == KIND_F64 || b.kind == KIND_F64) {
+        if (a.kind != KIND_F64 && a.kind != KIND_I64) {
+            return 0;
+        }
+        if (b.kind != KIND_F64 && b.kind != KIND_I64) {
+            return 0;
+        }
+        double x = a.kind == KIND_F64 ? bits_to_double(a.payload) : (double)a.payload;
+        double y = b.kind == KIND_F64 ? bits_to_double(b.payload) : (double)b.payload;
+        return x == y;
+    }
+    if (a.kind == KIND_I64 && b.kind == KIND_I64) {
+        return a.payload == b.payload;
+    }
+    if (a.kind == KIND_LIST && b.kind == KIND_LIST) {
+        if (!a.payload || !b.payload) {
+            return a.payload == b.payload;
+        }
+        const RtList *left = (const RtList *)(intptr_t)a.payload;
+        const RtList *right = (const RtList *)(intptr_t)b.payload;
+        if (left->len != right->len) {
+            return 0;
+        }
+        for (size_t i = 0; i < left->len; i++) {
+            if (!values_equal(left->items[i], right->items[i])) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    if (a.kind == KIND_DICT && b.kind == KIND_DICT) {
+        if (!a.payload || !b.payload) {
+            return a.payload == b.payload;
+        }
+        const RtDict *left = (const RtDict *)(intptr_t)a.payload;
+        const RtDict *right = (const RtDict *)(intptr_t)b.payload;
+        if (left->len != right->len) {
+            return 0;
+        }
+        for (size_t i = 0; i < left->len; i++) {
+            int found = 0;
+            for (size_t j = 0; j < right->len; j++) {
+                if (strcmp(left->entries[i].key, right->entries[j].key) == 0 &&
+                    values_equal(left->entries[i].value, right->entries[j].value)) {
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    return 0;
+}
+
+int64_t hyper_rt_value_eq(int64_t a, int64_t a_kind, int64_t b, int64_t b_kind) {
+    RtValue left;
+    RtValue right;
+    left.kind = a_kind;
+    left.payload = a;
+    right.kind = b_kind;
+    right.payload = b;
+    return values_equal(left, right) ? 1 : 0;
+}
+
 int64_t hyper_rt_struct_new(int64_t nfields) {
     size_t n = nfields < 0 ? 0 : (size_t)nfields;
     RtStruct *st = (RtStruct *)calloc(1, sizeof(RtStruct));
