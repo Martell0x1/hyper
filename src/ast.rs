@@ -191,6 +191,14 @@ pub enum Stmt {
         var: String,
         body: Box<Stmt>,
     },
+    /// `with open("f.txt", "w") as f:` — binds a resource for the block and
+    /// releases it afterwards.
+    With {
+        line: u32,
+        value: Expr,
+        var: String,
+        body: Box<Stmt>,
+    },
     /// `import math` / `import math as m`
     Import {
         line: u32,
@@ -497,6 +505,12 @@ impl fmt::Display for Stmt {
                 var,
                 body,
             } => write!(f, "(with_mmap line:{} {} {} {})", line, path, var, body),
+            Stmt::With {
+                line,
+                value,
+                var,
+                body,
+            } => write!(f, "(with line:{} {} {} {})", line, value, var, body),
             Stmt::Import {
                 line,
                 module,
