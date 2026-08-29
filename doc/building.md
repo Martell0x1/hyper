@@ -98,6 +98,8 @@ Hyper is under active development. The compiler path does **not** cover the full
 
 Unsupported constructs are reported as `[line N] Error: …` before code generation starts, and all of them are listed in one pass instead of stopping at the first one.
 
+The compiler resolves struct methods statically, so it needs to know which struct a name holds. It follows constructors, fields, function and method return values, and type annotations. When a variable receives a struct from somewhere else, annotate it — `fn shift(p: Point):` — otherwise the method call is reported as unresolved.
+
 `compile` also enforces type errors that `run` only warns about, so a program may execute under `run` and still be rejected by the compiler.
 
 There are no published packages or installers — building from source is the only supported way to get the toolchain today.
