@@ -260,6 +260,13 @@ fn coerce_to_type(value: HyperValue, type_ann: &TypeAnn, line: u32) -> HyperValu
     }
 }
 
+/// Integer division by zero stops the program; float division yields infinity,
+/// which is what the compiled path does too.
+fn divides_by_integer_zero(left: &HyperValue, right: &HyperValue) -> bool {
+    let is_float = |v: &HyperValue| matches!(v, HyperValue::F32(_) | HyperValue::F64(_));
+    !is_float(left) && !is_float(right) && right.to_int() == Some(0)
+}
+
 fn literal_to_value(lit: &Literal) -> HyperValue {
     match lit {
         Literal::None => HyperValue::None,
@@ -423,6 +430,12 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                 other => {
                     let left_val = evaluate(left, line, Rc::clone(&env))?;
                     let right_val = evaluate(right, line, Rc::clone(&env))?;
+                    if matches!(other, BinOp::Div | BinOp::Rem)
+                        && divides_by_integer_zero(&left_val, &right_val)
+                    {
+                        eprintln!("[line {}] Error: Division by zero.", line);
+                        std::process::exit(70);
+                    }
                     let res = match other {
                         BinOp::Add => left_val.add(&right_val),
                         BinOp::Sub => left_val.sub(&right_val),
