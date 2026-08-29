@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::cell::RefCell;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use std::rc::Rc;
 use crate::ast::Stmt;
+use crate::fileio::{call_file_method, call_mmap_method, HyperFile, MappedFile};
 use crate::text_utils::call_string_method;
 
 #[derive(Debug, Clone)]
@@ -61,7 +60,12 @@ pub enum HyperValue {
         exports: HashMap<String, HyperValue>,
     },
     MmapFile {
-        file: Rc<RefCell<File>>,
+        map: Rc<MappedFile>,
+        path: String,
+    },
+    /// Buffered file handle returned by `open(...)`.
+    File {
+        file: Rc<RefCell<HyperFile>>,
         path: String,
     },
 
@@ -100,6 +104,7 @@ impl PartialEq for HyperValue {
             }
             (HyperValue::Module { name: n1, .. }, HyperValue::Module { name: n2, .. }) => n1 == n2,
             (HyperValue::MmapFile { path: a, .. }, HyperValue::MmapFile { path: b, .. }) => a == b,
+            (HyperValue::File { path: a, .. }, HyperValue::File { path: b, .. }) => a == b,
             (HyperValue::NativeFunction(a), HyperValue::NativeFunction(b)) => a == b,
             (HyperValue::Function { name: n1, params: p1, is_strict: s1, .. }, HyperValue::Function { name: n2, params: p2, is_strict: s2, .. }) => {
                 n1 == n2 && p1 == p2 && s1 == s2
@@ -149,48 +154,8 @@ impl HyperValue {
     pub fn call_method(&self, method_name: &str, args: &[HyperValue], line: u32) -> Option<HyperValue> {
         match self {
             HyperValue::String(s) => call_string_method(s, method_name, args, line),
-            HyperValue::MmapFile { file, .. } => {
-                match method_name {
-                    "read_chunk" => {
-                        if args.len() != 2 {
-                            eprintln!("[line {}] TypeError: read_chunk expects 2 arguments (offset, size).", line);
-                            std::process::exit(70);
-                        }
-                        let offset = match args[0] {
-                            HyperValue::I64(n) => n,
-                            HyperValue::I32(n) => n as i64,
-                            HyperValue::F64(n) => n as i64,
-                            HyperValue::F32(n) => n as i64,
-                            _ => 0,
-                        };
-                        let size = match args[1] {
-                            HyperValue::I64(n) => n as usize,
-                            HyperValue::I32(n) => n as usize,
-                            HyperValue::F64(n) => n as usize,
-                            HyperValue::F32(n) => n as usize,
-                            _ => 0,
-                        };
-            
-                        let mut f = file.borrow_mut();
-                        if f.seek(SeekFrom::Start(offset as u64)).is_err() {
-                            return Some(HyperValue::String("".to_string()));
-                        }
-                        let mut buffer = vec![0u8; size];
-                        match f.read(&mut buffer) {
-                            Ok(n) => {
-                                buffer.truncate(n);
-                                let chunk_str = String::from_utf8_lossy(&buffer).to_string();
-                                Some(HyperValue::String(chunk_str))
-                            }
-                            Err(_) => Some(HyperValue::String("".to_string())),
-                        }
-                    }
-                    _ => {
-                        eprintln!("[line {}] Type Error: MmapFile has no method '{}'", line, method_name);
-                        std::process::exit(70);
-                    }
-                }
-            }
+            HyperValue::File { file, .. } => call_file_method(file, method_name, args, line),
+            HyperValue::MmapFile { map, .. } => call_mmap_method(map, method_name, args, line),
             HyperValue::Instance { struct_name: _, fields: _, methods, .. } => {
                 if methods.contains_key(method_name) {
                     Some(HyperValue::None)
@@ -239,6 +204,16 @@ impl HyperValue {
             return Some(v);
         }
         Self::numeric_promote_bin(self, other, |a, b| a % b, |a, b| a % b)
+    }
+
+    /// Integer view of a value, for builtins that need counts or offsets.
+    pub fn to_int(&self) -> Option<i64> {
+        match self {
+            HyperValue::F32(n) => Some(*n as i64),
+            HyperValue::F64(n) => Some(*n as i64),
+            HyperValue::Boolean(b) => Some(*b as i64),
+            other => other.to_i64_value(),
+        }
     }
 
     fn to_i64_value(&self) -> Option<i64> {
@@ -391,6 +366,12 @@ impl Environment {
             false
         );
 
+        env.define(
+            "open".to_string(),
+            HyperValue::NativeFunction("open".to_string()),
+            false,
+        );
+
         env
     }
 
@@ -499,6 +480,7 @@ impl std::fmt::Display for HyperValue {
             }
             HyperValue::Module { name, .. } => write!(f, "<module {}>", name),
             HyperValue::MmapFile { path, .. } => write!(f, "<mmap file {}>", path),
+            HyperValue::File { path, .. } => write!(f, "<file {}>", path),
             
             HyperValue::NativeFunction(name) => write!(f, "<native fn {}>", name),
             HyperValue::Function { name, .. } => write!(f, "<fn {}>", name),
