@@ -1,6 +1,6 @@
 use crate::ast::*;
 use crate::driver;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +40,8 @@ struct Binding {
 
 struct Scope {
     bindings: HashMap<String, Binding>,
+    /// Names declared without a type annotation, whose numeric type may widen.
+    inferred: HashSet<String>,
 }
 
 struct TypeChecker {
@@ -107,6 +109,7 @@ impl TypeChecker {
     fn push_scope(&mut self) {
         self.scopes.push(Scope {
             bindings: HashMap::new(),
+            inferred: HashSet::new(),
         });
     }
 
@@ -127,6 +130,21 @@ impl TypeChecker {
             }
         }
         None
+    }
+
+    /// Let an inferred numeric variable adopt a wider type instead of failing:
+    /// `let mut sum = 0` must accept an i64 coming out of `range`.
+    fn widen_inferred(&mut self, name: &str, ty: &HyperType) -> bool {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(binding) = scope.bindings.get_mut(name) {
+                if !scope.inferred.contains(name) {
+                    return false;
+                }
+                binding.ty = ty.clone();
+                return true;
+            }
+        }
+        false
     }
 
     fn error(&mut self, msg: String) {
@@ -341,12 +359,18 @@ impl TypeChecker {
                         } else if !Self::is_compatible(&b.ty, &vt)
                             && !matches!(b.ty, HyperType::Any)
                         {
+                            let widened = Self::is_numeric(&b.ty)
+                                && Self::is_numeric(&vt)
+                                && self.widen_inferred(name, &vt);
                             // Soft: allow if annotated Any; otherwise warn-style error.
-                            if !matches!(vt, HyperType::Any) {
+                            if !widened && !matches!(vt, HyperType::Any) {
                                 self.error(format!(
                                     "Type error: cannot assign {:?} to '{}' of type {:?}.",
                                     vt, name, b.ty
                                 ));
+                            }
+                            if widened {
+                                return vt;
                             }
                         }
                         b.ty
@@ -621,6 +645,13 @@ impl TypeChecker {
                         mutable: *is_mutable,
                     },
                 );
+                if let Some(scope) = self.scopes.last_mut() {
+                    if matches!(type_ann, TypeAnn::None) {
+                        scope.inferred.insert(name.clone());
+                    } else {
+                        scope.inferred.remove(name);
+                    }
+                }
             }
             Stmt::Print { values, .. } => {
                 for v in values {
@@ -632,6 +663,7 @@ impl TypeChecker {
             }
             Stmt::Block(stmts) => {
                 self.push_scope();
+                self.hoist_functions(stmts);
                 for s in stmts {
                     self.check_stmt(s);
                 }
@@ -844,6 +876,43 @@ impl TypeChecker {
         }
     }
 
+    /// Register a function signature so calls can appear before the definition.
+    fn declare_function(&mut self, decl: &FunctionDecl) {
+        let params: Vec<HyperType> = decl
+            .params
+            .iter()
+            .map(|p| {
+                p.type_ann
+                    .as_ref()
+                    .map(|t| self.resolve_type_name(t))
+                    .unwrap_or(HyperType::Any)
+            })
+            .collect();
+        let ret = decl
+            .return_type
+            .as_ref()
+            .map(|t| self.resolve_type_name(t))
+            .unwrap_or(HyperType::Any);
+        self.define(
+            &decl.name,
+            Binding {
+                ty: HyperType::Function {
+                    params,
+                    ret: Box::new(ret),
+                },
+                mutable: false,
+            },
+        );
+    }
+
+    fn hoist_functions(&mut self, stmts: &[Stmt]) {
+        for stmt in stmts {
+            if let Stmt::Function(decl) = stmt {
+                self.declare_function(decl);
+            }
+        }
+    }
+
     fn check_function(&mut self, decl: &FunctionDecl) {
         let params: Vec<HyperType> = decl
             .params
@@ -892,6 +961,7 @@ impl TypeChecker {
 
 pub fn typecheck(stmts: &[Stmt]) -> Result<(), Vec<String>> {
     let mut tc = TypeChecker::new();
+    tc.hoist_functions(stmts);
     for stmt in stmts {
         tc.check_stmt(stmt);
     }
@@ -899,6 +969,55 @@ pub fn typecheck(stmts: &[Stmt]) -> Result<(), Vec<String>> {
         Ok(())
     } else {
         Err(tc.errors)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check(source: &str) -> Result<(), Vec<String>> {
+        let stmts = driver::parse_program(source).expect("source should parse");
+        typecheck(&stmts)
+    }
+
+    #[test]
+    fn functions_may_be_called_before_they_are_defined() {
+        check(
+            "fn outer(n: i64) -> i64:\n\
+             \x20   return inner(n) + 1\n\
+             \n\
+             fn inner(n: i64) -> i64:\n\
+             \x20   return n * 2\n\
+             \n\
+             print(outer(4))\n",
+        )
+        .expect("a forward call should typecheck");
+    }
+
+    #[test]
+    fn inferred_counter_accepts_a_wider_number() {
+        check(
+            "let mut total = 0\n\
+             for i in range(3):\n\
+             \x20   total = total + i\n",
+        )
+        .expect("an inferred counter should widen");
+    }
+
+    #[test]
+    fn annotated_variable_keeps_its_type() {
+        let errors = check(
+            "let mut total: i32 = 0\n\
+             for i in range(3):\n\
+             \x20   total = i\n",
+        )
+        .expect_err("an annotated variable should not widen");
+        assert!(
+            errors.iter().any(|e| e.contains("cannot assign")),
+            "unexpected errors: {:?}",
+            errors
+        );
     }
 }
 
