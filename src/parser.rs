@@ -925,7 +925,10 @@ impl Parser {
 
     fn statement(&mut self) -> Result<Stmt, ()> {
         if self.match_types(&[TokenType::With]) {
-            return self.with_mmap_statement();
+            if self.check(&TokenType::OpenMmap) {
+                return self.with_mmap_statement();
+            }
+            return self.with_statement();
         }
 
         if self.match_types(&[TokenType::Return]) {
@@ -978,6 +981,30 @@ impl Parser {
             line,
             path: path_expr,
             var: var_name,
+            body: Box::new(body),
+        })
+    }
+
+    /// `with <expr> as name:` — the resource form used by `open(...)`.
+    fn with_statement(&mut self) -> Result<Stmt, ()> {
+        let line = self.previous().line as u32;
+        let value = self.expression()?;
+
+        self.consume(TokenType::As, "Expect 'as' in with block.")?;
+        let var_token = self
+            .consume(TokenType::Identifier, "Expect variable name after 'as'.")?
+            .clone();
+
+        if self.check(&TokenType::Colon) {
+            self.advance();
+        }
+        self.skip_newlines();
+
+        let body = self.statement()?;
+        Ok(Stmt::With {
+            line,
+            value,
+            var: var_token.lexeme,
             body: Box::new(body),
         })
     }
