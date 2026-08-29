@@ -1,0 +1,5 @@
+# Integer division by zero must stop with the same error on every path.
+print("before")
+let d = 0
+print(10 / d)
+print("after")
