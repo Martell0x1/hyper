@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{cell::RefCell, io};
@@ -32,6 +31,23 @@ impl ModuleRuntime {
     }
 }
 
+/// Modules implemented in Rust rather than in Hyper source.
+fn builtin_module(module_name: &str) -> Option<HyperValue> {
+    let exports = module::builtin_module_members(module_name)?
+        .iter()
+        .map(|member| {
+            (
+                (*member).to_string(),
+                HyperValue::NativeFunction(format!("{}.{}", module_name, member)),
+            )
+        })
+        .collect();
+    Some(HyperValue::Module {
+        name: module_name.to_string(),
+        exports,
+    })
+}
+
 fn load_module(module_name: &str, line: u32) -> HyperValue {
     let (path, already) = MODULE_RUNTIME.with(|cell| {
         let mut rt = cell.borrow_mut();
@@ -50,10 +66,14 @@ fn load_module(module_name: &str, line: u32) -> HyperValue {
         }
         let path = match module::resolve_module_path(&rt.base_dir, module_name) {
             Ok(p) => p,
-            Err(msg) => {
-                eprintln!("[line {}] Error: {}.", line, msg);
-                std::process::exit(70);
-            }
+            // A builtin module only steps in when no local file shadows it.
+            Err(msg) => match builtin_module(module_name) {
+                Some(builtin) => return (None, Some(builtin)),
+                None => {
+                    eprintln!("[line {}] Error: {}.", line, msg);
+                    std::process::exit(70);
+                }
+            },
         };
         rt.loading.insert(module_name.to_string());
         (Some(path), None)
@@ -580,6 +600,9 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                             line,
                         ));
                     }
+                    Some(HyperValue::NativeFunction(native)) => {
+                        return call_native(native, &evaluated_args, line);
+                    }
                     Some(_) => {
                         eprintln!(
                             "[line {}] Error: '{}.{}' is not callable.",
@@ -740,6 +763,94 @@ fn instantiate_struct(
     instance
 }
 
+fn native_fatal(line: u32, message: String) -> ! {
+    eprintln!("[line {}] Error: {}.", line, message);
+    std::process::exit(70);
+}
+
+/// Builtins whose arguments are plain values, shared by direct calls and by
+/// native module members such as `json.dumps`.
+fn call_native(name: &str, args: &[HyperValue], line: u32) -> Option<HyperValue> {
+    match name {
+        "open" => {
+            let path = match args.first() {
+                Some(HyperValue::String(p)) => p.clone(),
+                Some(other) => other.to_string(),
+                None => native_fatal(line, "open expects a file path".to_string()),
+            };
+            let mode = match args.get(1) {
+                Some(HyperValue::String(m)) => m.clone(),
+                Some(other) => other.to_string(),
+                None => "r".to_string(),
+            };
+            if args.len() > 2 {
+                native_fatal(
+                    line,
+                    format!("open expects 1 or 2 argument(s) but got {}", args.len()),
+                );
+            }
+            Some(crate::fileio::open_value(&path, &mode, line))
+        }
+        "json.loads" => {
+            let text = match args {
+                [value] => value.to_string(),
+                _ => native_fatal(line, "json.loads expects 1 argument".to_string()),
+            };
+            match crate::json::parse(&text) {
+                Ok(value) => Some(value),
+                Err(msg) => native_fatal(line, format!("invalid JSON: {}", msg)),
+            }
+        }
+        "json.dumps" => {
+            let (value, indent) = match args {
+                [value] => (value, 0),
+                [value, indent] => (value, indent.to_int().unwrap_or(0).max(0) as usize),
+                _ => native_fatal(line, "json.dumps expects 1 or 2 argument(s)".to_string()),
+            };
+            match crate::json::stringify(value, indent) {
+                Ok(text) => Some(HyperValue::String(text)),
+                Err(msg) => native_fatal(line, msg),
+            }
+        }
+        "json.load" => {
+            let handle = match args {
+                [HyperValue::File { file, .. }] => file,
+                [_] => native_fatal(line, "json.load expects an open file".to_string()),
+                _ => native_fatal(line, "json.load expects 1 argument".to_string()),
+            };
+            let text = match handle.borrow_mut().read_all() {
+                Ok(text) => text,
+                Err(e) => native_fatal(line, format!("json.load could not read the file: {}", e)),
+            };
+            match crate::json::parse(&text) {
+                Ok(value) => Some(value),
+                Err(msg) => native_fatal(line, format!("invalid JSON: {}", msg)),
+            }
+        }
+        "json.dump" => {
+            let (value, handle, indent) = match args {
+                [value, HyperValue::File { file, .. }] => (value, file, 0),
+                [value, HyperValue::File { file, .. }, indent] => {
+                    (value, file, indent.to_int().unwrap_or(0).max(0) as usize)
+                }
+                [_, _] | [_, _, _] => {
+                    native_fatal(line, "json.dump expects an open file as its second argument".to_string())
+                }
+                _ => native_fatal(line, "json.dump expects 2 or 3 argument(s)".to_string()),
+            };
+            let text = match crate::json::stringify(value, indent) {
+                Ok(text) => text,
+                Err(msg) => native_fatal(line, msg),
+            };
+            match handle.borrow_mut().write_str(&text) {
+                Ok(n) => Some(HyperValue::I64(n as i64)),
+                Err(e) => native_fatal(line, format!("json.dump could not write the file: {}", e)),
+            }
+        }
+        other => native_fatal(line, format!("'{}' is not callable", other)),
+    }
+}
+
 fn evaluate_call(
     callee: &Expr,
     args: &[CallArg],
@@ -780,6 +891,17 @@ fn evaluate_call(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap();
             Some(HyperValue::F64(duration.as_secs_f64()))
+        }
+        HyperValue::NativeFunction(name) => {
+            let mut evaluated_args = Vec::new();
+            for arg in args {
+                match arg {
+                    CallArg::Positional(e) | CallArg::Named { value: e, .. } => {
+                        evaluated_args.push(evaluate(e, line, Rc::clone(&env))?);
+                    }
+                }
+            }
+            call_native(&name, &evaluated_args, line)
         }
         HyperValue::Function {
             params,
@@ -1135,22 +1257,45 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                 _ => "".to_string(),
             };
 
-            if let Ok(file) = File::open(&file_path) {
-                let mmap_val = HyperValue::MmapFile {
-                    file: Rc::new(RefCell::new(file)),
-                    path: file_path,
-                };
-                let block_env =
-                    Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
-                block_env.borrow_mut().define(var.clone(), mmap_val, false);
-                execute(body, block_env);
-            } else {
-                eprintln!(
-                    "[line {}] Error: Could not open file '{}'",
-                    line, file_path
-                );
+            match crate::fileio::MappedFile::open(&file_path) {
+                Ok(map) => {
+                    let mmap_val = HyperValue::MmapFile {
+                        map: Rc::new(map),
+                        path: file_path,
+                    };
+                    let block_env =
+                        Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+                    block_env.borrow_mut().define(var.clone(), mmap_val, false);
+                    execute(body, block_env);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[line {}] Error: Could not map file '{}': {}",
+                        line, file_path, e
+                    );
+                }
             }
             ExecResult::Ok
+        }
+        Stmt::With {
+            line,
+            value,
+            var,
+            body,
+        } => {
+            let resource = evaluate(value, *line, Rc::clone(&env)).unwrap_or(HyperValue::None);
+            let block_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
+            block_env
+                .borrow_mut()
+                .define(var.clone(), resource.clone(), false);
+            let result = execute(body, block_env);
+            if let HyperValue::File { file, path } = &resource {
+                if let Err(e) = file.borrow_mut().close() {
+                    eprintln!("[line {}] Error: could not close '{}': {}.", line, path, e);
+                    std::process::exit(70);
+                }
+            }
+            result
         }
         Stmt::Import {
             line,
