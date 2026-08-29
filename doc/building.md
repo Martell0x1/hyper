@@ -94,7 +94,9 @@ mdbook build
 
 ## What is not supported yet
 
-Hyper is under active development. The compiler path does **not** cover the full language yet (e.g. traits, real `@parallel` codegen). Use `run` when a feature fails under `compile`.
+Hyper is under active development. The compiler path does **not** cover the full language yet (e.g. traits, real `@parallel` codegen, `with open_mmap` blocks). Use `run` when a feature fails under `compile`.
+
+Unsupported constructs are reported as `[line N] Error: …` before code generation starts, and all of them are listed in one pass instead of stopping at the first one.
 
 `compile` also enforces type errors that `run` only warns about, so a program may execute under `run` and still be rejected by the compiler.
 
