@@ -1,4 +1,4 @@
 # Simple list
-items = [1, "Hyper", true, 3.14]
+let items = [1, "Hyper", true, 3.14]
 
 # syntax
