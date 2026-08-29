@@ -13,6 +13,7 @@ struct StructLayout {
     field_order: Vec<String>,
     /// Field name → type name key in `structs` (primitives do not match a layout).
     field_types: HashMap<String, String>,
+    methods: HashSet<String>,
     has_init: bool,
     /// IR / mangled base name for methods (`Point` or `shapes__Point`).
     ir_name: String,
@@ -35,6 +36,10 @@ struct Lowerer {
     structs: HashMap<String, StructLayout>,
     /// local variable → struct type name (for field/method lowering)
     var_structs: HashMap<String, String>,
+    /// Line of the statement being lowered, used for diagnostics.
+    current_line: u32,
+    /// Diagnostics collected while lowering, reported before codegen runs.
+    errors: Vec<String>,
 }
 
 impl Lowerer {
@@ -51,6 +56,70 @@ impl Lowerer {
             load_state: ModuleLoadState::new(entry_path),
             structs: HashMap::new(),
             var_structs: HashMap::new(),
+            current_line: 0,
+            errors: Vec::new(),
+        }
+    }
+
+    fn error(&mut self, message: impl Into<String>) {
+        self.errors.push(format!(
+            "[line {}] Error: {}.",
+            self.current_line,
+            message.into()
+        ));
+    }
+
+    /// Value stand-in so lowering can continue and report further errors.
+    fn error_value(&mut self) -> ValueId {
+        let dest = self.fresh_value();
+        self.emit(IrInstr::ConstNone { dest });
+        dest
+    }
+
+    fn stmt_line(stmt: &Stmt) -> Option<u32> {
+        match stmt {
+            Stmt::Let { line, .. }
+            | Stmt::Print { line, .. }
+            | Stmt::Expr { line, .. }
+            | Stmt::Return { line, .. }
+            | Stmt::WithMmap { line, .. }
+            | Stmt::Import { line, .. }
+            | Stmt::ImportFrom { line, .. } => Some(*line),
+            _ => None,
+        }
+    }
+
+    fn field_error(&self, object: &str, field: &str) -> String {
+        match self.var_structs.get(object) {
+            Some(stype) => {
+                let name = self
+                    .structs
+                    .get(stype)
+                    .map(|l| l.ir_name.clone())
+                    .unwrap_or_else(|| stype.clone());
+                format!("struct '{}' has no field '{}'", name, field)
+            }
+            None => format!(
+                "cannot determine the struct type of '{}' for field '{}'",
+                object, field
+            ),
+        }
+    }
+
+    fn method_error(&self, object: &str, method: &str) -> String {
+        match self.var_structs.get(object) {
+            Some(stype) => {
+                let name = self
+                    .structs
+                    .get(stype)
+                    .map(|l| l.ir_name.clone())
+                    .unwrap_or_else(|| stype.clone());
+                format!("struct '{}' has no method '{}'", name, method)
+            }
+            None => format!(
+                "cannot determine the struct type of '{}' for method '{}'",
+                object, method
+            ),
         }
     }
 
@@ -108,6 +177,7 @@ impl Lowerer {
                 fields: HashMap::new(),
                 field_order: Vec::new(),
                 field_types: HashMap::new(),
+                methods: HashSet::new(),
                 has_init: false,
                 ir_name: struct_key.to_string(),
             });
@@ -182,6 +252,10 @@ impl Lowerer {
             fields: field_map,
             field_order,
             field_types,
+            methods: methods
+                .iter()
+                .map(|m| m.function.name.clone())
+                .collect(),
             has_init,
             ir_name: ir_name.to_string(),
         };
@@ -301,6 +375,10 @@ impl Lowerer {
                     fields: field_map,
                     field_order,
                     field_types,
+                    methods: methods
+                        .iter()
+                        .map(|m| m.function.name.clone())
+                        .collect(),
                     has_init,
                     ir_name: ir_name.clone(),
                 };
@@ -646,19 +724,9 @@ impl Lowerer {
                         }
                     }
                 }
-                // Soft fallback for unknown field access.
-                let obj = self.fresh_value();
-                self.emit(IrInstr::Load {
-                    dest: obj,
-                    name: object.clone(),
-                });
-                let dest = self.fresh_value();
-                self.emit(IrInstr::Call {
-                    dest,
-                    func: format!("__get_field__{}.{}", object, field),
-                    args: vec![obj],
-                });
-                dest
+                let message = self.field_error(object, field);
+                self.error(message);
+                self.error_value()
             }
             Expr::SetField {
                 object,
@@ -683,18 +751,9 @@ impl Lowerer {
                         }
                     }
                 }
-                let obj = self.fresh_value();
-                self.emit(IrInstr::Load {
-                    dest: obj,
-                    name: object.clone(),
-                });
-                let dest = self.fresh_value();
-                self.emit(IrInstr::Call {
-                    dest,
-                    func: format!("__set_field__{}.{}", object, field),
-                    args: vec![obj, v],
-                });
-                dest
+                let message = self.field_error(object, field);
+                self.error(message);
+                v
             }
             Expr::Call { callee, args } => {
                 if let Expr::Variable { name, .. } = callee.as_ref() {
@@ -706,7 +765,10 @@ impl Lowerer {
                     Expr::Variable { name, .. } => self.resolve_call_name(name),
                     other => {
                         let _ = self.lower_expr(other);
-                        "__indirect__".to_string()
+                        self.error(
+                            "only calls to named functions are supported by the compiler",
+                        );
+                        return self.error_value();
                     }
                 };
                 let mut arg_ids = Vec::new();
@@ -752,11 +814,16 @@ impl Lowerer {
                     return dest;
                 }
                 if let Some(stype) = self.var_structs.get(object).cloned() {
-                    let ir_name = self
-                        .structs
-                        .get(&stype)
+                    let layout = self.structs.get(&stype);
+                    let ir_name = layout
                         .map(|l| l.ir_name.clone())
                         .unwrap_or_else(|| stype.clone());
+                    let known = layout.map(|l| l.methods.contains(method)).unwrap_or(false);
+                    if !known {
+                        let message = self.method_error(object, method);
+                        self.error(message);
+                        return self.error_value();
+                    }
                     let obj = self.fresh_value();
                     self.emit(IrInstr::Load {
                         dest: obj,
@@ -774,22 +841,9 @@ impl Lowerer {
                     });
                     return dest;
                 }
-                let obj = self.fresh_value();
-                self.emit(IrInstr::Load {
-                    dest: obj,
-                    name: object.clone(),
-                });
-                let mut arg_ids = vec![obj];
-                for a in args {
-                    arg_ids.push(self.lower_expr(a));
-                }
-                let dest = self.fresh_value();
-                self.emit(IrInstr::Call {
-                    dest,
-                    func: format!("{}.{}", object, method),
-                    args: arg_ids,
-                });
-                dest
+                let message = self.method_error(object, method);
+                self.error(message);
+                self.error_value()
             }
             Expr::List(items) => {
                 let mut item_ids = Vec::new();
@@ -922,6 +976,9 @@ impl Lowerer {
     }
 
     fn lower_stmt(&mut self, stmt: &Stmt) {
+        if let Some(line) = Self::stmt_line(stmt) {
+            self.current_line = line;
+        }
         match stmt {
             Stmt::Let {
                 name, initializer, ..
@@ -1200,21 +1257,8 @@ impl Lowerer {
                     value: dest,
                 });
             }
-            Stmt::WithMmap {
-                path, var, body, ..
-            } => {
-                let path_v = self.lower_expr(path);
-                let mmap = self.fresh_value();
-                self.emit(IrInstr::Call {
-                    dest: mmap,
-                    func: "__mmap_open__".to_string(),
-                    args: vec![path_v],
-                });
-                self.emit(IrInstr::Store {
-                    name: var.clone(),
-                    value: mmap,
-                });
-                self.lower_stmt(body);
+            Stmt::WithMmap { .. } => {
+                self.error("memory-mapped file blocks are not supported by the compiler yet");
             }
             Stmt::Import {
                 line,
@@ -1239,17 +1283,20 @@ impl Lowerer {
     }
 }
 
-pub fn lower(stmts: &[Stmt], entry_path: &Path) -> IrModule {
+pub fn lower(stmts: &[Stmt], entry_path: &Path) -> Result<IrModule, Vec<String>> {
     let mut lowerer = Lowerer::new(entry_path);
     for stmt in stmts {
         lowerer.lower_stmt(stmt);
     }
+    if !lowerer.errors.is_empty() {
+        return Err(lowerer.errors);
+    }
     let mut main = lowerer.module_inits;
     main.extend(lowerer.current);
-    IrModule {
+    Ok(IrModule {
         functions: lowerer.functions,
         main,
-    }
+    })
 }
 
 pub enum CompileMode {
@@ -1275,32 +1322,117 @@ pub fn run_compile(file_contents: String, entry_path: &str, mode: CompileMode) {
         process::exit(65);
     }
 
-    let module = lower(&stmts, Path::new(entry_path));
-    match mode {
-        CompileMode::Jit => match crate::codegen::jit_execute(&module) {
-            Ok(()) => {}
-            Err(msg) => {
-                eprintln!("codegen: {}", msg);
-                println!("{}", module);
-                process::exit(70);
+    let module = match lower(&stmts, Path::new(entry_path)) {
+        Ok(m) => m,
+        Err(errors) => {
+            for e in errors {
+                eprintln!("{}", e);
             }
-        },
+            process::exit(65);
+        }
+    };
+
+    let result = match mode {
+        CompileMode::Jit => crate::codegen::jit_execute(&module),
         CompileMode::EmitIr => {
             crate::codegen::dump_ir(&module);
+            Ok(())
         }
-        CompileMode::EmitObj { path } => match crate::codegen::emit_object(&module, &path) {
-            Ok(()) => {}
-            Err(msg) => {
-                eprintln!("codegen: {}", msg);
-                process::exit(70);
-            }
-        },
-        CompileMode::EmitExe { path } => match crate::codegen::emit_exe(&module, &path) {
-            Ok(()) => {}
-            Err(msg) => {
-                eprintln!("codegen: {}", msg);
-                process::exit(70);
-            }
-        },
+        CompileMode::EmitObj { path } => crate::codegen::emit_object(&module, &path),
+        CompileMode::EmitExe { path } => crate::codegen::emit_exe(&module, &path),
+    };
+
+    if let Err(msg) = result {
+        eprintln!("{}", msg);
+        process::exit(70);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lower_source(source: &str) -> Result<IrModule, Vec<String>> {
+        let stmts = driver::parse_program(source).expect("source should parse");
+        lower(&stmts, Path::new("test.hyp"))
+    }
+
+    fn errors_of(source: &str) -> Vec<String> {
+        lower_source(source).expect_err("lowering should fail")
+    }
+
+    #[test]
+    fn struct_program_lowers() {
+        let module = lower_source(
+            "struct Point:\n\
+             \x20   let mut x: i32\n\
+             \n\
+             \x20   fn bump(ref self, dx: i32):\n\
+             \x20       self.x = self.x + dx\n\
+             \n\
+             let p = Point(x: 1)\n\
+             p.bump(2)\n\
+             print(p.x)\n",
+        );
+        let module = module.expect("valid struct program should lower");
+        assert!(module.functions.iter().any(|f| f.name == "Point__bump"));
+    }
+
+    #[test]
+    fn unknown_field_is_reported_with_line() {
+        let errors = errors_of(
+            "struct Point:\n\
+             \x20   let x: i32\n\
+             \n\
+             let p = Point(x: 1)\n\
+             print(p.zzz)\n",
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].starts_with("[line 5] Error: struct 'Point' has no field 'zzz'"),
+            "unexpected message: {}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn unknown_method_is_reported() {
+        let errors = errors_of(
+            "struct Point:\n\
+             \x20   let x: i32\n\
+             \n\
+             let p = Point(x: 1)\n\
+             p.jump(1)\n",
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].contains("struct 'Point' has no method 'jump'"),
+            "unexpected message: {}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn field_access_on_unknown_type_is_reported() {
+        let errors = errors_of("let q = 5\nprint(q.field)\n");
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].contains("cannot determine the struct type of 'q'"),
+            "unexpected message: {}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn all_errors_are_collected() {
+        let errors = errors_of(
+            "struct Point:\n\
+             \x20   let x: i32\n\
+             \n\
+             let p = Point(x: 1)\n\
+             print(p.a)\n\
+             print(p.b)\n",
+        );
+        assert_eq!(errors.len(), 2);
     }
 }
