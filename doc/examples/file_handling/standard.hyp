@@ -1,4 +1,26 @@
+# Writing: the block closes and flushes the file at the end
+with open("file.txt", "w") as f:
+    f.write("first line\n")
+    f.write("second line\n")
+
+# Reading the whole file at once
 with open("file.txt", "r") as f:
-    content = f.read()
+    let content = f.read()
+    print(content)
+
+# Reading line by line (newlines are stripped)
+with open("file.txt", "r") as f:
+    print(f.readlines())
+
+# Appending
+with open("file.txt", "a") as f:
+    f.write("third line\n")
+
+# Reading and writing through one handle
+with open("file.txt", "r+") as f:
+    let head = f.read(5)
+    f.write("HYPER")
+    f.seek(0)
+    print(f.read())
 
 # syntax
