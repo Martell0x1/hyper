@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -52,7 +53,8 @@ pub enum HyperValue {
     Dict {
         key_type: String,
         val_type: String,
-        entries: HashMap<String, HyperValue>,
+        /// Insertion-ordered so printing and iteration are reproducible.
+        entries: IndexMap<String, HyperValue>,
     },
     /// Loaded Hyper module namespace (`import math` → exports).
     Module {
@@ -114,17 +116,19 @@ impl PartialEq for HyperValue {
     }
 }
 
+/// Integer arithmetic wraps like the compiled path does, instead of aborting
+/// the interpreter on overflow.
 macro_rules! impl_binary_op {
-    ($self:expr, $other:expr, $op:tt) => {
+    ($self:expr, $other:expr, $op:tt, $wrapping:ident) => {
         match ($self, $other) {
-            (HyperValue::I8(a), HyperValue::I8(b)) => Some(HyperValue::I8(a $op b)),
-            (HyperValue::I16(a), HyperValue::I16(b)) => Some(HyperValue::I16(a $op b)),
-            (HyperValue::I32(a), HyperValue::I32(b)) => Some(HyperValue::I32(a $op b)),
-            (HyperValue::I64(a), HyperValue::I64(b)) => Some(HyperValue::I64(a $op b)),
-            (HyperValue::U8(a), HyperValue::U8(b)) => Some(HyperValue::U8(a $op b)),
-            (HyperValue::U16(a), HyperValue::U16(b)) => Some(HyperValue::U16(a $op b)),
-            (HyperValue::U32(a), HyperValue::U32(b)) => Some(HyperValue::U32(a $op b)),
-            (HyperValue::U64(a), HyperValue::U64(b)) => Some(HyperValue::U64(a $op b)),
+            (HyperValue::I8(a), HyperValue::I8(b)) => Some(HyperValue::I8(a.$wrapping(*b))),
+            (HyperValue::I16(a), HyperValue::I16(b)) => Some(HyperValue::I16(a.$wrapping(*b))),
+            (HyperValue::I32(a), HyperValue::I32(b)) => Some(HyperValue::I32(a.$wrapping(*b))),
+            (HyperValue::I64(a), HyperValue::I64(b)) => Some(HyperValue::I64(a.$wrapping(*b))),
+            (HyperValue::U8(a), HyperValue::U8(b)) => Some(HyperValue::U8(a.$wrapping(*b))),
+            (HyperValue::U16(a), HyperValue::U16(b)) => Some(HyperValue::U16(a.$wrapping(*b))),
+            (HyperValue::U32(a), HyperValue::U32(b)) => Some(HyperValue::U32(a.$wrapping(*b))),
+            (HyperValue::U64(a), HyperValue::U64(b)) => Some(HyperValue::U64(a.$wrapping(*b))),
             (HyperValue::F32(a), HyperValue::F32(b)) => Some(HyperValue::F32(a $op b)),
             (HyperValue::F64(a), HyperValue::F64(b)) => Some(HyperValue::F64(a $op b)),
             _ => None,
@@ -175,35 +179,35 @@ impl HyperValue {
         if let (HyperValue::String(a), HyperValue::String(b)) = (self, other) {
             return Some(HyperValue::String(format!("{}{}", a, b)));
         }
-        if let Some(v) = { impl_binary_op!(self, other, +) } {
+        if let Some(v) = { impl_binary_op!(self, other, +, wrapping_add) } {
             return Some(v);
         }
-        Self::numeric_promote_bin(self, other, |a, b| a + b, |a, b| a + b)
+        Self::numeric_promote_bin(self, other, |a, b| a.wrapping_add(b), |a, b| a + b)
     }
 
     pub fn sub(&self, other: &Self) -> Option<HyperValue> {
-        if let Some(v) = { impl_binary_op!(self, other, -) } {
+        if let Some(v) = { impl_binary_op!(self, other, -, wrapping_sub) } {
             return Some(v);
         }
-        Self::numeric_promote_bin(self, other, |a, b| a - b, |a, b| a - b)
+        Self::numeric_promote_bin(self, other, |a, b| a.wrapping_sub(b), |a, b| a - b)
     }
     pub fn mul(&self, other: &Self) -> Option<HyperValue> {
-        if let Some(v) = { impl_binary_op!(self, other, *) } {
+        if let Some(v) = { impl_binary_op!(self, other, *, wrapping_mul) } {
             return Some(v);
         }
-        Self::numeric_promote_bin(self, other, |a, b| a * b, |a, b| a * b)
+        Self::numeric_promote_bin(self, other, |a, b| a.wrapping_mul(b), |a, b| a * b)
     }
     pub fn div(&self, other: &Self) -> Option<HyperValue> {
-        if let Some(v) = { impl_binary_op!(self, other, /) } {
+        if let Some(v) = { impl_binary_op!(self, other, /, wrapping_div) } {
             return Some(v);
         }
-        Self::numeric_promote_bin(self, other, |a, b| a / b, |a, b| a / b)
+        Self::numeric_promote_bin(self, other, |a, b| a.wrapping_div(b), |a, b| a / b)
     }
     pub fn rem(&self, other: &Self) -> Option<HyperValue> {
-        if let Some(v) = { impl_binary_op!(self, other, %) } {
+        if let Some(v) = { impl_binary_op!(self, other, %, wrapping_rem) } {
             return Some(v);
         }
-        Self::numeric_promote_bin(self, other, |a, b| a % b, |a, b| a % b)
+        Self::numeric_promote_bin(self, other, |a, b| a.wrapping_rem(b), |a, b| a % b)
     }
 
     /// Integer view of a value, for builtins that need counts or offsets.
@@ -271,7 +275,12 @@ impl HyperValue {
             (HyperValue::U64(a), HyperValue::U64(b)) if *b <= u32::MAX as u64 => Some(HyperValue::U64(a.pow(*b as u32))),
             (HyperValue::F32(a), HyperValue::F32(b)) => Some(HyperValue::F32(a.powf(*b))),
             (HyperValue::F64(a), HyperValue::F64(b)) => Some(HyperValue::F64(a.powf(*b))),
-            _ => None,
+            _ => Self::numeric_promote_bin(
+                self,
+                other,
+                |a, b| if b < 0 { 0 } else { a.pow(b as u32) },
+                |a, b| a.powf(b),
+            ),
         }
     }
 
