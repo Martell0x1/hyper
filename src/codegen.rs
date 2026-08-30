@@ -1174,10 +1174,18 @@ fn define_function<M: Module>(
                         .get(func)
                         .copied()
                         .ok_or_else(|| match func.as_str() {
-                            "open" | "input" => format!(
-                                "Error: '{func}' is only available on the interpreter path; run the program with 'run'."
+                            "open" | "input" => crate::error::format_error(
+                                crate::error::ErrorKind::Runtime,
+                                0,
+                                &format!(
+                                    "'{func}' is only available on the interpreter path; run with 'run'"
+                                ),
                             ),
-                            _ => format!("Error: undefined function '{func}'."),
+                            _ => crate::error::format_error(
+                                crate::error::ErrorKind::Runtime,
+                                0,
+                                &format!("undefined function '{func}'"),
+                            ),
                         })?;
                     let mut arg_vals: Vec<Value> = Vec::with_capacity(args.len() * 2);
                     for a in args {
