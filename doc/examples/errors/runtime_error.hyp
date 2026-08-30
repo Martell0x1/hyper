@@ -1,0 +1,6 @@
+# Running this file reports RuntimeError (division by zero)
+let a = 10
+let b = 0
+print(a / b)
+
+# syntax
