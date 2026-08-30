@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::cell::RefCell;
 use std::rc::Rc;
+use crate::error;
 use crate::ast::Stmt;
 use crate::fileio::{call_file_method, call_mmap_method, HyperFile, MappedFile};
 use crate::text_utils::call_string_method;
@@ -164,13 +165,11 @@ impl HyperValue {
                 if methods.contains_key(method_name) {
                     Some(HyperValue::None)
                 } else {
-                    eprintln!("[line {}] Error: Method '{}' not found.", line, method_name);
-                    None
+                    error::runtime(line, format!("method '{}' not found", method_name));
                 }
             }
             _ => {
-                eprintln!("[line {}] Type Error: Method calls are not supported on this type.", line);
-                std::process::exit(70);
+                error::runtime(line, "method calls are not supported on this type");
             }
         }
     }
@@ -408,17 +407,20 @@ impl Environment {
         } else if let Some(ref enclosing) = self.enclosing {
             enclosing.borrow().get(name, line)
         } else {
-            eprintln!("Undefined variable '{}'.", name);
-            eprintln!("[line {}]", line);
-            std::process::exit(70);
+            error::runtime(line, format!("name '{}' is not defined", name));
         }
     }
 
     pub fn assign(&mut self, name: &str, value: HyperValue, line: u32) {
         if let Some(let_entry) = self.values.get_mut(name) {
             if !let_entry.is_mutable {
-                eprintln!("[line {}] Error: Cannot reassign immutable variable '{}'. Use 'let mut' to make it mutable.", line, name);
-                std::process::exit(70);
+                error::runtime(
+                    line,
+                    format!(
+                        "cannot assign to immutable variable '{}'; use 'let mut'",
+                        name
+                    ),
+                );
             }
             let_entry.value = value;
             return;
@@ -429,8 +431,7 @@ impl Environment {
             return;
         }
 
-        eprintln!("[line {}] Error: Undefined variable '{}'.", line, name);
-        std::process::exit(70);
+        error::runtime(line, format!("name '{}' is not defined", name));
     }
 
     /// Mutate a binding in place (e.g. list/dict element update) without rebinding.
@@ -446,8 +447,7 @@ impl Environment {
             enclosing.borrow_mut().with_value_mut(name, line, f);
             return;
         }
-        eprintln!("[line {}] Error: Undefined variable '{}'.", line, name);
-        std::process::exit(70);
+        error::runtime(line, format!("name '{}' is not defined", name));
     }
 }
 
