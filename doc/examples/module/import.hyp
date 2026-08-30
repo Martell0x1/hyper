@@ -1,0 +1,16 @@
+# Imports add, mul, and VERSION from math.hyp
+import math
+
+print(math.add(2, 3))
+print(math.mul(4, 5))
+print(math.VERSION)
+
+from math import add
+
+print(add(1, 2))
+
+import math as m
+
+print(m.add(10, 20))
+
+# syntax
