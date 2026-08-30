@@ -424,7 +424,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                 other => {
                     let left_val = evaluate(left, line, Rc::clone(&env))?;
                     let right_val = evaluate(right, line, Rc::clone(&env))?;
-                    if matches!(other, BinOp::Div | BinOp::Rem)
+                    if matches!(other, BinOp::Div | BinOp::FloorDiv | BinOp::Rem)
                         && divides_by_integer_zero(&left_val, &right_val)
                     {
                         error::runtime(line, "division by zero");
@@ -434,6 +434,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                         BinOp::Sub => left_val.sub(&right_val),
                         BinOp::Mul => left_val.mul(&right_val),
                         BinOp::Div => left_val.div(&right_val),
+                        BinOp::FloorDiv => left_val.floor_div(&right_val),
                         BinOp::Rem => left_val.rem(&right_val),
                         BinOp::Pow => left_val.pow(&right_val),
                         BinOp::Gt => left_val.greater(&right_val),
