@@ -6,6 +6,7 @@ use std::{cell::RefCell, io};
 use std::rc::Rc;
 use crate::ast::*;
 use crate::environment::{Environment, HyperValue};
+use crate::error;
 use crate::module;
 
 thread_local! {
@@ -59,11 +60,10 @@ fn load_module(module_name: &str, line: u32) -> HyperValue {
             return (None, Some(cached.clone()));
         }
         if rt.loading.contains(module_name) {
-            eprintln!(
-                "[line {}] Error: circular import involving module '{}'.",
-                line, module_name
+            error::runtime(
+                line,
+                format!("circular import involving module '{}'", module_name),
             );
-            std::process::exit(70);
         }
         let path = match module::resolve_module_path(&rt.base_dir, module_name) {
             Ok(p) => p,
@@ -71,8 +71,7 @@ fn load_module(module_name: &str, line: u32) -> HyperValue {
             Err(msg) => match builtin_module(module_name) {
                 Some(builtin) => return (None, Some(builtin)),
                 None => {
-                    eprintln!("[line {}] Error: {}.", line, msg);
-                    std::process::exit(70);
+                    error::runtime(line, msg);
                 }
             },
         };
@@ -88,18 +87,13 @@ fn load_module(module_name: &str, line: u32) -> HyperValue {
     let source = match module::read_module_source(&path) {
         Ok(s) => s,
         Err(msg) => {
-            eprintln!("[line {}] Error: {}.", line, msg);
-            std::process::exit(70);
+            error::runtime(line, msg);
         }
     };
     let stmts = match crate::driver::parse_program(&source) {
         Ok(s) => s,
         Err(()) => {
-            eprintln!(
-                "[line {}] Error: syntax error in module '{}'.",
-                line, module_name
-            );
-            std::process::exit(65);
+            error::syntax(line, format!("syntax error in module '{}'", module_name));
         }
     };
 
@@ -230,10 +224,10 @@ fn coerce_to_type(value: HyperValue, type_ann: &TypeAnn, line: u32) -> HyperValu
                 }
             }
             other => {
-                eprintln!(
-                    "[line {}] Warning: cannot coerce value to Array[{}]; expected a list.",
+                error::warning(&format!(
+                    "line {}: cannot coerce value to Array[{}]; expected a list",
                     line, inner
-                );
+                ));
                 other
             }
         },
@@ -250,10 +244,10 @@ fn coerce_to_type(value: HyperValue, type_ann: &TypeAnn, line: u32) -> HyperValu
                 }
             }
             other => {
-                eprintln!(
-                    "[line {}] Warning: cannot coerce value to Dict[{}, {}]; expected a dict.",
+                error::warning(&format!(
+                    "line {}: cannot coerce value to Dict[{}, {}]; expected a dict",
                     line, key, val_ty
-                );
+                ));
                 other
             }
         },
@@ -320,13 +314,14 @@ fn index_get(object: &HyperValue, index: &HyperValue, line: u32) -> HyperValue {
         HyperValue::List(items) | HyperValue::Array { elements: items, .. } => {
             let i = to_i64(index);
             if i < 0 || i as usize >= items.len() {
-                eprintln!(
-                    "[line {}] Error: List index {} out of bounds (len {}).",
+                error::runtime(
                     line,
-                    i,
-                    items.len()
+                    format!(
+                        "list index {} out of range (len {})",
+                        i,
+                        items.len()
+                    ),
                 );
-                std::process::exit(70);
             }
             items[i as usize].clone()
         }
@@ -338,19 +333,19 @@ fn index_get(object: &HyperValue, index: &HyperValue, line: u32) -> HyperValue {
             let i = to_i64(index);
             let chars: Vec<char> = s.chars().collect();
             if i < 0 || i as usize >= chars.len() {
-                eprintln!(
-                    "[line {}] Error: String index {} out of bounds (len {}).",
+                error::runtime(
                     line,
-                    i,
-                    chars.len()
+                    format!(
+                        "string index {} out of range (len {})",
+                        i,
+                        chars.len()
+                    ),
                 );
-                std::process::exit(70);
             }
             HyperValue::String(chars[i as usize].to_string())
         }
         _ => {
-            eprintln!("[line {}] Error: Indexed value is not a list, dict, or string.", line);
-            std::process::exit(70);
+            error::runtime(line, "indexed value is not a list, dict, or string");
         }
     }
 }
@@ -360,13 +355,14 @@ fn index_set(object: &mut HyperValue, index: &HyperValue, value: HyperValue, lin
         HyperValue::List(items) | HyperValue::Array { elements: items, .. } => {
             let i = to_i64(index);
             if i < 0 || i as usize >= items.len() {
-                eprintln!(
-                    "[line {}] Error: List index {} out of bounds (len {}).",
+                error::runtime(
                     line,
-                    i,
-                    items.len()
+                    format!(
+                        "list index {} out of range (len {})",
+                        i,
+                        items.len()
+                    ),
                 );
-                std::process::exit(70);
             }
             items[i as usize] = value;
         }
@@ -374,8 +370,7 @@ fn index_set(object: &mut HyperValue, index: &HyperValue, value: HyperValue, lin
             entries.insert(index.to_string(), value);
         }
         _ => {
-            eprintln!("[line {}] Error: Indexed assignment requires a list or dict.", line);
-            std::process::exit(70);
+            error::runtime(line, "indexed assignment requires a list or dict");
         }
     }
 }
@@ -394,8 +389,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                     if let Some(res) = val.negate() {
                         Some(res)
                     } else {
-                        eprintln!("[line {}] Type Error: Invalid operand types for operation.", line);
-                        std::process::exit(70);
+                        error::runtime(line, "invalid operand types for operation");
                     }
                 }
                 UnaryOp::Not => Some(HyperValue::Boolean(!is_truthy(&val))),
@@ -433,8 +427,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                     if matches!(other, BinOp::Div | BinOp::Rem)
                         && divides_by_integer_zero(&left_val, &right_val)
                     {
-                        eprintln!("[line {}] Error: Division by zero.", line);
-                        std::process::exit(70);
+                        error::runtime(line, "division by zero");
                     }
                     let res = match other {
                         BinOp::Add => left_val.add(&right_val),
@@ -452,8 +445,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                     if let Some(v) = res {
                         Some(v)
                     } else {
-                        eprintln!("[line {}] Type Error: Invalid operand types for operation.", line);
-                        std::process::exit(70);
+                        error::runtime(line, "invalid operand types for operation");
                     }
                 }
             }
@@ -474,24 +466,21 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                     if let Some(&idx) = field_indices.get(field) {
                         Some(fields.borrow()[idx].clone())
                     } else {
-                        eprintln!("[line {}] Error: Undefined field '{}'.", line, field);
-                        std::process::exit(70);
+                        error::runtime(line, format!("undefined field '{}'", field));
                     }
                 }
                 HyperValue::Module { name, exports } => {
                     if let Some(val) = exports.get(field) {
                         Some(val.clone())
                     } else {
-                        eprintln!(
-                            "[line {}] Error: module '{}' has no export '{}'.",
-                            line, name, field
+                        error::runtime(
+                            line,
+                            format!("module '{}' has no export '{}'", name, field),
                         );
-                        std::process::exit(70);
                     }
                 }
                 _ => {
-                    eprintln!("[line {}] Error: Only instances and modules have fields.", line);
-                    std::process::exit(70);
+                    error::runtime(line, "only instances and modules have fields");
                 }
             }
         }
@@ -512,12 +501,10 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                     fields.borrow_mut()[idx] = val.clone();
                     Some(val)
                 } else {
-                    eprintln!("[line {}] Error: Undefined field '{}'.", line, field);
-                    std::process::exit(70);
+                    error::runtime(line, format!("undefined field '{}'", field));
                 }
             } else {
-                eprintln!("[line {}] Error: Only instances have fields.", line);
-                std::process::exit(70);
+                error::runtime(line, "only instances have fields");
             }
         }
         Expr::Call { callee, args } => evaluate_call(callee, args, line, env),
@@ -562,8 +549,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                         ExecResult::Ok => Some(HyperValue::None),
                     };
                 } else if methods.contains_key(method) {
-                    eprintln!("[line {}] Error: Method '{}' not found.", line, method);
-                    std::process::exit(70);
+                    error::runtime(line, format!("method '{}' not found", method));
                 }
             }
 
@@ -580,13 +566,14 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                                 closure,
                             ))));
                         if params.len() != evaluated_args.len() {
-                            eprintln!(
-                                "Expected {} arguments but got {}.\n[line {}]",
-                                params.len(),
-                                evaluated_args.len(),
-                                line
+                            error::runtime(
+                                line,
+                                format!(
+                                    "expected {} arguments but got {}",
+                                    params.len(),
+                                    evaluated_args.len()
+                                ),
                             );
-                            std::process::exit(70);
                         }
                         for (param_name, arg_value) in params.iter().zip(evaluated_args.iter()) {
                             call_env
@@ -618,18 +605,16 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                         return call_native(native, &evaluated_args, line);
                     }
                     Some(_) => {
-                        eprintln!(
-                            "[line {}] Error: '{}.{}' is not callable.",
-                            line, name, method
+                        error::runtime(
+                            line,
+                            format!("'{}.{}' is not callable", name, method),
                         );
-                        std::process::exit(70);
                     }
                     None => {
-                        eprintln!(
-                            "[line {}] Error: module '{}' has no export '{}'.",
-                            line, name, method
+                        error::runtime(
+                            line,
+                            format!("module '{}' has no export '{}'", name, method),
                         );
-                        std::process::exit(70);
                     }
                 }
             }
@@ -778,8 +763,7 @@ fn instantiate_struct(
 }
 
 fn native_fatal(line: u32, message: String) -> ! {
-    eprintln!("[line {}] Error: {}.", line, message);
-    std::process::exit(70);
+    error::runtime(line, message);
 }
 
 /// Builtins whose arguments are plain values, shared by direct calls and by
@@ -892,14 +876,12 @@ fn evaluate_call(
                 let trimmed = input_buffer.trim_end_matches(&['\r', '\n'][..]).to_string();
                 Some(HyperValue::String(trimmed))
             } else {
-                eprintln!("[line {}] Error: Failed to read  line from stdin.", line);
-                std::process::exit(70);
+                error::runtime(line, "failed to read line from stdin");
             }
         }
         HyperValue::NativeFunction(name) if name == "clock" => {
             if !args.is_empty() {
-                eprintln!("Expected 0 arguments but got more.\n[line {}]", line);
-                std::process::exit(70);
+                error::runtime(line, format!("expected 0 arguments but got {}", args.len()));
             }
             let duration = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -933,13 +915,14 @@ fn evaluate_call(
             }
 
             if evaluated_args.len() != params.len() {
-                eprintln!(
-                    "Expected {} arguments but got {}.\n[line {}]",
-                    params.len(),
-                    evaluated_args.len(),
-                    line
+                error::runtime(
+                    line,
+                    format!(
+                        "expected {} arguments but got {}",
+                        params.len(),
+                        evaluated_args.len()
+                    ),
                 );
-                std::process::exit(70);
             }
 
             let closure_env =
@@ -990,8 +973,7 @@ fn evaluate_call(
             ))
         }
         _ => {
-            eprintln!("Can only call functions and classes.\n[line {}]", line);
-            std::process::exit(70);
+            error::runtime(line, "can only call functions and classes");
         }
     }
 }
@@ -1045,8 +1027,7 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             if !trait_name.is_empty() {
                 let trait_check = env.borrow().get(&trait_name, 0);
                 if !matches!(trait_check, HyperValue::TraitDef { .. }) {
-                    eprintln!("Error: Trait '{}' is not defined.", trait_name);
-                    std::process::exit(70);
+                    error::runtime(0, format!("trait '{}' is not defined", trait_name));
                 }
             }
 
@@ -1229,11 +1210,10 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                         HyperValue::List(items) => items,
                         HyperValue::Array { elements, .. } => elements,
                         other => {
-                            eprintln!(
-                                "[line {}] Error: for-in expects a list, got {}.",
-                                line, other
+                            error::runtime(
+                                *line,
+                                format!("for-in expects a list, got {}", other),
                             );
-                            std::process::exit(70);
                         }
                     };
                     for item in items {
@@ -1283,9 +1263,9 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                     execute(body, block_env);
                 }
                 Err(e) => {
-                    eprintln!(
-                        "[line {}] Error: Could not map file '{}': {}",
-                        line, file_path, e
+                    error::runtime(
+                        *line,
+                        format!("could not map file '{}': {}", file_path, e),
                     );
                 }
             }
@@ -1305,8 +1285,10 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             let result = execute(body, block_env);
             if let HyperValue::File { file, path } = &resource {
                 if let Err(e) = file.borrow_mut().close() {
-                    eprintln!("[line {}] Error: could not close '{}': {}.", line, path, e);
-                    std::process::exit(70);
+                    error::runtime(
+                        *line,
+                        format!("could not close '{}': {}", path, e),
+                    );
                 }
             }
             result
@@ -1337,11 +1319,10 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                         env.borrow_mut().define(bind, val.clone(), false);
                     }
                     None => {
-                        eprintln!(
-                            "[line {}] Error: module '{}' has no export '{}'.",
-                            line, name, item.name
+                        error::runtime(
+                            *line,
+                            format!("module '{}' has no export '{}'", name, item.name),
                         );
-                        std::process::exit(70);
                     }
                 }
             }
@@ -1380,16 +1361,12 @@ pub fn run_program(file_contents: String, entry_path: &str) {
 
     let statements = match crate::driver::parse_program(&file_contents) {
         Ok(stmts) => stmts,
-        Err(()) => {
-            eprintln!("Syntax error.");
-            std::process::exit(65);
-        }
+        Err(()) => std::process::exit(65),
     };
 
-    // Type errors are non-fatal for `run` while the interpreter remains the default backend.
     if let Err(errors) = crate::semantic::typecheck(&statements) {
         for e in &errors {
-            eprintln!("warning: {}", e);
+            error::report_formatted(&format!("warning: {}", e));
         }
     }
 
