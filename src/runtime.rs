@@ -10,14 +10,23 @@ pub const KIND_NONE: i64 = 4;
 pub const KIND_LIST: i64 = 5;
 pub const KIND_DICT: i64 = 6;
 pub const KIND_STRUCT: i64 = 7;
+pub const KIND_FILE: i64 = 8;
+
+mod file;
+pub use file::{
+    hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
+    hyper_rt_file_open, hyper_rt_file_path, hyper_rt_file_read_all, hyper_rt_file_read_n,
+    hyper_rt_file_readline, hyper_rt_file_readlines, hyper_rt_file_seek, hyper_rt_file_size,
+    hyper_rt_file_tell, hyper_rt_file_write, hyper_rt_file_writelines,
+};
 
 #[derive(Clone)]
-struct RtValue {
+pub(crate) struct RtValue {
     kind: i64,
     payload: i64,
 }
 
-struct RtList {
+pub(crate) struct RtList {
     items: Vec<RtValue>,
 }
 
@@ -29,7 +38,7 @@ struct RtStruct {
     fields: Vec<RtValue>,
 }
 
-fn format_value(v: &RtValue) -> String {
+pub(crate) fn format_value(v: &RtValue) -> String {
     match v.kind {
         KIND_I64 => format!("{}", v.payload),
         KIND_F64 => format!("{}", f64::from_bits(v.payload as u64)),
@@ -61,6 +70,7 @@ fn format_value(v: &RtValue) -> String {
             let st = unsafe { &*(v.payload as *const RtStruct) };
             format_struct(st)
         }
+        KIND_FILE => "<file>".to_string(),
         _ => format!("<?>"),
     }
 }
