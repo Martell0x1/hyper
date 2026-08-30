@@ -37,6 +37,8 @@ struct Lowerer {
     structs: HashMap<String, StructLayout>,
     /// local variable → struct type name (for field/method lowering)
     var_structs: HashMap<String, String>,
+    /// local variable → opened file handle (for file method lowering)
+    var_files: HashSet<String>,
     /// function name → struct type it returns, so `let p = make()` keeps methods
     fn_struct_returns: HashMap<String, String>,
     /// Line of the statement being lowered, used for diagnostics.
@@ -59,6 +61,7 @@ impl Lowerer {
             load_state: ModuleLoadState::new(entry_path),
             structs: HashMap::new(),
             var_structs: HashMap::new(),
+            var_files: HashSet::new(),
             fn_struct_returns: HashMap::new(),
             current_line: 0,
             errors: Vec::new(),
@@ -94,6 +97,231 @@ impl Lowerer {
         }
     }
 
+    fn line_arg(&mut self) -> ValueId {
+        let dest = self.fresh_value();
+        self.emit(IrInstr::ConstI64 {
+            dest,
+            value: self.current_line as i64,
+        });
+        dest
+    }
+
+    fn is_open_call(&self, expr: &Expr) -> bool {
+        matches!(
+            expr,
+            Expr::Call { callee, .. }
+                if matches!(callee.as_ref(), Expr::Variable { name, .. } if name == "open")
+        )
+    }
+
+    fn note_file_binding(&mut self, name: &str, initializer: &Expr) {
+        if self.is_open_call(initializer) {
+            self.var_files.insert(name.to_string());
+            return;
+        }
+        if let Expr::Variable { name: src, .. } = initializer {
+            if self.var_files.contains(src) {
+                self.var_files.insert(name.to_string());
+            }
+        }
+    }
+
+    fn lower_open(&mut self, args: &[CallArg]) -> ValueId {
+        if args.len() > 2 {
+            self.error(format!(
+                "open expects 1 or 2 argument(s) but got {}",
+                args.len()
+            ));
+            return self.error_value();
+        }
+        let path = match args.first() {
+            Some(CallArg::Positional(e) | CallArg::Named { value: e, .. }) => self.lower_expr(e),
+            None => {
+                self.error("open expects a file path");
+                return self.error_value();
+            }
+        };
+        let mode = match args.get(1) {
+            Some(CallArg::Positional(e) | CallArg::Named { value: e, .. }) => self.lower_expr(e),
+            None => {
+                let dest = self.fresh_value();
+                self.emit(IrInstr::ConstStr {
+                    dest,
+                    value: "r".to_string(),
+                });
+                dest
+            }
+        };
+        let line = self.line_arg();
+        let dest = self.fresh_value();
+        self.emit(IrInstr::Call {
+            dest,
+            func: "hyper_rt_file_open".to_string(),
+            args: vec![path, mode, line],
+        });
+        dest
+    }
+
+    fn lower_file_method(&mut self, object: &str, method: &str, args: &[Expr]) -> ValueId {
+        let handle = self.fresh_value();
+        self.emit(IrInstr::Load {
+            dest: handle,
+            name: object.to_string(),
+        });
+        let line = self.line_arg();
+        let dest = self.fresh_value();
+        match method {
+            "read" => {
+                let func = if args.is_empty() {
+                    "hyper_rt_file_read_all"
+                } else if args.len() == 1 {
+                    "hyper_rt_file_read_n"
+                } else {
+                    self.error("read expects 0 or 1 argument(s)");
+                    return self.error_value();
+                };
+                let mut call_args = vec![handle];
+                if !args.is_empty() {
+                    call_args.push(self.lower_expr(&args[0]));
+                }
+                call_args.push(line);
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: func.to_string(),
+                    args: call_args,
+                });
+            }
+            "readline" => {
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_file_readline".to_string(),
+                    args: vec![handle, line],
+                });
+            }
+            "readlines" => {
+                if !args.is_empty() {
+                    self.error("readlines expects 0 arguments");
+                    return self.error_value();
+                }
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_file_readlines".to_string(),
+                    args: vec![handle, line],
+                });
+            }
+            "write" => {
+                if args.len() != 1 {
+                    self.error("write expects 1 argument");
+                    return self.error_value();
+                }
+                let text = self.lower_expr(&args[0]);
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_file_write".to_string(),
+                    args: vec![handle, text, line],
+                });
+            }
+            "writelines" => {
+                if args.len() != 1 {
+                    self.error("writelines expects 1 argument");
+                    return self.error_value();
+                }
+                let list = self.lower_expr(&args[0]);
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_file_writelines".to_string(),
+                    args: vec![handle, list, line],
+                });
+            }
+            "seek" => {
+                let (offset, whence) = match args.len() {
+                    1 => (self.lower_expr(&args[0]), {
+                        let w = self.fresh_value();
+                        self.emit(IrInstr::ConstI64 { dest: w, value: 0 });
+                        w
+                    }),
+                    2 => (self.lower_expr(&args[0]), self.lower_expr(&args[1])),
+                    _ => {
+                        self.error("seek expects 1 or 2 argument(s)");
+                        return self.error_value();
+                    }
+                };
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_file_seek".to_string(),
+                    args: vec![handle, offset, whence, line],
+                });
+            }
+            "tell" | "size" => {
+                if !args.is_empty() {
+                    self.error(format!("{method} expects 0 arguments"));
+                    return self.error_value();
+                }
+                let func = if method == "tell" {
+                    "hyper_rt_file_tell"
+                } else {
+                    "hyper_rt_file_size"
+                };
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: func.to_string(),
+                    args: vec![handle, line],
+                });
+            }
+            "flush" | "close" => {
+                if !args.is_empty() {
+                    self.error(format!("{method} expects 0 arguments"));
+                    return self.error_value();
+                }
+                let func = if method == "flush" {
+                    "hyper_rt_file_flush"
+                } else {
+                    "hyper_rt_file_close"
+                };
+                let none = self.fresh_value();
+                self.emit(IrInstr::ConstNone { dest: none });
+                self.emit(IrInstr::Call {
+                    dest: none,
+                    func: func.to_string(),
+                    args: vec![handle, line],
+                });
+                return none;
+            }
+            "closed" => {
+                if !args.is_empty() {
+                    self.error("closed expects 0 arguments");
+                    return self.error_value();
+                }
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_file_is_closed".to_string(),
+                    args: vec![handle],
+                });
+            }
+            "path" | "mode" => {
+                if !args.is_empty() {
+                    self.error(format!("{method} expects 0 arguments"));
+                    return self.error_value();
+                }
+                let func = if method == "path" {
+                    "hyper_rt_file_path"
+                } else {
+                    "hyper_rt_file_mode"
+                };
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: func.to_string(),
+                    args: vec![handle, line],
+                });
+            }
+            other => {
+                self.error(format!("file has no method '{other}'"));
+                return self.error_value();
+            }
+        }
+        dest
+    }
+
     fn field_error(&self, object: &str, field: &str) -> String {
         match self.var_structs.get(object) {
             Some(stype) => {
@@ -112,6 +340,9 @@ impl Lowerer {
     }
 
     fn method_error(&self, object: &str, method: &str) -> String {
+        if self.var_files.contains(object) {
+            return format!("file has no method '{method}'");
+        }
         match self.var_structs.get(object) {
             Some(stype) => {
                 let name = self
@@ -376,6 +607,7 @@ impl Lowerer {
             let saved_next_value = self.next_value;
             let saved_next_block = self.next_block;
             let saved_var_structs = self.var_structs.clone();
+            let saved_var_files = self.var_files.clone();
             self.next_value = 0;
             self.next_block = 0;
             self.var_structs
@@ -400,6 +632,7 @@ impl Lowerer {
             self.next_value = saved_next_value;
             self.next_block = saved_next_block;
             self.var_structs = saved_var_structs;
+            self.var_files = saved_var_files;
         }
     }
 
@@ -525,6 +758,7 @@ impl Lowerer {
                 let saved_next_value = self.next_value;
                 let saved_next_block = self.next_block;
                 let saved_var_structs = self.var_structs.clone();
+                let saved_var_files = self.var_files.clone();
                 self.next_value = 0;
                 self.next_block = 0;
                 self.var_structs
@@ -549,6 +783,7 @@ impl Lowerer {
                 self.next_value = saved_next_value;
                 self.next_block = saved_next_block;
                 self.var_structs = saved_var_structs;
+                self.var_files = saved_var_files;
             }
         }
 
@@ -562,6 +797,7 @@ impl Lowerer {
                     let saved_next_value = self.next_value;
                     let saved_next_block = self.next_block;
                     let saved_var_structs = self.var_structs.clone();
+                    let saved_var_files = self.var_files.clone();
                     self.next_value = 0;
                     self.next_block = 0;
                     self.bind_param_structs(&decl.params, Some(module_name));
@@ -579,6 +815,7 @@ impl Lowerer {
                     self.next_value = saved_next_value;
                     self.next_block = saved_next_block;
                     self.var_structs = saved_var_structs;
+                    self.var_files = saved_var_files;
                 }
                 Stmt::Let {
                     name, initializer, ..
@@ -818,6 +1055,7 @@ impl Lowerer {
             }
             Expr::Assign { name, value } => {
                 self.note_struct_binding(name, value);
+                self.note_file_binding(name, value);
                 let v = self.lower_expr(value);
                 self.emit(IrInstr::Store {
                     name: name.clone(),
@@ -885,6 +1123,9 @@ impl Lowerer {
             }
             Expr::Call { callee, args } => {
                 if let Expr::Variable { name, .. } = callee.as_ref() {
+                    if name == "open" {
+                        return self.lower_open(args);
+                    }
                     if self.structs.contains_key(name) {
                         return self.lower_struct_ctor(name, args);
                     }
@@ -940,6 +1181,9 @@ impl Lowerer {
                         args: arg_ids,
                     });
                     return dest;
+                }
+                if self.var_files.contains(object) {
+                    return self.lower_file_method(object, method, args);
                 }
                 if let Some(stype) = self.var_structs.get(object).cloned() {
                     let layout = self.structs.get(&stype);
@@ -1112,6 +1356,7 @@ impl Lowerer {
                 name, initializer, ..
             } => {
                 self.note_struct_binding(name, initializer);
+                self.note_file_binding(name, initializer);
                 let v = self.lower_expr(initializer);
                 self.emit(IrInstr::Store {
                     name: name.clone(),
@@ -1341,6 +1586,7 @@ impl Lowerer {
                 let saved_next_value = self.next_value;
                 let saved_next_block = self.next_block;
                 let saved_var_structs = self.var_structs.clone();
+                let saved_var_files = self.var_files.clone();
                 self.next_value = 0;
                 self.next_block = 0;
                 self.bind_param_structs(&decl.params, None);
@@ -1359,6 +1605,7 @@ impl Lowerer {
                 self.next_value = saved_next_value;
                 self.next_block = saved_next_block;
                 self.var_structs = saved_var_structs;
+                self.var_files = saved_var_files;
             }
             Stmt::Return { value, .. } => {
                 // Bare `return` may be Literal::None from parser.
@@ -1392,8 +1639,32 @@ impl Lowerer {
             Stmt::WithMmap { .. } => {
                 self.error("memory-mapped file blocks are not supported by the compiler yet");
             }
-            Stmt::With { .. } => {
-                self.error("'with' resource blocks are not supported by the compiler yet");
+            Stmt::With {
+                value,
+                var,
+                body,
+                ..
+            } => {
+                let resource = self.lower_expr(value);
+                self.var_files.insert(var.clone());
+                self.emit(IrInstr::Store {
+                    name: var.clone(),
+                    value: resource,
+                });
+                self.lower_stmt(body);
+                let handle = self.fresh_value();
+                self.emit(IrInstr::Load {
+                    dest: handle,
+                    name: var.clone(),
+                });
+                let line = self.line_arg();
+                let none = self.fresh_value();
+                self.emit(IrInstr::ConstNone { dest: none });
+                self.emit(IrInstr::Call {
+                    dest: none,
+                    func: "hyper_rt_file_close".to_string(),
+                    args: vec![handle, line],
+                });
             }
             Stmt::Import {
                 line,
@@ -1623,5 +1894,28 @@ mod tests {
              print(p.b)\n",
         );
         assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    fn with_open_lowers_for_compile() {
+        let module = lower_source(
+            "with open(\"t.txt\", \"w\") as f:\n\
+             \x20   f.write(\"x\")\n",
+        )
+        .expect("with open should lower");
+        let calls: Vec<_> = module
+            .main
+            .iter()
+            .filter_map(|i| {
+                if let IrInstr::Call { func, .. } = i {
+                    Some(func.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(calls.contains(&"hyper_rt_file_open"));
+        assert!(calls.contains(&"hyper_rt_file_write"));
+        assert!(calls.contains(&"hyper_rt_file_close"));
     }
 }
