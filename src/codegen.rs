@@ -16,7 +16,8 @@ use std::process::Command;
 use crate::runtime::{
     hyper_rt_dict_get, hyper_rt_dict_new, hyper_rt_dict_push, hyper_rt_dict_set,
     hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
-    hyper_rt_list_set, hyper_rt_pow_f64, hyper_rt_pow_i64, hyper_rt_print_dict,
+    hyper_rt_list_set, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64, hyper_rt_pow_f64,
+    hyper_rt_pow_i64, hyper_rt_print_dict,
     hyper_rt_print_f64, hyper_rt_print_i64, hyper_rt_print_list, hyper_rt_print_newline,
     hyper_rt_print_separator, hyper_rt_print_str, hyper_rt_print_struct, hyper_rt_print_value,
     hyper_rt_str_concat,
@@ -89,6 +90,8 @@ struct RuntimeIds {
     print_value: FuncId,
     pow_i64: FuncId,
     pow_f64: FuncId,
+    floor_div_i64: FuncId,
+    floor_div_f64: FuncId,
     list_new: FuncId,
     list_push: FuncId,
     list_get: FuncId,
@@ -183,6 +186,24 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         sig.returns.push(AbiParam::new(types::F64));
         module
             .declare_function("hyper_rt_pow_f64", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let floor_div_i64 = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_floor_div_i64", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let floor_div_f64 = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::F64));
+        sig.params.push(AbiParam::new(types::F64));
+        sig.returns.push(AbiParam::new(types::F64));
+        module
+            .declare_function("hyper_rt_floor_div_f64", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
     let list_new = {
@@ -358,6 +379,8 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         print_value,
         pow_i64,
         pow_f64,
+        floor_div_i64,
+        floor_div_f64,
         list_new,
         list_push,
         list_get,
@@ -468,6 +491,8 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_print_value", hyper_rt_print_value as *const u8);
     jit_builder.symbol("hyper_rt_pow_i64", hyper_rt_pow_i64 as *const u8);
     jit_builder.symbol("hyper_rt_pow_f64", hyper_rt_pow_f64 as *const u8);
+    jit_builder.symbol("hyper_rt_floor_div_i64", hyper_rt_floor_div_i64 as *const u8);
+    jit_builder.symbol("hyper_rt_floor_div_f64", hyper_rt_floor_div_f64 as *const u8);
     jit_builder.symbol("hyper_rt_list_new", hyper_rt_list_new as *const u8);
     jit_builder.symbol("hyper_rt_list_push", hyper_rt_list_push as *const u8);
     jit_builder.symbol("hyper_rt_list_get", hyper_rt_list_get as *const u8);
@@ -1043,7 +1068,7 @@ fn define_function<M: Module>(
                     } else if is_float
                         && matches!(
                             op,
-                            IrOp::Add | IrOp::Sub | IrOp::Mul | IrOp::Div | IrOp::Pow
+                            IrOp::Add | IrOp::Sub | IrOp::Mul | IrOp::Div | IrOp::FloorDiv | IrOp::Pow
                         )
                     {
                         let lf = if lk == ValueKind::F64 {
@@ -1061,6 +1086,14 @@ fn define_function<M: Module>(
                             IrOp::Sub => builder.ins().fsub(lf, rf),
                             IrOp::Mul => builder.ins().fmul(lf, rf),
                             IrOp::Div => builder.ins().fdiv(lf, rf),
+                            IrOp::FloorDiv => {
+                                let fref = module.declare_func_in_func(
+                                    runtime.floor_div_f64,
+                                    &mut builder.func,
+                                );
+                                let call = builder.ins().call(fref, &[lf, rf]);
+                                builder.inst_results(call)[0]
+                            }
                             IrOp::Pow => {
                                 let fref =
                                     module.declare_func_in_func(runtime.pow_f64, &mut builder.func);
@@ -1076,6 +1109,14 @@ fn define_function<M: Module>(
                             IrOp::Sub => builder.ins().isub(l, r),
                             IrOp::Mul => builder.ins().imul(l, r),
                             IrOp::Div => builder.ins().sdiv(l, r),
+                            IrOp::FloorDiv => {
+                                let fref = module.declare_func_in_func(
+                                    runtime.floor_div_i64,
+                                    &mut builder.func,
+                                );
+                                let call = builder.ins().call(fref, &[l, r]);
+                                builder.inst_results(call)[0]
+                            }
                             IrOp::Rem => builder.ins().srem(l, r),
                             IrOp::Pow => {
                                 let fref =
