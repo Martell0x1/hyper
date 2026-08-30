@@ -94,12 +94,12 @@ mdbook build
 
 ## What is not supported yet
 
-Hyper is under active development. The compiler path does **not** cover the full language yet (e.g. traits, real `@parallel` codegen, `with` blocks and the rest of [file handling](file_handling.md)). Use `run` when a feature fails under `compile`.
+Hyper is under active development. See [Compiler known limitations](compiler/known-limitations.md) for the current compile-time gap list (file I/O, JSON module, `input()`, traits, real `@parallel` codegen, and related items). Use `run` when `compile` reports an unsupported construct.
 
-Unsupported constructs are reported as `[line N] Error: …` before code generation starts, and all of them are listed in one pass instead of stopping at the first one.
+Unsupported constructs are reported as **`SyntaxError: line N: …`** (or `IndentationError` / `RuntimeError` at runtime) before code generation starts when possible, and the compiler collects multiple lowering errors in one pass instead of stopping at the first one.
 
-The compiler resolves struct methods statically, so it needs to know which struct a name holds. It follows constructors, fields, function and method return values, and type annotations. When a variable receives a struct from somewhere else, annotate it — `fn shift(p: Point):` — otherwise the method call is reported as unresolved.
+The compiler resolves struct methods statically — see [Compiler supported features](compiler/supported-features.md).
 
-`compile` also enforces type errors that `run` only warns about, so a program may execute under `run` and still be rejected by the compiler.
+`compile` enforces type errors that `run` only warns about, so a program may execute under `run` and still be rejected by the compiler.
 
 There are no published packages or installers — building from source is the only supported way to get the toolchain today.
