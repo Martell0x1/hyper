@@ -2,7 +2,7 @@
 
 Hyper has **no official release yet**. To try it today, clone the repository and build the reference toolchain with Rust.
 
-Everything lives in a **single Cargo package** (`Interpreters`). The `src/` tree holds the language frontend, interpreter, and compiler:
+Everything lives in a **single Cargo package** (`hyper`). The `src/` tree holds the language frontend, interpreter, and compiler:
 
 | Module / path | Role |
 |---------------|------|
@@ -32,14 +32,14 @@ cargo build
 Debug binary:
 
 ```text
-target/debug/Interpreters
+target/debug/hyper
 ```
 
 Release binary:
 
 ```bash
 cargo build --release
-# target/release/Interpreters
+# target/release/hyper
 ```
 
 ## Run a program
