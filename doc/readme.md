@@ -1,100 +1,108 @@
 # Hyper
 
-**Hyper** is a programming language with **Python-like readability** and a **Cranelift-based compiler** aimed at native performance without losing approachability.
-
-Hyper is moving from a dual interpreter/compiler toolchain toward **compile-by-default**. The first public release (v0.1) focuses on letting you **build small programs with `compile`**, understand the language direction, and try it on real (if modest) projects.
+Hyper is a programming language with Python-like readability and a Cranelift-based native compiler. The toolchain is moving toward **compile-by-default**; v0.1 targets small, real programs you can build with `compile`, not a feature-complete runtime.
 
 ## Quick start
+
+Compile (preferred path):
 
 ```bash
 cargo run -- compile your_file.hyp
 ```
 
-Interpreter path (while compiler gaps remain):
+Interpret (while compiler gaps remain):
 
 ```bash
 cargo run -- run your_file.hyp
 ```
 
-See [Building from source](building.md) for prerequisites and compiler flags.
+Build instructions, flags, and mdBook setup: [Building from source](building.md).
 
 ---
 
-## Documentation layout
+## How this book is organized
 
-Everything under `doc/` is prose documentation (this book). **Executable Hyper samples** live only in `doc/examples/` — `.hyp` files with short comments, not long guides.
+Prose lives under `doc/` and is published as this mdBook. **Runnable Hyper code** lives separately in `doc/examples/` — `.hyp` files only, with short comments, not long-form guides.
 
-### Root files (`doc/`)
+```text
+doc/
+├── readme.md                 Entry point (this page)
+├── SUMMARY.md                mdBook sidebar / table of contents
+├── building.md               Clone, build, CLI, mdBook
+├── COMMIT_CONVENTION.md      Contributor commit prefixes
+│
+├── overview/                 Project goals and release criteria
+├── toolchain/                run vs compile today
+├── compiler/                 Compile pipeline, support matrix, gaps
+├── standard-library/         open, with, json, mmap
+├── errors/                   Error kinds (prose reference)
+└── examples/                 Syntax samples (.hyp only — not book chapters)
+```
 
-| File | Purpose |
-|------|---------|
-| [readme.md](readme.md) | This page — start here |
-| [SUMMARY.md](SUMMARY.md) | mdBook table of contents (sidebar navigation) |
-| [building.md](building.md) | Clone, build, run, compile flags, mdBook |
-| [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md) | Git commit prefix rules for contributors |
-
-### `doc/overview/` — project direction
-
-| File | Find it when you need… |
-|------|-------------------------|
-| [why-hyper.md](overview/why-hyper.md) | Why Hyper exists, comparison with Python / Rust / C++ / Zig |
-| [first-release-scope.md](overview/first-release-scope.md) | v0.1 checklist — what “ready for first release” means |
-
-### `doc/toolchain/` — how you run Hyper today
-
-| File | Find it when you need… |
-|------|-------------------------|
-| [dual-backend.md](toolchain/dual-backend.md) | `run` vs `compile`, when to use each, long-term compile-only direction |
-
-### `doc/compiler/` — the compile path
-
-| File | Find it when you need… |
-|------|-------------------------|
-| [overview.md](compiler/overview.md) | Pipeline (AST → IR → Cranelift), CLI flags |
-| [supported-features.md](compiler/supported-features.md) | What `hyper compile` lowers today |
-| [known-limitations.md](compiler/known-limitations.md) | What still requires `run` or is not implemented |
-
-### `doc/standard-library/` — builtins and I/O
-
-| File | Find it when you need… |
-|------|-------------------------|
-| [file-handling.md](standard-library/file-handling.md) | `open`, `with`, file methods, `open_mmap` |
-| [json-module.md](standard-library/json-module.md) | `import json`, `loads` / `dumps` / `load` / `dump` |
-
-### `doc/errors/` — error **reference** (prose)
-
-| File | Find it when you need… |
-|------|-------------------------|
-| [overview.md](errors/overview.md) | What `SyntaxError`, `IndentationError`, and `RuntimeError` mean; exit codes; compile vs run |
-
-This folder is **not** duplicate sample code. For **runnable `.hyp` files** that trigger each error, see `doc/examples/errors/` below.
-
-### `doc/examples/` — Hyper **code samples only**
-
-No markdown guides here — only `.hyp` (and occasional `.hyo` sketches) organized by topic:
-
-| Folder | What’s inside |
-|--------|----------------|
-| `examples/variable/` | `let`, `let mut` |
-| `examples/function/` | Functions, types, `ref` syntax |
-| `examples/operator/` | Arithmetic, comparison, assignment |
-| `examples/conditional/` | `if` / `elif` / `else`, ternary |
-| `examples/loop/` | `for`, `while`; `advanced/` for `@parallel` / `@vectorize` |
-| `examples/collection/` | Lists, arrays, dicts |
-| `examples/data_type/` | Numbers, strings, booleans, `None` |
-| `examples/struct/` | Structs, inheritance, traits (some aspirational) |
-| `examples/module/` | `import math.hyp` — module + import samples |
-| `examples/file_handling/` | `open`, JSON I/O samples |
-| `examples/io/` | `print`, `input` |
-| `examples/errors/` | **Code** that triggers Syntax / Indentation / Runtime errors when you `run` it |
-
-**`doc/errors/` vs `doc/examples/errors/`**
-
-- `doc/errors/` → read **what** the error kinds are (documentation).
-- `doc/examples/errors/` → **run** small programs to **see** those errors in the terminal.
+Browse chapters from the sidebar ([`SUMMARY.md`](SUMMARY.md)) or use the map below.
 
 ---
 
-## Project status
+## Documentation map
 
-Hyper has **not** tagged v0.1 yet. Release notes, git tags, and GitHub Releases come **after** the [first release checklist](overview/first-release-scope.md) is complete.
+| Section | Document | What you will find |
+|:--------|:---------|:-------------------|
+| **Introduction** | [readme.md](readme.md) | Orientation, layout, quick start |
+| **Building** | [building.md](building.md) | Prerequisites, `cargo build`, CLI subcommands, mdBook |
+| **Why Hyper** | [overview/why-hyper.md](overview/why-hyper.md) | Motivation; comparison with Python, Rust, C++, Zig |
+| **First release** | [overview/first-release-scope.md](overview/first-release-scope.md) | v0.1 readiness checklist |
+| **Dual backend** | [toolchain/dual-backend.md](toolchain/dual-backend.md) | When to use `run` vs `compile`; long-term direction |
+| **Compiler overview** | [compiler/overview.md](compiler/overview.md) | AST → IR → Cranelift pipeline; flags |
+| **Supported features** | [compiler/supported-features.md](compiler/supported-features.md) | Constructs lowered by `hyper compile` today |
+| **Known limitations** | [compiler/known-limitations.md](compiler/known-limitations.md) | Interpreter-only or unimplemented compile paths |
+| **File handling** | [standard-library/file-handling.md](standard-library/file-handling.md) | `open`, `with`, file methods, `open_mmap` |
+| **JSON module** | [standard-library/json-module.md](standard-library/json-module.md) | `import json`; `loads`, `dumps`, `load`, `dump` |
+| **Error kinds** | [errors/overview.md](errors/overview.md) | `SyntaxError`, `IndentationError`, `RuntimeError`; exit codes |
+| **Contributing** | [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md) | Commit message prefixes |
+
+---
+
+## Code samples (`doc/examples/`)
+
+These directories contain **executable examples**, not markdown chapters. They are intentionally omitted from the mdBook sidebar; open them in the repository or your editor.
+
+| Topic | Path | Contents |
+|:------|:-----|:---------|
+| Variables | `examples/variable/` | Immutable and mutable `let` |
+| Functions | `examples/function/` | Simple functions, strict types, `ref` |
+| Operators | `examples/operator/` | Arithmetic, comparison, boolean, assignment |
+| Conditionals | `examples/conditional/` | `if` / `elif` / `else`, ternary |
+| Loops | `examples/loop/` | `for`, `while`; `advanced/` for `@parallel` / `@vectorize` |
+| Collections | `examples/collection/` | Lists, arrays, dictionaries |
+| Data types | `examples/data_type/` | Numbers, strings, booleans, `None` |
+| Structs | `examples/struct/` | Objects, inheritance, traits (some aspirational) |
+| Modules | `examples/module/` | `math.hyp`, `import.hyp` |
+| File I/O | `examples/file_handling/` | `standard.hyp`, `json_io.hyp`, `mmap.hyo` sketch |
+| I/O builtins | `examples/io/` | `print`, `input` |
+| Error demos | `examples/errors/` | Programs that trigger each error kind when run |
+
+Run a sample from the repository root:
+
+```bash
+cargo run -- run doc/examples/io/print.hyp
+```
+
+---
+
+## Errors: reference vs runnable demos
+
+Two locations serve different purposes. They are **not** duplicates.
+
+| | `doc/errors/` | `doc/examples/errors/` |
+|:--|:--------------|:-----------------------|
+| **Format** | Markdown (this book) | `.hyp` source files |
+| **Purpose** | Explain error kinds, messages, exit codes, `run` vs `compile` | Reproduce errors in the terminal |
+| **Typical use** | Read before writing tests or CI checks | `hyper run doc/examples/errors/runtime_error.hyp` |
+
+Full reference: [Error kinds](errors/overview.md).
+
+---
+
+## Development status
+
+Hyper has **not** tagged v0.1 yet. CHANGELOG, git tags, and GitHub Releases follow the [first release checklist](overview/first-release-scope.md), not the other way around.
