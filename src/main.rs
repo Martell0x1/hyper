@@ -1,7 +1,9 @@
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 
 mod ast;
+mod error;
 mod scanner;
 mod parser;
 mod driver;
@@ -20,7 +22,8 @@ mod codegen;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!(
+        let _ = writeln!(
+            io::stderr(),
             "Usage: {} <tokenize|parse|evaluate|run|typecheck|compile> <filename> [options]\n\
              \n\
              compile <file>                    JIT execute\n\
@@ -36,7 +39,7 @@ fn main() {
     let filename = &args[2];
 
     let file_contents = fs::read_to_string(filename).unwrap_or_else(|_| {
-        eprintln!("Failed to read file {}", filename);
+        let _ = writeln!(io::stderr(), "Failed to read file {}", filename);
         String::new()
     });
 
@@ -87,8 +90,9 @@ fn parse_compile_mode(args: &[String]) -> compiler::CompileMode {
             compiler::CompileMode::EmitExe { path }
         }
         other => {
-            eprintln!("Unknown compile option: {other}");
-            eprintln!(
+            let _ = writeln!(io::stderr(), "Unknown compile option: {other}");
+            let _ = writeln!(
+                io::stderr(),
                 "Expected: --emit-ir | --emit-obj [path] | --emit-exe [path]"
             );
             std::process::exit(64);
