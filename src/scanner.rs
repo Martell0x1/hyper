@@ -1,6 +1,8 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+use crate::error::{self, ErrorKind};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Indent,
@@ -209,9 +211,18 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
                     indent_stack.push(indent_level);
                     add_token!(TokenType::Indent, "INDENT", "null");
                 } else if indent_level < current_indent {
-                    while *indent_stack.last().unwrap() > indent_level {
+                    while indent_stack.last().is_some_and(|level| *level > indent_level) {
                         indent_stack.pop();
                         add_token!(TokenType::Dedent, "DEDENT", "null");
+                    }
+                    if indent_stack.last().is_some_and(|level| *level != indent_level) {
+                        if !error {
+                            error::indentation(
+                                line as u32,
+                                "unindent does not match any outer indentation level",
+                            );
+                        }
+                        error = true;
                     }
                 }
                 at_line_start = false;
@@ -362,7 +373,9 @@ fn match_char (
             if let Some(str_val) = str_literals(chars, line) {
                 add_token!(TokenType::String, format!("\"{}\"", str_val), str_val);
             } else {
-                eprintln!("[line {}] Error: Unterminated string.", line);
+                if !*error {
+                    error::report(ErrorKind::Syntax, *line as u32, "unterminated string");
+                }
                 *error = true;
             }
         }
@@ -394,7 +407,9 @@ fn match_char (
                 if let Some(str_val) = str_literals(chars, line) {
                     add_token!(TokenType::FString, format!("f\"{}\"", str_val), str_val);
                 } else {
-                    eprintln!("[line {}] Error: Unterminated f-string.", line);
+                    if !*error {
+                        error::report(ErrorKind::Syntax, *line as u32, "unterminated f-string");
+                    }
                     *error = true;
                 }
                 return;
@@ -464,7 +479,13 @@ fn match_char (
             add_token!(t_type, ident, "null");
         }
         _ => {
-            eprintln!("[line {}] Error: Unexpected character: {}", line, ch);
+            if !*error {
+                error::report(
+                    ErrorKind::Syntax,
+                    *line as u32,
+                    &format!("unexpected character: '{}'", ch),
+                );
+            }
             *error = true;
         }
     }
