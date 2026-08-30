@@ -606,7 +606,7 @@ impl TypeChecker {
                 ));
                 HyperType::Any
             }
-            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Pow => {
+            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::FloorDiv | BinOp::Rem | BinOp::Pow => {
                 if Self::is_numeric(left) && Self::is_numeric(right) {
                     return Self::widen_numeric(left, right);
                 }
