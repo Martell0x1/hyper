@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::error;
 use crate::scanner::{Token, TokenType};
 
 pub struct Parser {
@@ -17,10 +18,7 @@ impl Parser {
 
         if !self.is_at_end() && self.peek().token_type != TokenType::EOF {
             let token = self.peek().clone();
-            eprintln!(
-                "[line {}] Error at '{}': Expect expression.",
-                token.line, token.lexeme
-            );
+            error::syntax_at_token(token.line as u32, &token.lexeme, "expected expression");
             return Err(());
         }
         Ok(result)
@@ -62,8 +60,8 @@ impl Parser {
                 value: Box::new(value),
             }),
             _ => {
-                let line = self.previous().line;
-                eprintln!("[line {}] Error: Invalid assignment target.", line);
+                let line = self.previous().line as u32;
+                error::syntax_msg(line, "invalid assignment target");
                 Err(())
             }
         }
@@ -121,8 +119,8 @@ impl Parser {
                 value: Box::new(value),
             }),
             _ => {
-                let line = self.previous().line;
-                eprintln!("[line {}] Error: Invalid assignment target.", line);
+                let line = self.previous().line as u32;
+                error::syntax_msg(line, "invalid assignment target");
                 Err(())
             }
         }
@@ -135,11 +133,8 @@ impl Parser {
             let condition = self.or_expr()?;
 
             if !self.match_types(&[TokenType::Else]) {
-                let line = self.peek().line;
-                eprintln!(
-                    "[line {}] Error: Expected 'else' in ternary expression.",
-                    line
-                );
+                let line = self.peek().line as u32;
+                error::syntax_msg(line, "expected 'else' in ternary expression");
                 return Err(());
             }
 
@@ -471,12 +466,9 @@ impl Parser {
 
         let token = self.peek().clone();
         if token.token_type == TokenType::EOF {
-            eprintln!("[line {}] Error at end: Expect expression.", token.line);
+            error::syntax_msg(token.line as u32, "expected expression");
         } else {
-            eprintln!(
-                "[line {}] Error at '{}': Expect expression.",
-                token.line, token.lexeme
-            );
+            error::syntax_at_token(token.line as u32, &token.lexeme, "expected expression");
         }
         Err(())
     }
@@ -633,12 +625,9 @@ impl Parser {
             return Ok(token.lexeme);
         }
         if token.token_type == TokenType::EOF {
-            eprintln!("[line {}] Error at end: {}", token.line, message);
+            error::syntax_msg(token.line as u32, message);
         } else {
-            eprintln!(
-                "[line {}] Error at '{}': {}",
-                token.line, token.lexeme, message
-            );
+            error::syntax_at_token(token.line as u32, &token.lexeme, message);
         }
         Err(())
     }
@@ -656,12 +645,9 @@ impl Parser {
             }
             _ => {
                 if token.token_type == TokenType::EOF {
-                    eprintln!("[line {}] Error at end: {}", token.line, message);
+                    error::syntax_msg(token.line as u32, message);
                 } else {
-                    eprintln!(
-                        "[line {}] Error at '{}': {}",
-                        token.line, token.lexeme, message
-                    );
+                    error::syntax_at_token(token.line as u32, &token.lexeme, message);
                 }
                 Err(())
             }
@@ -711,12 +697,9 @@ impl Parser {
         let token = self.peek();
 
         if token.token_type == TokenType::EOF {
-            eprintln!("[line {}] Error at end: {}", token.line, message);
+            error::syntax_msg(token.line as u32, message);
         } else {
-            eprintln!(
-                "[line {}] Error at '{}': {}",
-                token.line, token.lexeme, message
-            );
+            error::syntax_at_token(token.line as u32, &token.lexeme, message);
         }
         Err(())
     }
@@ -745,9 +728,10 @@ impl Parser {
                 "parallel" => is_parallel = true,
                 "vectorize" => is_vectorized = true,
                 _ => {
-                    eprintln!(
-                        "[line {}] Unknown decorator '@{}'.",
-                        dec_token.line, dec_token.lexeme
+                    error::syntax_at_token(
+                        dec_token.line as u32,
+                        &dec_token.lexeme,
+                        &format!("unknown decorator '@{}'", dec_token.lexeme),
                     );
                     return Err(());
                 }
@@ -856,7 +840,7 @@ impl Parser {
         }
 
         if names.is_empty() {
-            eprintln!("[line {}] Error: Expected at least one name after 'import'.", line);
+            error::syntax_msg(line, "expected at least one name after 'import'");
             return Err(());
         }
 
@@ -1229,18 +1213,18 @@ impl Parser {
                 }
 
                 if brace_depth > 0 {
-                    eprintln!(
-                        "[line {}] Error: Unterminated expression in f-string.",
-                        line
-                    );
+                    error::syntax_msg(line, "unterminated expression in f-string");
                     return Err(());
                 }
 
                 let (sub_tokens, err) = crate::scanner::scan_tokens(&expr_str);
                 if err {
-                    eprintln!(
-                        "[line {}] Error: Failed to parse expression inside f-string: '{}'.",
-                        line, expr_str
+                    error::syntax_msg(
+                        line,
+                        &format!(
+                            "failed to parse expression inside f-string: '{}'",
+                            expr_str
+                        ),
                     );
                     return Err(());
                 }
