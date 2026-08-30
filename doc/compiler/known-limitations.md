@@ -6,12 +6,11 @@ Hyper v0.1 targets a **working compiler for core programs**, not full language p
 
 | Construct | Compile-time message (typical) | Workaround |
 |-----------|-------------------------------|------------|
-| `with open(...) as f:` | `'with' resource blocks are not supported by the compiler yet` | Use `hyper run` |
 | `with open_mmap(...) as m:` | `memory-mapped file blocks are not supported by the compiler yet` | Use `hyper run` |
-| `open(...)`, `input()` as calls | `'open' is only available on the interpreter path` | Use `hyper run` |
+| `input()` as a call | `'input' is only available on the interpreter path` | Use `hyper run` |
 | Builtin `json` module | `module 'json' is a builtin module and is only available on the interpreter path` | Use `hyper run` |
 
-These are **v0.1 compiler priorities** — not permanent exclusions.
+`open(...)`, `with open(...) as f:`, and file methods (`read`, `write`, `seek`, …) **are supported** on the compile path (JIT and `--emit-exe`).
 
 ## Lowered differently than interpreted
 
