@@ -15,6 +15,10 @@ use std::process::Command;
 
 use crate::runtime::{
     hyper_rt_dict_get, hyper_rt_dict_new, hyper_rt_dict_push, hyper_rt_dict_set,
+    hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
+    hyper_rt_file_open, hyper_rt_file_path, hyper_rt_file_read_all, hyper_rt_file_read_n,
+    hyper_rt_file_readline, hyper_rt_file_readlines, hyper_rt_file_seek, hyper_rt_file_size,
+    hyper_rt_file_tell, hyper_rt_file_write, hyper_rt_file_writelines,
     hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
     hyper_rt_list_set, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64, hyper_rt_pow_f64,
     hyper_rt_pow_i64, hyper_rt_print_dict,
@@ -35,6 +39,7 @@ enum ValueKind {
     List,
     Dict,
     Struct,
+    File,
     /// Element kind known only at runtime (e.g. after index_get).
     Dynamic,
 }
@@ -50,6 +55,7 @@ impl ValueKind {
             ValueKind::List => 5,
             ValueKind::Dict => 6,
             ValueKind::Struct => 7,
+            ValueKind::File => 8,
             ValueKind::Dynamic => 0,
         }
     }
@@ -109,6 +115,21 @@ struct RuntimeIds {
     struct_get: FuncId,
     struct_set: FuncId,
     print_struct: FuncId,
+    file_open: FuncId,
+    file_close: FuncId,
+    file_read_all: FuncId,
+    file_read_n: FuncId,
+    file_readline: FuncId,
+    file_readlines: FuncId,
+    file_write: FuncId,
+    file_writelines: FuncId,
+    file_seek: FuncId,
+    file_tell: FuncId,
+    file_size: FuncId,
+    file_flush: FuncId,
+    file_is_closed: FuncId,
+    file_path: FuncId,
+    file_mode: FuncId,
 }
 
 fn make_flags(is_pic: bool) -> Result<settings::Flags, String> {
@@ -368,6 +389,33 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
             .declare_function("hyper_rt_print_struct", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
+    let mut declare_file = |name: &str, params: usize, returns: usize| -> Result<FuncId, String> {
+        let mut sig = module.make_signature();
+        for _ in 0..params {
+            sig.params.push(AbiParam::new(types::I64));
+        }
+        for _ in 0..returns {
+            sig.returns.push(AbiParam::new(types::I64));
+        }
+        module
+            .declare_function(name, Linkage::Import, &sig)
+            .map_err(|e| e.to_string())
+    };
+    let file_open = declare_file("hyper_rt_file_open", 6, 1)?;
+    let file_close = declare_file("hyper_rt_file_close", 4, 0)?;
+    let file_read_all = declare_file("hyper_rt_file_read_all", 4, 1)?;
+    let file_read_n = declare_file("hyper_rt_file_read_n", 6, 1)?;
+    let file_readline = declare_file("hyper_rt_file_readline", 5, 1)?;
+    let file_readlines = declare_file("hyper_rt_file_readlines", 4, 1)?;
+    let file_write = declare_file("hyper_rt_file_write", 6, 1)?;
+    let file_writelines = declare_file("hyper_rt_file_writelines", 6, 1)?;
+    let file_seek = declare_file("hyper_rt_file_seek", 8, 1)?;
+    let file_tell = declare_file("hyper_rt_file_tell", 4, 1)?;
+    let file_size = declare_file("hyper_rt_file_size", 4, 1)?;
+    let file_flush = declare_file("hyper_rt_file_flush", 4, 0)?;
+    let file_is_closed = declare_file("hyper_rt_file_is_closed", 2, 1)?;
+    let file_path = declare_file("hyper_rt_file_path", 4, 1)?;
+    let file_mode = declare_file("hyper_rt_file_mode", 4, 1)?;
     Ok(RuntimeIds {
         print_i64,
         print_f64,
@@ -398,6 +446,21 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         struct_get,
         struct_set,
         print_struct,
+        file_open,
+        file_close,
+        file_read_all,
+        file_read_n,
+        file_readline,
+        file_readlines,
+        file_write,
+        file_writelines,
+        file_seek,
+        file_tell,
+        file_size,
+        file_flush,
+        file_is_closed,
+        file_path,
+        file_mode,
     })
 }
 
@@ -510,6 +573,21 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_struct_get", hyper_rt_struct_get as *const u8);
     jit_builder.symbol("hyper_rt_struct_set", hyper_rt_struct_set as *const u8);
     jit_builder.symbol("hyper_rt_print_struct", hyper_rt_print_struct as *const u8);
+    jit_builder.symbol("hyper_rt_file_open", hyper_rt_file_open as *const u8);
+    jit_builder.symbol("hyper_rt_file_close", hyper_rt_file_close as *const u8);
+    jit_builder.symbol("hyper_rt_file_read_all", hyper_rt_file_read_all as *const u8);
+    jit_builder.symbol("hyper_rt_file_read_n", hyper_rt_file_read_n as *const u8);
+    jit_builder.symbol("hyper_rt_file_readline", hyper_rt_file_readline as *const u8);
+    jit_builder.symbol("hyper_rt_file_readlines", hyper_rt_file_readlines as *const u8);
+    jit_builder.symbol("hyper_rt_file_write", hyper_rt_file_write as *const u8);
+    jit_builder.symbol("hyper_rt_file_writelines", hyper_rt_file_writelines as *const u8);
+    jit_builder.symbol("hyper_rt_file_seek", hyper_rt_file_seek as *const u8);
+    jit_builder.symbol("hyper_rt_file_tell", hyper_rt_file_tell as *const u8);
+    jit_builder.symbol("hyper_rt_file_size", hyper_rt_file_size as *const u8);
+    jit_builder.symbol("hyper_rt_file_flush", hyper_rt_file_flush as *const u8);
+    jit_builder.symbol("hyper_rt_file_is_closed", hyper_rt_file_is_closed as *const u8);
+    jit_builder.symbol("hyper_rt_file_path", hyper_rt_file_path as *const u8);
+    jit_builder.symbol("hyper_rt_file_mode", hyper_rt_file_mode as *const u8);
 }
 
 pub fn jit_execute(module: &IrModule) -> Result<(), String> {
@@ -628,6 +706,15 @@ fn runtime_c_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn runtime_file_c_path() -> Result<PathBuf, String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest.join("src").join("runtime").join("hyper_rt_file.c");
+    if !path.exists() {
+        return Err(format!("runtime source not found: {}", path.display()));
+    }
+    Ok(path)
+}
+
 fn find_cc() -> Result<&'static str, String> {
     for cand in ["cc", "clang", "gcc"] {
         if Command::new(cand)
@@ -655,10 +742,12 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
     emit_object(module, obj_str)?;
 
     let rt = runtime_c_path()?;
+    let rt_file = runtime_file_c_path()?;
     let cc = find_cc()?;
     let status = Command::new(cc)
         .arg(obj_str)
         .arg(rt.as_os_str())
+        .arg(rt_file.as_os_str())
         .arg("-o")
         .arg(out_path)
         .arg("-lm")
@@ -671,6 +760,45 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
         return Err(format!("{cc} failed with status {status}"));
     }
     Ok(())
+}
+
+fn file_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
+    // (func id, result kind, uses out_kind pointer like readline)
+    match func {
+        "hyper_rt_file_open" => Some((runtime.file_open, ValueKind::File, false)),
+        "hyper_rt_file_read_all" | "hyper_rt_file_path" | "hyper_rt_file_mode" => {
+            Some((match func {
+                "hyper_rt_file_read_all" => runtime.file_read_all,
+                "hyper_rt_file_path" => runtime.file_path,
+                _ => runtime.file_mode,
+            }, ValueKind::Str, false))
+        }
+        "hyper_rt_file_read_n" => Some((runtime.file_read_n, ValueKind::Str, false)),
+        "hyper_rt_file_readline" => Some((runtime.file_readline, ValueKind::Dynamic, true)),
+        "hyper_rt_file_readlines" => Some((runtime.file_readlines, ValueKind::List, false)),
+        "hyper_rt_file_write" | "hyper_rt_file_writelines" | "hyper_rt_file_seek"
+        | "hyper_rt_file_tell" | "hyper_rt_file_size" | "hyper_rt_file_is_closed" => {
+            Some((
+                match func {
+                    "hyper_rt_file_write" => runtime.file_write,
+                    "hyper_rt_file_writelines" => runtime.file_writelines,
+                    "hyper_rt_file_seek" => runtime.file_seek,
+                    "hyper_rt_file_tell" => runtime.file_tell,
+                    "hyper_rt_file_size" => runtime.file_size,
+                    _ => runtime.file_is_closed,
+                },
+                if func == "hyper_rt_file_is_closed" {
+                    ValueKind::Bool
+                } else {
+                    ValueKind::I64
+                },
+                false,
+            ))
+        }
+        "hyper_rt_file_close" => Some((runtime.file_close, ValueKind::None_, false)),
+        "hyper_rt_file_flush" => Some((runtime.file_flush, ValueKind::None_, false)),
+        _ => None,
+    }
 }
 
 fn define_function<M: Module>(
@@ -1211,23 +1339,6 @@ fn define_function<M: Module>(
                     func,
                     args,
                 } => {
-                    let id = func_ids
-                        .get(func)
-                        .copied()
-                        .ok_or_else(|| match func.as_str() {
-                            "open" | "input" => crate::error::format_error(
-                                crate::error::ErrorKind::Runtime,
-                                0,
-                                &format!(
-                                    "'{func}' is only available on the interpreter path; run with 'run'"
-                                ),
-                            ),
-                            _ => crate::error::format_error(
-                                crate::error::ErrorKind::Runtime,
-                                0,
-                                &format!("undefined function '{func}'"),
-                            ),
-                        })?;
                     let mut arg_vals: Vec<Value> = Vec::with_capacity(args.len() * 2);
                     for a in args {
                         let v = builder.use_var(value_vars[a]);
@@ -1241,17 +1352,73 @@ fn define_function<M: Module>(
                         arg_vals.push(v);
                         arg_vals.push(k);
                     }
-                    let fref = module.declare_func_in_func(id, &mut builder.func);
-                    let call = builder.ins().call(fref, &arg_vals);
-                    let results = builder.inst_results(call).to_vec();
-                    builder.def_var(value_vars[dest], results[0]);
-                    if results.len() > 1 {
-                        let kv = declare_var(&mut builder, &mut next_var);
-                        builder.def_var(kv, results[1]);
-                        kind_vars.insert(*dest, kv);
-                        value_kinds.insert(*dest, ValueKind::Dynamic);
+
+                    if let Some((rt_id, out_kind, uses_out_kind)) =
+                        file_runtime_call(func, runtime)
+                    {
+                        if uses_out_kind {
+                            let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                                StackSlotKind::ExplicitSlot,
+                                8,
+                                0,
+                            ));
+                            let kind_ptr = builder.ins().stack_addr(types::I64, slot, 0);
+                            arg_vals.push(kind_ptr);
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            let call = builder.ins().call(fref, &arg_vals);
+                            let payload = builder.inst_results(call)[0];
+                            builder.def_var(value_vars[dest], payload);
+                            let kind_val =
+                                builder.ins().load(types::I64, MemFlags::new(), kind_ptr, 0);
+                            let kv = declare_var(&mut builder, &mut next_var);
+                            builder.def_var(kv, kind_val);
+                            kind_vars.insert(*dest, kv);
+                            value_kinds.insert(*dest, ValueKind::Dynamic);
+                        } else if out_kind == ValueKind::None_ {
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            builder.ins().call(fref, &arg_vals);
+                            let zero = builder.ins().iconst(types::I64, 0);
+                            builder.def_var(value_vars[dest], zero);
+                            value_kinds.insert(*dest, ValueKind::None_);
+                        } else {
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            let call = builder.ins().call(fref, &arg_vals);
+                            let payload = builder.inst_results(call)[0];
+                            builder.def_var(value_vars[dest], payload);
+                            value_kinds.insert(*dest, out_kind);
+                        }
                     } else {
-                        value_kinds.insert(*dest, ValueKind::I64);
+                        let id = func_ids.get(func).copied().ok_or_else(|| {
+                            match func.as_str() {
+                                "open" | "input" => crate::error::format_error(
+                                    crate::error::ErrorKind::Runtime,
+                                    0,
+                                    &format!(
+                                        "'{func}' is only available on the interpreter path; run with 'run'"
+                                    ),
+                                ),
+                                _ => crate::error::format_error(
+                                    crate::error::ErrorKind::Runtime,
+                                    0,
+                                    &format!("undefined function '{func}'"),
+                                ),
+                            }
+                        })?;
+                        let fref = module.declare_func_in_func(id, &mut builder.func);
+                        let call = builder.ins().call(fref, &arg_vals);
+                        let results = builder.inst_results(call).to_vec();
+                        builder.def_var(value_vars[dest], results[0]);
+                        if results.len() > 1 {
+                            let kv = declare_var(&mut builder, &mut next_var);
+                            builder.def_var(kv, results[1]);
+                            kind_vars.insert(*dest, kv);
+                            value_kinds.insert(*dest, ValueKind::Dynamic);
+                        } else {
+                            value_kinds.insert(*dest, ValueKind::I64);
+                        }
                     }
                 }
                 IrInstr::MakeList { dest, items } => {
@@ -1492,6 +1659,14 @@ fn define_function<M: Module>(
                                 let fref = module
                                     .declare_func_in_func(runtime.print_struct, &mut builder.func);
                                 builder.ins().call(fref, &[v]);
+                            }
+                            ValueKind::File => {
+                                let k = builder.ins().iconst(types::I64, ValueKind::File.as_i64());
+                                let fref = module.declare_func_in_func(
+                                    runtime.print_value,
+                                    &mut builder.func,
+                                );
+                                builder.ins().call(fref, &[v, k]);
                             }
                             kind @ (ValueKind::Bool | ValueKind::None_) => {
                                 let k =
