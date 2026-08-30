@@ -1,0 +1,4 @@
+# Running this file reports SyntaxError (invalid expression)
+print(1 +
+
+# syntax
