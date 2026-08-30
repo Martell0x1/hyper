@@ -66,27 +66,6 @@ pub fn warning(message: &str) {
     let _ = writeln!(io::stderr(), "warning: {}", message);
 }
 
-pub fn format_typecheck(msg: &str) -> String {
-    if let Some(rest) = msg.strip_prefix("[line ") {
-        if let Some((line_str, tail)) = rest.split_once("] ") {
-            if let Ok(line) = line_str.parse::<u32>() {
-                let message = tail
-                    .strip_prefix("Error: ")
-                    .or_else(|| tail.strip_prefix("Type error: "))
-                    .unwrap_or(tail)
-                    .trim_end_matches('.');
-                return format_error(ErrorKind::Syntax, line, message);
-            }
-        }
-    }
-    let message = msg
-        .strip_prefix("Error: ")
-        .or_else(|| msg.strip_prefix("Type error: "))
-        .unwrap_or(msg)
-        .trim_end_matches('.');
-    format_error(ErrorKind::Syntax, 0, message)
-}
-
 pub fn runtime(line: u32, message: impl AsRef<str>) -> ! {
     fatal(ErrorKind::Runtime, line, message);
 }
@@ -108,18 +87,6 @@ mod tests {
         assert_eq!(
             format_error(ErrorKind::Runtime, 10, "division by zero"),
             "RuntimeError: line 10: division by zero"
-        );
-    }
-
-    #[test]
-    fn format_typecheck_normalizes_legacy_messages() {
-        assert_eq!(
-            format_typecheck("[line 4] Error: Undefined variable 'x'."),
-            "SyntaxError: line 4: Undefined variable 'x'"
-        );
-        assert_eq!(
-            format_typecheck("Type error: cannot assign i32 to string."),
-            "SyntaxError: line 0: cannot assign i32 to string"
         );
     }
 }
