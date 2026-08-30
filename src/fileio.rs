@@ -15,6 +15,7 @@ use std::rc::Rc;
 use memmap2::Mmap;
 
 use crate::environment::HyperValue;
+use crate::error;
 
 const BUFFER_CAPACITY: usize = 64 * 1024;
 
@@ -409,15 +410,16 @@ pub fn open_value(path: &str, mode: &str, line: u32) -> HyperValue {
             file: Rc::new(RefCell::new(file)),
         },
         Err(e) => {
-            eprintln!("[line {}] Error: could not open '{}': {}.", line, path, e);
-            std::process::exit(70);
+            error::runtime(
+                line,
+                format!("could not open '{}': {}", path, e),
+            );
         }
     }
 }
 
 fn fatal(line: u32, message: String) -> ! {
-    eprintln!("[line {}] Error: {}.", line, message);
-    std::process::exit(70);
+    error::runtime(line, message);
 }
 
 fn as_int(value: &HyperValue, method: &str, line: u32) -> i64 {
