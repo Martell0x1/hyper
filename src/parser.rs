@@ -1213,14 +1213,14 @@ impl Parser {
                 }
 
                 if brace_depth > 0 {
-                    error::syntax_msg(line, "unterminated expression in f-string");
+                    error::syntax_msg(line as u32, "unterminated expression in f-string");
                     return Err(());
                 }
 
                 let (sub_tokens, err) = crate::scanner::scan_tokens(&expr_str);
                 if err {
                     error::syntax_msg(
-                        line,
+                        line as u32,
                         &format!(
                             "failed to parse expression inside f-string: '{}'",
                             expr_str
