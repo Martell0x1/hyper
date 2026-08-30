@@ -1,0 +1,10 @@
+# File I/O compile-path smoke (no json / mmap).
+with open("ci_compile_io.txt", "w") as f:
+    f.write("hyper compile\n")
+
+with open("ci_compile_io.txt", "r") as f:
+    print(f.read())
+
+let handle = open("ci_compile_io.txt", "r")
+print(handle.readline())
+handle.close()
