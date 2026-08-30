@@ -90,3 +90,36 @@ pub fn format_typecheck(msg: &str) -> String {
 pub fn runtime(line: u32, message: impl AsRef<str>) -> ! {
     fatal(ErrorKind::Runtime, line, message);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_error_labels() {
+        assert_eq!(
+            format_error(ErrorKind::Syntax, 3, "expected ':'"),
+            "SyntaxError: line 3: expected ':'"
+        );
+        assert_eq!(
+            format_error(ErrorKind::Indentation, 2, "unexpected indent"),
+            "IndentationError: line 2: unexpected indent"
+        );
+        assert_eq!(
+            format_error(ErrorKind::Runtime, 10, "division by zero"),
+            "RuntimeError: line 10: division by zero"
+        );
+    }
+
+    #[test]
+    fn format_typecheck_normalizes_legacy_messages() {
+        assert_eq!(
+            format_typecheck("[line 4] Error: Undefined variable 'x'."),
+            "SyntaxError: line 4: Undefined variable 'x'"
+        );
+        assert_eq!(
+            format_typecheck("Type error: cannot assign i32 to string."),
+            "SyntaxError: line 0: cannot assign i32 to string"
+        );
+    }
+}
