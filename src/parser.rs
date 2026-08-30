@@ -33,38 +33,99 @@ impl Parser {
     fn assignment(&mut self) -> Result<Expr, ()> {
         let expr = self.ternary()?;
 
+        if let Some(op) = self.match_compound_assign_op() {
+            let rhs = self.assignment()?;
+            return self.finish_assignment(expr, op, rhs);
+        }
+
         if self.match_types(&[TokenType::Equal]) {
             let value = self.assignment()?;
-
-            match expr {
-                Expr::Variable { name, .. } => {
-                    return Ok(Expr::Assign {
-                        name,
-                        value: Box::new(value),
-                    });
-                }
-                Expr::GetField { object, field } => {
-                    return Ok(Expr::SetField {
-                        object,
-                        field,
-                        value: Box::new(value),
-                    });
-                }
-                Expr::Index { object, index } => {
-                    return Ok(Expr::IndexSet {
-                        object,
-                        index,
-                        value: Box::new(value),
-                    });
-                }
-                _ => {
-                    let line = self.previous().line;
-                    eprintln!("[line {}] Error: Invalid assignment target.", line);
-                    return Err(());
-                }
-            }
+            return self.finish_plain_assignment(expr, value);
         }
         Ok(expr)
+    }
+
+    fn finish_plain_assignment(&self, target: Expr, value: Expr) -> Result<Expr, ()> {
+        match target {
+            Expr::Variable { name, .. } => Ok(Expr::Assign {
+                name,
+                value: Box::new(value),
+            }),
+            Expr::GetField { object, field } => Ok(Expr::SetField {
+                object,
+                field,
+                value: Box::new(value),
+            }),
+            Expr::Index { object, index } => Ok(Expr::IndexSet {
+                object,
+                index,
+                value: Box::new(value),
+            }),
+            _ => {
+                let line = self.previous().line;
+                eprintln!("[line {}] Error: Invalid assignment target.", line);
+                Err(())
+            }
+        }
+    }
+
+    fn match_compound_assign_op(&mut self) -> Option<BinOp> {
+        Some(match self.peek().token_type {
+            TokenType::PlusEqual => {
+                self.advance();
+                BinOp::Add
+            }
+            TokenType::MinusEqual => {
+                self.advance();
+                BinOp::Sub
+            }
+            TokenType::StarEqual => {
+                self.advance();
+                BinOp::Mul
+            }
+            TokenType::SlashEqual => {
+                self.advance();
+                BinOp::Div
+            }
+            TokenType::PercentEqual => {
+                self.advance();
+                BinOp::Rem
+            }
+            TokenType::StarStarEqual => {
+                self.advance();
+                BinOp::Pow
+            }
+            _ => return None,
+        })
+    }
+
+    fn finish_assignment(&self, target: Expr, op: BinOp, rhs: Expr) -> Result<Expr, ()> {
+        let value = Expr::Binary {
+            op,
+            left: Box::new(target.clone()),
+            right: Box::new(rhs),
+        };
+        match target {
+            Expr::Variable { name, .. } => Ok(Expr::Assign {
+                name,
+                value: Box::new(value),
+            }),
+            Expr::GetField { object, field } => Ok(Expr::SetField {
+                object,
+                field,
+                value: Box::new(value),
+            }),
+            Expr::Index { object, index } => Ok(Expr::IndexSet {
+                object,
+                index,
+                value: Box::new(value),
+            }),
+            _ => {
+                let line = self.previous().line;
+                eprintln!("[line {}] Error: Invalid assignment target.", line);
+                Err(())
+            }
+        }
     }
 
     fn ternary(&mut self) -> Result<Expr, ()> {
@@ -442,6 +503,7 @@ impl Parser {
                 | TokenType::TypeF64
                 | TokenType::TypeString
                 | TokenType::TypeBool
+                | TokenType::None
                 | TokenType::Array
                 | TokenType::Dict
         )
@@ -1421,6 +1483,12 @@ mod tests {
                 ..
             } if key == "string" && value == "int32"
         ));
+    }
+
+    #[test]
+    fn compound_assignment_desugars() {
+        let stmts = parse_program("let mut x = 1\nx += 2\n");
+        assert!(matches!(&stmts[1], Stmt::Expr { .. }));
     }
 
     #[test]
