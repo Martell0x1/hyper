@@ -202,6 +202,21 @@ impl HyperValue {
         }
         Self::numeric_promote_bin(self, other, |a, b| a.wrapping_div(b), |a, b| a / b)
     }
+    pub fn floor_div(&self, other: &Self) -> Option<HyperValue> {
+        if let (Some(a), Some(b)) = (self.to_int(), other.to_int()) {
+            if b == 0 {
+                return None;
+            }
+            return Some(HyperValue::I64(a.div_euclid(b)));
+        }
+        if let (Some(a), Some(b)) = (self.to_f64_value(), other.to_f64_value()) {
+            if b == 0.0 {
+                return None;
+            }
+            return Some(HyperValue::F64((a / b).floor()));
+        }
+        None
+    }
     pub fn rem(&self, other: &Self) -> Option<HyperValue> {
         if let Some(v) = { impl_binary_op!(self, other, %, wrapping_rem) } {
             return Some(v);
