@@ -1,0 +1,5 @@
+# Running this file reports IndentationError (unexpected indent)
+let x = 1
+    let y = 2
+
+# syntax
