@@ -1,5 +1,6 @@
 use crate::ast::*;
 use crate::driver;
+use crate::error::{self, ErrorKind};
 use crate::ir::{BlockId, IrFunction, IrInstr, IrModule, IrOp, ValueId};
 use crate::module::{self, ModuleLoadState};
 use crate::semantic;
@@ -65,10 +66,10 @@ impl Lowerer {
     }
 
     fn error(&mut self, message: impl Into<String>) {
-        self.errors.push(format!(
-            "[line {}] Error: {}.",
+        self.errors.push(error::format_error(
+            ErrorKind::Syntax,
             self.current_line,
-            message.into()
+            &message.into(),
         ));
     }
 
@@ -435,8 +436,7 @@ impl Lowerer {
                     ));
                     return;
                 }
-                eprintln!("[line {}] Error: {}.", line, msg);
-                process::exit(70);
+                error::runtime(line, msg);
             }
         };
 
@@ -1443,15 +1443,12 @@ pub enum CompileMode {
 pub fn run_compile(file_contents: String, entry_path: &str, mode: CompileMode) {
     let stmts = match driver::parse_program(&file_contents) {
         Ok(s) => s,
-        Err(()) => {
-            eprintln!("Syntax error.");
-            process::exit(65);
-        }
+        Err(()) => process::exit(65),
     };
 
     if let Err(errors) = semantic::typecheck(&stmts) {
         for e in errors {
-            eprintln!("{}", e);
+            error::report_formatted(&e);
         }
         process::exit(65);
     }
@@ -1460,7 +1457,7 @@ pub fn run_compile(file_contents: String, entry_path: &str, mode: CompileMode) {
         Ok(m) => m,
         Err(errors) => {
             for e in errors {
-                eprintln!("{}", e);
+                error::report_formatted(&e);
             }
             process::exit(65);
         }
@@ -1477,7 +1474,7 @@ pub fn run_compile(file_contents: String, entry_path: &str, mode: CompileMode) {
     };
 
     if let Err(msg) = result {
-        eprintln!("{}", msg);
+        error::report_formatted(&msg);
         process::exit(70);
     }
 }
@@ -1579,7 +1576,8 @@ mod tests {
         );
         assert_eq!(errors.len(), 1);
         assert!(
-            errors[0].starts_with("[line 5] Error: struct 'Point' has no field 'zzz'"),
+            errors[0].starts_with("SyntaxError: line 5:")
+                && errors[0].contains("struct 'Point' has no field 'zzz'"),
             "unexpected message: {}",
             errors[0]
         );
