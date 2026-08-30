@@ -1,4 +1,4 @@
-def fn_name(params):
-    return result
+fn add(a, b):
+    return a + b
 
-# syntax
+print(add(2, 3))
