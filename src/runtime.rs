@@ -156,6 +156,16 @@ pub extern "C" fn hyper_rt_pow_f64(base: f64, exp: f64) -> f64 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_floor_div_i64(a: i64, b: i64) -> i64 {
+    a.div_euclid(b)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_floor_div_f64(a: f64, b: f64) -> f64 {
+    (a / b).floor()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_list_new() -> i64 {
     let list = Box::new(RtList { items: Vec::new() });
     Box::into_raw(list) as i64
