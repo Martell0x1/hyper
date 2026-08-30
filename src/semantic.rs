@@ -1,5 +1,6 @@
 use crate::ast::*;
 use crate::driver;
+use crate::error;
 use std::collections::{HashMap, HashSet};
 use std::process;
 
@@ -148,7 +149,7 @@ impl TypeChecker {
     }
 
     fn error(&mut self, msg: String) {
-        self.errors.push(msg);
+        self.errors.push(error::format_typecheck(&msg));
     }
 
     fn resolve_type_name(&self, name: &str) -> HyperType {
@@ -1114,10 +1115,7 @@ mod tests {
 pub fn run_typecheck(file_contents: String) {
     let stmts = match driver::parse_program(&file_contents) {
         Ok(s) => s,
-        Err(()) => {
-            eprintln!("Syntax error.");
-            process::exit(65);
-        }
+        Err(()) => process::exit(65),
     };
 
     match typecheck(&stmts) {
@@ -1126,7 +1124,7 @@ pub fn run_typecheck(file_contents: String) {
         }
         Err(errors) => {
             for e in errors {
-                eprintln!("{}", e);
+                error::report_formatted(&e);
             }
             process::exit(65);
         }
