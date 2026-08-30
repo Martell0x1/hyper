@@ -1,4 +1,5 @@
 use crate::environment::HyperValue;
+use crate::error;
 
 pub fn call_string_method(s: &str, method_name: &str, args: &[HyperValue], line: u32) -> Option<HyperValue> {
     match method_name {
@@ -58,8 +59,7 @@ pub fn call_string_method(s: &str, method_name: &str, args: &[HyperValue], line:
                 let strs: Vec<String> = items.iter().map(|item| item.to_string()).collect();
                 Some(HyperValue::String(strs.join(s)))
             } else {
-                eprintln!("[line {}] Type Error: 'join' expects a list argument.", line);
-                std::process::exit(70);
+                error::runtime(line, "'join' expects a list argument");
             }
         }
         "len" => Some(HyperValue::I64(s.chars().count() as i64)),
@@ -67,16 +67,14 @@ pub fn call_string_method(s: &str, method_name: &str, args: &[HyperValue], line:
             if let Some(HyperValue::String(sub)) = args.first() {
                 Some(HyperValue::Boolean(s.starts_with(sub)))
             } else {
-                eprintln!("[line {}] Type Error: 'startswith' expects a string argument.", line);
-                std::process::exit(70);
+                error::runtime(line, "'startswith' expects a string argument");
             }
         }
         "endswith" => {
             if let Some(HyperValue::String(sub)) = args.first() {
                 Some(HyperValue::Boolean(s.ends_with(sub)))
             } else {
-                eprintln!("[line {}] Type Error: 'endswith' expects a string argument.", line);
-                std::process::exit(70);
+                error::runtime(line, "'endswith' expects a string argument");
             }
         }
         "split" => {
@@ -110,8 +108,7 @@ pub fn call_string_method(s: &str, method_name: &str, args: &[HyperValue], line:
                     return Some(HyperValue::String(replaced));
                 }
             }
-            eprintln!("[line {}] Type Error: 'replace' expects two string arguments.", line);
-            std::process::exit(70);
+            error::runtime(line, "'replace' expects two string arguments");
         }
         "find" => {
             if let Some(HyperValue::String(sub)) = args.first() {
@@ -122,8 +119,7 @@ pub fn call_string_method(s: &str, method_name: &str, args: &[HyperValue], line:
                     Some(HyperValue::I64(-1))
                 }
             } else {
-                eprintln!("[line {}] Type Error: 'find' expects a string argument.", line);
-                std::process::exit(70);
+                error::runtime(line, "'find' expects a string argument");
             }
         }
         "rfind" => {
@@ -135,8 +131,7 @@ pub fn call_string_method(s: &str, method_name: &str, args: &[HyperValue], line:
                     Some(HyperValue::I64(-1))
                 }
             } else {
-                eprintln!("[line {}] Type Error: 'rfind' expects a string argument.", line);
-                std::process::exit(70);
+                error::runtime(line, "'rfind' expects a string argument");
             }
         }
         "count" => {
@@ -148,8 +143,7 @@ pub fn call_string_method(s: &str, method_name: &str, args: &[HyperValue], line:
                     Some(HyperValue::I64(count as i64))
                 }
             } else {
-                eprintln!("[line {}] Type Error: 'count' expects a string argument.", line);
-                std::process::exit(70);
+                error::runtime(line, "'count' expects a string argument");
             }
         }
         "isdigit" => {
@@ -169,8 +163,7 @@ pub fn call_string_method(s: &str, method_name: &str, args: &[HyperValue], line:
             Some(HyperValue::Boolean(is_spc))
         }
         _ => {
-            eprintln!("[line {}] Attribute Error: String has no method '{}'.", line, method_name);
-            std::process::exit(70);
+            error::runtime(line, format!("string has no method '{}'", method_name));
         }
     }
 }
