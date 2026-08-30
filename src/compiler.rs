@@ -654,6 +654,7 @@ impl Lowerer {
             BinOp::Sub => IrOp::Sub,
             BinOp::Mul => IrOp::Mul,
             BinOp::Div => IrOp::Div,
+            BinOp::FloorDiv => IrOp::FloorDiv,
             BinOp::Rem => IrOp::Rem,
             BinOp::Pow => IrOp::Pow,
             BinOp::Eq => IrOp::Eq,
@@ -798,7 +799,7 @@ impl Lowerer {
                     other => {
                         let l = self.lower_expr(left);
                         let r = self.lower_expr(right);
-                        if matches!(other, BinOp::Div | BinOp::Rem) {
+                        if matches!(other, BinOp::Div | BinOp::FloorDiv | BinOp::Rem) {
                             self.emit(IrInstr::GuardDivisor {
                                 value: r,
                                 line: self.current_line,
