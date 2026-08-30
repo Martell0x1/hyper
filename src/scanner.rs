@@ -22,7 +22,8 @@ pub enum TokenType {
     Minus, 
     Plus, 
     Semicolon, 
-    Slash, 
+    Slash,
+    FloorDiv,
     Star,
     StarStar,
     Percent,
@@ -400,6 +401,9 @@ fn match_char(
             if chars.peek() == Some(&'=') {
                 chars.next();
                 add_token!(TokenType::SlashEqual, "/=", "null");
+            } else if chars.peek() == Some(&'/') {
+                chars.next();
+                add_token!(TokenType::FloorDiv, "//", "null");
             } else {
                 add_token!(TokenType::Slash, "/", "null");
             }
