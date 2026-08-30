@@ -288,6 +288,7 @@ impl TypeChecker {
         }
         // List with Any element accepts any list.
         match (dest, src) {
+            (HyperType::F32, HyperType::F64) => true,
             (HyperType::List(d), HyperType::List(s)) => {
                 matches!(d.as_ref(), HyperType::Any) || Self::is_compatible(d, s)
             }
@@ -299,6 +300,71 @@ impl TypeChecker {
             }
             (HyperType::Dict, HyperType::Dict) => true,
             (HyperType::Struct(a), HyperType::Struct(b)) => a == b,
+            _ => false,
+        }
+    }
+
+    fn expr_fits_type(expr: &Expr, dest: &HyperType) -> bool {
+        match (expr, dest) {
+            (Expr::Literal(Literal::None), HyperType::None) => true,
+            (Expr::Literal(Literal::Number(n)), HyperType::F32) => n.parse::<f64>().is_ok(),
+            (Expr::Literal(Literal::Number(n)), HyperType::F64) => {
+                n.parse::<f64>().is_ok()
+            }
+            (Expr::Literal(Literal::Number(n)), ty) if Self::is_numeric(ty) => {
+                if matches!(
+                    ty,
+                    HyperType::U8 | HyperType::U16 | HyperType::U32 | HyperType::U64
+                ) {
+                    Self::parse_uint_literal(n).is_some_and(|v| Self::uint_fits(v, ty))
+                } else {
+                    Self::parse_int_literal(n).is_some_and(|v| Self::int_fits(v, ty))
+                }
+            }
+            (
+                Expr::Unary {
+                    op: UnaryOp::Neg,
+                    right,
+                },
+                ty,
+            ) if Self::is_numeric(ty) => match right.as_ref() {
+                Expr::Literal(Literal::Number(n)) => Self::parse_int_literal(n)
+                    .and_then(|v| v.checked_neg())
+                    .is_some_and(|v| Self::int_fits(v, ty)),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    fn parse_int_literal(text: &str) -> Option<i64> {
+        text.replace('_', "").parse::<i64>().ok()
+    }
+
+    fn int_fits(value: i64, ty: &HyperType) -> bool {
+        match ty {
+            HyperType::I8 => i8::MIN as i64 <= value && value <= i8::MAX as i64,
+            HyperType::I16 => i16::MIN as i64 <= value && value <= i16::MAX as i64,
+            HyperType::I32 => i32::MIN as i64 <= value && value <= i32::MAX as i64,
+            HyperType::I64 => true,
+            HyperType::U8 => 0 <= value && value <= u8::MAX as i64,
+            HyperType::U16 => 0 <= value && value <= u16::MAX as i64,
+            HyperType::U32 => 0 <= value && value <= u32::MAX as i64,
+            HyperType::U64 => value >= 0,
+            _ => false,
+        }
+    }
+
+    fn parse_uint_literal(text: &str) -> Option<u64> {
+        text.replace('_', "").parse::<u64>().ok()
+    }
+
+    fn uint_fits(value: u64, ty: &HyperType) -> bool {
+        match ty {
+            HyperType::U8 => value <= u64::from(u8::MAX),
+            HyperType::U16 => value <= u64::from(u16::MAX),
+            HyperType::U32 => value <= u64::from(u32::MAX),
+            HyperType::U64 => true,
             _ => false,
         }
     }
@@ -640,7 +706,9 @@ impl TypeChecker {
                     TypeAnn::None => init_ty.clone(),
                     other => {
                         let ann = self.type_ann_to_hyper(other);
-                        if !Self::is_compatible(&ann, &init_ty) {
+                        if !Self::is_compatible(&ann, &init_ty)
+                            && !Self::expr_fits_type(initializer, &ann)
+                        {
                             self.error(format!(
                                 "[line {}] Type error: cannot initialize '{}' of type {:?} with {:?}.",
                                 line, name, ann, init_ty
@@ -1019,6 +1087,12 @@ mod tests {
              \x20   total = total + i\n",
         )
         .expect("an inferred counter should widen");
+    }
+
+    #[test]
+    fn literal_fits_smaller_integer_annotation() {
+        check("let a: i8 = -128\n").expect("i8 literal should fit");
+        check("let pi: float32 = 3.14\n").expect("float literal should fit f32");
     }
 
     #[test]
