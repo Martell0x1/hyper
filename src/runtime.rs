@@ -1,4 +1,5 @@
 use crate::error;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
 pub const KIND_I64: i64 = 0;
