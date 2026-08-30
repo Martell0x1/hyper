@@ -171,6 +171,27 @@ double hyper_rt_pow_f64(double base, double exp) {
     return pow(base, exp);
 }
 
+int64_t hyper_rt_floor_div_i64(int64_t a, int64_t b) {
+    if (b == 0) {
+        hyper_rt_div_by_zero(0);
+        return 0;
+    }
+    int64_t q = a / b;
+    int64_t r = a % b;
+    if (r != 0 && ((a < 0) ^ (b < 0))) {
+        q -= 1;
+    }
+    return q;
+}
+
+double hyper_rt_floor_div_f64(double a, double b) {
+    if (b == 0.0) {
+        hyper_rt_div_by_zero(0);
+        return 0.0;
+    }
+    return floor(a / b);
+}
+
 static void format_value(const RtValue *v);
 
 static void format_list(const RtList *list) {
