@@ -40,6 +40,11 @@ jobs:
       - name: Compiler JIT smoke
         run: cargo run --quiet -- compile ci/smoke.hyp
 
+      - name: Compiler file I/O smoke
+        run: |
+          cargo run --quiet -- compile ci/io_compile.hyp
+          rm -f ci_compile_io.txt
+
       - name: Compiler emit-exe smoke
         run: |
           cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
