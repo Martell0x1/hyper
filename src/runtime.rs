@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString};
+use crate::error;
 use std::os::raw::c_char;
 
 pub const KIND_I64: i64 = 0;
@@ -410,8 +410,7 @@ fn values_equal(a: &RtValue, b: &RtValue) -> bool {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_div_by_zero(line: i64) {
-    eprintln!("[line {}] Error: Division by zero.", line);
-    std::process::exit(70);
+    error::runtime(line as u32, "division by zero");
 }
 
 #[unsafe(no_mangle)]
