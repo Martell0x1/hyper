@@ -25,6 +25,13 @@ pub enum TokenType {
     StarStar,
     Percent,
 
+    PlusEqual,
+    MinusEqual,
+    StarEqual,
+    StarStarEqual,
+    SlashEqual,
+    PercentEqual,
+
     Bang, 
     BangEqual, 
     Equal, 
@@ -262,21 +269,46 @@ fn match_char (
         '@' => add_token!(TokenType::At, "@", "null"),
         '.' => add_token!(TokenType::Dot, ".", "null"),
         ',' => add_token!(TokenType::Comma, ",", "null"),
+        '+' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                add_token!(TokenType::PlusEqual, "+=", "null");
+            } else {
+                add_token!(TokenType::Plus, "+", "null");
+            }
+        }
         '-' => {
             if chars.peek() == Some(&'>') {
                 chars.next();
                 add_token!(TokenType::Arrow, "->", "null");
+            } else if chars.peek() == Some(&'=') {
+                chars.next();
+                add_token!(TokenType::MinusEqual, "-=", "null");
             } else {
                 add_token!(TokenType::Minus, "-", "null");
             }
         }
-        '+' => add_token!(TokenType::Plus, "+", "null"),
         ';' => add_token!(TokenType::Semicolon, ";", "null"),
-        '%' => add_token!(TokenType::Percent, "%", "null"),
-        '*' => {
-            if chars.peek() == Some(&'*') {
+        '%' => {
+            if chars.peek() == Some(&'=') {
                 chars.next();
-                add_token!(TokenType::StarStar, "**", "null");
+                add_token!(TokenType::PercentEqual, "%=", "null");
+            } else {
+                add_token!(TokenType::Percent, "%", "null");
+            }
+        }
+        '*' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                add_token!(TokenType::StarEqual, "*=", "null");
+            } else if chars.peek() == Some(&'*') {
+                chars.next();
+                if chars.peek() == Some(&'=') {
+                    chars.next();
+                    add_token!(TokenType::StarStarEqual, "**=", "null");
+                } else {
+                    add_token!(TokenType::StarStar, "**", "null");
+                }
             } else {
                 add_token!(TokenType::Star, "*", "null");
             }
@@ -313,7 +345,14 @@ fn match_char (
                 add_token!(TokenType::Greater, ">", "null");
             }
         }
-        '/' => add_token!(TokenType::Slash, "/", "null"),
+        '/' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                add_token!(TokenType::SlashEqual, "/=", "null");
+            } else {
+                add_token!(TokenType::Slash, "/", "null");
+            }
+        }
         '#' => {
             while chars.peek() != Some(&'\n') && chars.peek().is_some() {
                 chars.next();
