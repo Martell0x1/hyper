@@ -602,7 +602,7 @@ static int values_equal(RtValue a, RtValue b) {
 
 void hyper_rt_div_by_zero(int64_t line) {
     fflush(stdout);
-    fprintf(stderr, "[line %lld] Error: Division by zero.\n", (long long)line);
+    fprintf(stderr, "RuntimeError: line %lld: division by zero\n", (long long)line);
     exit(70);
 }
 
