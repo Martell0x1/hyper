@@ -165,6 +165,7 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
 
     let mut indent_stack = vec![0];
     let mut at_line_start = true;
+    let mut line_allows_indent = false;
 
     macro_rules! add_token {
         ($t:expr, $lex:expr, $lit:expr) => {
@@ -180,17 +181,28 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
     while let Some(ch) = chars.next() {
         if at_line_start {
             let mut indent_level = 0;
+            let mut used_tab = false;
+            let mut used_space = false;
             let mut current_ch = Some(ch);
 
             while let Some(c) = current_ch {
                 if c == ' ' {
+                    used_space = true;
                     indent_level += 1;
                 } else if c == '\t' {
+                    used_tab = true;
                     indent_level += 4;
                 } else {
                     break;
                 }
                 current_ch = chars.next();
+            }
+
+            if used_tab && used_space {
+                if !error {
+                    error::indentation(line as u32, "indent contains mixed spaces and tabs");
+                }
+                error = true;
             }
 
             if current_ch == Some('\n') {
@@ -208,8 +220,15 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
                 let current_indent = *indent_stack.last().unwrap();
 
                 if indent_level > current_indent {
-                    indent_stack.push(indent_level);
-                    add_token!(TokenType::Indent, "INDENT", "null");
+                    if indent_level > 0 && current_indent == 0 && !line_allows_indent {
+                        if !error {
+                            error::indentation(line as u32, "unexpected indent");
+                        }
+                        error = true;
+                    } else {
+                        indent_stack.push(indent_level);
+                        add_token!(TokenType::Indent, "INDENT", "null");
+                    }
                 } else if indent_level < current_indent {
                     while indent_stack.last().is_some_and(|level| *level > indent_level) {
                         indent_stack.pop();
@@ -225,13 +244,30 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
                         error = true;
                     }
                 }
+                line_allows_indent = false;
                 at_line_start = false;
 
-                match_char(c, &mut chars, &mut tokens, &mut line, &mut error, &mut at_line_start);
+                match_char(
+                    c,
+                    &mut chars,
+                    &mut tokens,
+                    &mut line,
+                    &mut error,
+                    &mut at_line_start,
+                    &mut line_allows_indent,
+                );
             }
             continue;
         }
-        match_char(ch, &mut chars, &mut tokens, &mut line, &mut error, &mut at_line_start)
+        match_char(
+            ch,
+            &mut chars,
+            &mut tokens,
+            &mut line,
+            &mut error,
+            &mut at_line_start,
+            &mut line_allows_indent,
+        )
     }
 
     while indent_stack.len() > 1 {
@@ -243,13 +279,14 @@ pub fn scan_tokens(file_contents: &str) -> (Vec<Token>, bool) {
     (tokens, error)
 }   
 
-fn match_char (
+fn match_char(
     ch: char,
     chars: &mut Peekable<Chars>,
     tokens: &mut Vec<Token>,
     line: &mut usize,
     error: &mut bool,
     at_line_start: &mut bool,
+    line_allows_indent: &mut bool,
 ) {
     macro_rules! add_token {
         ($t:expr, $lex:expr, $lit:expr) => {
@@ -276,7 +313,10 @@ fn match_char (
         '}' => add_token!(TokenType::RightBrace, "}", "null"),
         '[' => add_token!(TokenType::LeftBracket, "[", "null"),
         ']' => add_token!(TokenType::RightBracket, "]", "null"),
-        ':' => add_token!(TokenType::Colon, ":", "null"),
+        ':' => {
+            add_token!(TokenType::Colon, ":", "null");
+            *line_allows_indent = true;
+        }
         '@' => add_token!(TokenType::At, "@", "null"),
         '.' => add_token!(TokenType::Dot, ".", "null"),
         ',' => add_token!(TokenType::Comma, ",", "null"),
@@ -516,5 +556,26 @@ mod tests {
     fn integer_literals_stay_integers() {
         assert_eq!(number_literals("42"), vec!["42".to_string()]);
         assert_eq!(number_literals("1_000"), vec!["1000".to_string()]);
+    }
+
+    #[test]
+    fn unindent_mismatch_is_indentation_error() {
+        let source = "if True:\n    pass\n  x = 1\n";
+        let (_tokens, error) = scan_tokens(source);
+        assert!(error);
+    }
+
+    #[test]
+    fn unexpected_indent_is_indentation_error() {
+        let source = "let x = 1\n    let y = 2\n";
+        let (_tokens, error) = scan_tokens(source);
+        assert!(error);
+    }
+
+    #[test]
+    fn mixed_indent_is_indentation_error() {
+        let source = "if True:\n \tpass\n";
+        let (_tokens, error) = scan_tokens(source);
+        assert!(error);
     }
 }
