@@ -235,9 +235,15 @@ impl Parser {
 
     fn factor(&mut self) -> Result<Expr, ()> {
         let mut expr = self.power()?;
-        while self.match_types(&[TokenType::Slash, TokenType::Star, TokenType::Percent]) {
+        while self.match_types(&[
+            TokenType::Slash,
+            TokenType::FloorDiv,
+            TokenType::Star,
+            TokenType::Percent,
+        ]) {
             let op = match self.previous().token_type {
                 TokenType::Slash => BinOp::Div,
+                TokenType::FloorDiv => BinOp::FloorDiv,
                 TokenType::Percent => BinOp::Rem,
                 _ => BinOp::Mul,
             };
