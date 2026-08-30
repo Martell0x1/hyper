@@ -1,6 +1,6 @@
 use crate::ast::*;
 use crate::driver;
-use crate::error;
+use crate::error::{self, ErrorKind};
 use std::collections::{HashMap, HashSet};
 use std::process;
 
@@ -148,8 +148,13 @@ impl TypeChecker {
         false
     }
 
+    fn syntax_error(&mut self, line: u32, message: impl Into<String>) {
+        self.errors
+            .push(error::format_error(ErrorKind::Syntax, line, &message.into()));
+    }
+
     fn error(&mut self, msg: String) {
-        self.errors.push(error::format_typecheck(&msg));
+        self.syntax_error(0, msg);
     }
 
     fn resolve_type_name(&self, name: &str) -> HyperType {
@@ -399,10 +404,7 @@ impl TypeChecker {
                     // Struct name used as constructor / type value.
                     HyperType::Struct(name.clone())
                 } else {
-                    self.error(format!(
-                        "[line {}] Error: Undefined variable '{}'.",
-                        line, name
-                    ));
+                    self.syntax_error(*line, format!("undefined variable '{}'", name));
                     HyperType::Any
                 }
             }
@@ -710,10 +712,13 @@ impl TypeChecker {
                         if !Self::is_compatible(&ann, &init_ty)
                             && !Self::expr_fits_type(initializer, &ann)
                         {
-                            self.error(format!(
-                                "[line {}] Type error: cannot initialize '{}' of type {:?} with {:?}.",
-                                line, name, ann, init_ty
-                            ));
+                            self.syntax_error(
+                                *line,
+                                format!(
+                                    "cannot initialize '{}' of type {:?} with {:?}",
+                                    name, ann, init_ty
+                                ),
+                            );
                         }
                         // Prefer the annotation when present.
                         if matches!(ann, HyperType::Any) {
@@ -837,10 +842,13 @@ impl TypeChecker {
                         && !matches!(expected, HyperType::Any)
                         && !matches!(vt, HyperType::Any | HyperType::None)
                     {
-                        self.error(format!(
-                            "[line {}] Type error: return type {:?} is not compatible with {:?}.",
-                            line, vt, expected
-                        ));
+                        self.syntax_error(
+                            *line,
+                            format!(
+                                "return type {:?} is not compatible with {:?}",
+                                vt, expected
+                            ),
+                        );
                     }
                 }
             }
