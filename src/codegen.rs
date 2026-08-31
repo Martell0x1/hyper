@@ -19,6 +19,7 @@ use crate::runtime::{
     hyper_rt_file_open, hyper_rt_file_path, hyper_rt_file_read_all, hyper_rt_file_read_n,
     hyper_rt_file_readline, hyper_rt_file_readlines, hyper_rt_file_seek, hyper_rt_file_size,
     hyper_rt_file_tell, hyper_rt_file_write, hyper_rt_file_writelines,
+    hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
     hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
     hyper_rt_list_set, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64, hyper_rt_pow_f64,
     hyper_rt_pow_i64, hyper_rt_print_dict,
@@ -26,6 +27,7 @@ use crate::runtime::{
     hyper_rt_print_separator, hyper_rt_print_str, hyper_rt_print_struct, hyper_rt_print_value,
     hyper_rt_str_concat,
     hyper_rt_div_by_zero, hyper_rt_struct_get, hyper_rt_struct_new, hyper_rt_struct_set,
+    hyper_rt_index_get, hyper_rt_index_set,
     hyper_rt_value_eq, hyper_rt_value_to_str,
 };
 
@@ -107,6 +109,8 @@ struct RuntimeIds {
     dict_push: FuncId,
     dict_get: FuncId,
     dict_set: FuncId,
+    index_get: FuncId,
+    index_set: FuncId,
     value_to_str: FuncId,
     value_eq: FuncId,
     div_by_zero: FuncId,
@@ -130,6 +134,10 @@ struct RuntimeIds {
     file_is_closed: FuncId,
     file_path: FuncId,
     file_mode: FuncId,
+    json_loads: FuncId,
+    json_dumps: FuncId,
+    json_load: FuncId,
+    json_dump: FuncId,
 }
 
 fn make_flags(is_pic: bool) -> Result<settings::Flags, String> {
@@ -311,6 +319,25 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
             .declare_function("hyper_rt_dict_set", Linkage::Import, &sig)
             .map_err(|e| e.to_string())?
     };
+    let index_get = {
+        let mut sig = module.make_signature();
+        for _ in 0..5 {
+            sig.params.push(AbiParam::new(types::I64));
+        }
+        sig.returns.push(AbiParam::new(types::I64));
+        module
+            .declare_function("hyper_rt_index_get", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
+    let index_set = {
+        let mut sig = module.make_signature();
+        for _ in 0..6 {
+            sig.params.push(AbiParam::new(types::I64));
+        }
+        module
+            .declare_function("hyper_rt_index_set", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())?
+    };
     let list_len = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -416,6 +443,10 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     let file_is_closed = declare_file("hyper_rt_file_is_closed", 2, 1)?;
     let file_path = declare_file("hyper_rt_file_path", 4, 1)?;
     let file_mode = declare_file("hyper_rt_file_mode", 4, 1)?;
+    let json_loads = declare_file("hyper_rt_json_loads", 5, 1)?;
+    let json_dumps = declare_file("hyper_rt_json_dumps", 6, 1)?;
+    let json_load = declare_file("hyper_rt_json_load", 5, 1)?;
+    let json_dump = declare_file("hyper_rt_json_dump", 8, 1)?;
     Ok(RuntimeIds {
         print_i64,
         print_f64,
@@ -438,6 +469,8 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         dict_push,
         dict_get,
         dict_set,
+        index_get,
+        index_set,
         value_to_str,
         value_eq,
         div_by_zero,
@@ -461,6 +494,10 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         file_is_closed,
         file_path,
         file_mode,
+        json_loads,
+        json_dumps,
+        json_load,
+        json_dump,
     })
 }
 
@@ -565,6 +602,8 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_dict_push", hyper_rt_dict_push as *const u8);
     jit_builder.symbol("hyper_rt_dict_get", hyper_rt_dict_get as *const u8);
     jit_builder.symbol("hyper_rt_dict_set", hyper_rt_dict_set as *const u8);
+    jit_builder.symbol("hyper_rt_index_get", hyper_rt_index_get as *const u8);
+    jit_builder.symbol("hyper_rt_index_set", hyper_rt_index_set as *const u8);
     jit_builder.symbol("hyper_rt_value_to_str", hyper_rt_value_to_str as *const u8);
     jit_builder.symbol("hyper_rt_value_eq", hyper_rt_value_eq as *const u8);
     jit_builder.symbol("hyper_rt_div_by_zero", hyper_rt_div_by_zero as *const u8);
@@ -588,6 +627,10 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_file_is_closed", hyper_rt_file_is_closed as *const u8);
     jit_builder.symbol("hyper_rt_file_path", hyper_rt_file_path as *const u8);
     jit_builder.symbol("hyper_rt_file_mode", hyper_rt_file_mode as *const u8);
+    jit_builder.symbol("hyper_rt_json_loads", hyper_rt_json_loads as *const u8);
+    jit_builder.symbol("hyper_rt_json_dumps", hyper_rt_json_dumps as *const u8);
+    jit_builder.symbol("hyper_rt_json_load", hyper_rt_json_load as *const u8);
+    jit_builder.symbol("hyper_rt_json_dump", hyper_rt_json_dump as *const u8);
 }
 
 pub fn jit_execute(module: &IrModule) -> Result<(), String> {
@@ -715,6 +758,15 @@ fn runtime_file_c_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn runtime_json_c_path() -> Result<PathBuf, String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest.join("src").join("runtime").join("hyper_rt_json.c");
+    if !path.exists() {
+        return Err(format!("runtime source not found: {}", path.display()));
+    }
+    Ok(path)
+}
+
 fn find_cc() -> Result<&'static str, String> {
     for cand in ["cc", "clang", "gcc"] {
         if Command::new(cand)
@@ -743,11 +795,13 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
 
     let rt = runtime_c_path()?;
     let rt_file = runtime_file_c_path()?;
+    let rt_json = runtime_json_c_path()?;
     let cc = find_cc()?;
     let status = Command::new(cc)
         .arg(obj_str)
         .arg(rt.as_os_str())
         .arg(rt_file.as_os_str())
+        .arg(rt_json.as_os_str())
         .arg("-o")
         .arg(out_path)
         .arg("-lm")
@@ -797,6 +851,23 @@ fn file_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueK
         }
         "hyper_rt_file_close" => Some((runtime.file_close, ValueKind::None_, false)),
         "hyper_rt_file_flush" => Some((runtime.file_flush, ValueKind::None_, false)),
+        _ => None,
+    }
+}
+
+fn json_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
+    match func {
+        "hyper_rt_json_loads" | "hyper_rt_json_load" => Some((
+            if func == "hyper_rt_json_loads" {
+                runtime.json_loads
+            } else {
+                runtime.json_load
+            },
+            ValueKind::Dynamic,
+            true,
+        )),
+        "hyper_rt_json_dumps" => Some((runtime.json_dumps, ValueKind::Str, false)),
+        "hyper_rt_json_dump" => Some((runtime.json_dump, ValueKind::I64, false)),
         _ => None,
     }
 }
@@ -1354,6 +1425,37 @@ fn define_function<M: Module>(
                     }
 
                     if let Some((rt_id, out_kind, uses_out_kind)) =
+                        json_runtime_call(func, runtime)
+                    {
+                        // same as file branch below
+                        if uses_out_kind {
+                            let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                                StackSlotKind::ExplicitSlot,
+                                8,
+                                0,
+                            ));
+                            let kind_ptr = builder.ins().stack_addr(types::I64, slot, 0);
+                            arg_vals.push(kind_ptr);
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            let call = builder.ins().call(fref, &arg_vals);
+                            let payload = builder.inst_results(call)[0];
+                            builder.def_var(value_vars[dest], payload);
+                            let kind_val =
+                                builder.ins().load(types::I64, MemFlags::new(), kind_ptr, 0);
+                            let kv = declare_var(&mut builder, &mut next_var);
+                            builder.def_var(kv, kind_val);
+                            kind_vars.insert(*dest, kv);
+                            value_kinds.insert(*dest, ValueKind::Dynamic);
+                        } else {
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            let call = builder.ins().call(fref, &arg_vals);
+                            let payload = builder.inst_results(call)[0];
+                            builder.def_var(value_vars[dest], payload);
+                            value_kinds.insert(*dest, out_kind);
+                        }
+                    } else if let Some((rt_id, out_kind, uses_out_kind)) =
                         file_runtime_call(func, runtime)
                     {
                         if uses_out_kind {
@@ -1491,6 +1593,20 @@ fn define_function<M: Module>(
                                 builder.ins().call(fref, &[obj, idx, key_kind, kind_ptr]);
                             builder.inst_results(call)[0]
                         }
+                        ValueKind::Dynamic => {
+                            let obj_kind = builder.use_var(kind_vars[object]);
+                            let key_kind = match kind_of(&value_kinds, *index) {
+                                ValueKind::Dynamic => builder.use_var(kind_vars[index]),
+                                other => builder.ins().iconst(types::I64, other.as_i64()),
+                            };
+                            let fref = module
+                                .declare_func_in_func(runtime.index_get, &mut builder.func);
+                            let call = builder.ins().call(
+                                fref,
+                                &[obj, obj_kind, idx, key_kind, kind_ptr],
+                            );
+                            builder.inst_results(call)[0]
+                        }
                         _ => {
                             let fref = module
                                 .declare_func_in_func(runtime.list_get, &mut builder.func);
@@ -1528,6 +1644,19 @@ fn define_function<M: Module>(
                             builder
                                 .ins()
                                 .call(fref, &[obj, idx, key_kind, val, val_kind]);
+                        }
+                        ValueKind::Dynamic => {
+                            let obj_kind = builder.use_var(kind_vars[object]);
+                            let key_kind = match kind_of(&value_kinds, *index) {
+                                ValueKind::Dynamic => builder.use_var(kind_vars[index]),
+                                other => builder.ins().iconst(types::I64, other.as_i64()),
+                            };
+                            let fref = module
+                                .declare_func_in_func(runtime.index_set, &mut builder.func);
+                            builder.ins().call(
+                                fref,
+                                &[obj, obj_kind, idx, key_kind, val, val_kind],
+                            );
                         }
                         _ => {
                             let fref = module
