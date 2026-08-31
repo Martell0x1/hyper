@@ -11,9 +11,11 @@ pub const KIND_LIST: i64 = 5;
 pub const KIND_DICT: i64 = 6;
 pub const KIND_STRUCT: i64 = 7;
 pub const KIND_FILE: i64 = 8;
+pub const KIND_MMAP: i64 = 9;
 
 mod file;
 mod json;
+mod mmap;
 pub use file::{
     hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
     hyper_rt_file_open, hyper_rt_file_path, hyper_rt_file_read_all, hyper_rt_file_read_n,
@@ -23,6 +25,7 @@ pub use file::{
 pub use json::{
     hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
 };
+pub use mmap::{hyper_rt_mmap_close, hyper_rt_mmap_open, hyper_rt_mmap_read_chunk};
 
 #[derive(Clone)]
 pub(crate) struct RtValue {
@@ -75,6 +78,7 @@ pub(crate) fn format_value(v: &RtValue) -> String {
             format_struct(st)
         }
         KIND_FILE => "<file>".to_string(),
+        KIND_MMAP => "<mmap file>".to_string(),
         _ => format!("<?>"),
     }
 }
