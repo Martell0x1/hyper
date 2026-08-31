@@ -6,22 +6,24 @@
   </picture>
 </div>
 
-This is the main source code repository for **Hyper**. It currently contains the official interpreter implementation and documentation.
+This is the main source code repository for **Hyper**. It currently contains the native compiler, and documentation.
 
 ## What is Hyper?
 
-**Hyper** is a compiled programming language designed for maximum execution speed and memory safety without the overhead of an interpreter.
+**Hyper** is a compiled programming language built for **Python familiarity**, **native performance**, and **AI-scale workloads**. Its syntax is deliberately close to Python so teams can reuse existing habits, scripts, and ecosystems inside the Hyper environment with minimal friction.
 
-The project aims to explore how modern programming language design can retain developer productivity and code readability while addressing the performance overhead and safety limitations often found in dynamic languages.
+Hyper is designed to deliver **C- and C++-class memory control** and **hardware-aware execution** (CPU and GPU) so numerically heavy programs can run **orders of magnitude faster** than typical CPython — often tens to hundreds of times faster on hot paths once compiled.
+
+The language targets the bottlenecks of **neural network training** and **large-scale data processing**: long-running compute kernels, tight memory use, and parallel work across cores and accelerators.
+
+Architecture draws from **Rust-style safety** (memory safety as a first-class goal) and **modern parallelism** (multithreading and vectorized loops as the program model evolves).
 
 ## Why Hyper?
 
-Hyper is being developed to solve the trade-off between developer efficiency and performance. The goal is to build a language that balances simplicity with low-level control.
-
-* **Pythonic Syntax:** Designed for high readability and low code complexity, keeping the developer experience simple.
-* **Focus on Performance:** Engineered with the goal of minimizing runtime overhead and optimizing execution speed.
-* **Safety First:** Aiming to introduce memory and type safety mechanisms to prevent common runtime errors.
-* **Modern Conception:** Created as an open exploration into building efficient, high-level developer tools for modern systems.
+- **Python-compatible surface:** Readable, indentation-based syntax; a path toward running existing Python-oriented code and libraries in Hyper.
+- **Maximum speed and efficiency:** Native compilation (Cranelift JIT and AOT), buffered I/O, and low runtime overhead — built to rival systems languages on performance-critical code.
+- **Built for artificial intelligence:** First-class focus on training workloads, tensor-style numerics, and processing very large datasets without interpreter bottlenecks.
+- **Security and modern architecture:** Memory-safe implementation strategy, clear error reporting, and parallel execution (`@parallel`, `@vectorize`) as the platform matures.
 
 ## Building from source
 
