@@ -1,0 +1,7 @@
+# Memory-mapped file compile-path smoke.
+with open("ci_compile_mmap.txt", "w") as f:
+    f.write("hyper mmap compile\n")
+
+with open_mmap("ci_compile_mmap.txt") as mapped_file:
+    print(mapped_file.read_chunk(0, 5))
+    print(mapped_file.read_chunk(4096, 8))
