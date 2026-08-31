@@ -14,6 +14,7 @@ pub const KIND_FILE: i64 = 8;
 pub const KIND_MMAP: i64 = 9;
 
 mod file;
+mod io;
 mod json;
 mod mmap;
 pub use file::{
@@ -22,6 +23,7 @@ pub use file::{
     hyper_rt_file_readline, hyper_rt_file_readlines, hyper_rt_file_seek, hyper_rt_file_size,
     hyper_rt_file_tell, hyper_rt_file_write, hyper_rt_file_writelines,
 };
+pub use io::hyper_rt_input;
 pub use json::{
     hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
 };
