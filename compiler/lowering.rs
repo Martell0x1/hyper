@@ -39,6 +39,8 @@ struct Lowerer {
     var_structs: HashMap<String, String>,
     /// local variable → opened file handle (for file method lowering)
     var_files: HashSet<String>,
+    /// local variable → memory-mapped file handle (for mmap method lowering)
+    var_mmaps: HashSet<String>,
     /// function name → struct type it returns, so `let p = make()` keeps methods
     fn_struct_returns: HashMap<String, String>,
     /// Line of the statement being lowered, used for diagnostics.
@@ -62,6 +64,7 @@ impl Lowerer {
             structs: HashMap::new(),
             var_structs: HashMap::new(),
             var_files: HashSet::new(),
+            var_mmaps: HashSet::new(),
             fn_struct_returns: HashMap::new(),
             current_line: 0,
             errors: Vec::new(),
@@ -399,6 +402,36 @@ impl Lowerer {
         dest
     }
 
+    fn lower_mmap_method(&mut self, object: &str, method: &str, args: &[Expr]) -> ValueId {
+        let handle = self.fresh_value();
+        self.emit(IrInstr::Load {
+            dest: handle,
+            name: object.to_string(),
+        });
+        let line = self.line_arg();
+        let dest = self.fresh_value();
+        match method {
+            "read_chunk" => {
+                if args.len() != 2 {
+                    self.error("read_chunk expects 2 arguments (offset, size)");
+                    return self.error_value();
+                }
+                let offset = self.lower_expr(&args[0]);
+                let size = self.lower_expr(&args[1]);
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_mmap_read_chunk".to_string(),
+                    args: vec![handle, offset, size, line],
+                });
+            }
+            other => {
+                self.error(format!("mapped file has no method '{other}'"));
+                return self.error_value();
+            }
+        }
+        dest
+    }
+
     fn field_error(&self, object: &str, field: &str) -> String {
         match self.var_structs.get(object) {
             Some(stype) => {
@@ -419,6 +452,9 @@ impl Lowerer {
     fn method_error(&self, object: &str, method: &str) -> String {
         if self.var_files.contains(object) {
             return format!("file has no method '{method}'");
+        }
+        if self.var_mmaps.contains(object) {
+            return format!("mapped file has no method '{method}'");
         }
         match self.var_structs.get(object) {
             Some(stype) => {
@@ -685,6 +721,7 @@ impl Lowerer {
             let saved_next_block = self.next_block;
             let saved_var_structs = self.var_structs.clone();
             let saved_var_files = self.var_files.clone();
+            let saved_var_mmaps = self.var_mmaps.clone();
             self.next_value = 0;
             self.next_block = 0;
             self.var_structs
@@ -710,6 +747,7 @@ impl Lowerer {
             self.next_block = saved_next_block;
             self.var_structs = saved_var_structs;
             self.var_files = saved_var_files;
+            self.var_mmaps = saved_var_mmaps;
         }
     }
 
@@ -841,6 +879,7 @@ impl Lowerer {
                 let saved_next_block = self.next_block;
                 let saved_var_structs = self.var_structs.clone();
                 let saved_var_files = self.var_files.clone();
+            let saved_var_mmaps = self.var_mmaps.clone();
                 self.next_value = 0;
                 self.next_block = 0;
                 self.var_structs
@@ -866,6 +905,7 @@ impl Lowerer {
                 self.next_block = saved_next_block;
                 self.var_structs = saved_var_structs;
                 self.var_files = saved_var_files;
+            self.var_mmaps = saved_var_mmaps;
             }
         }
 
@@ -880,6 +920,7 @@ impl Lowerer {
                     let saved_next_block = self.next_block;
                     let saved_var_structs = self.var_structs.clone();
                     let saved_var_files = self.var_files.clone();
+            let saved_var_mmaps = self.var_mmaps.clone();
                     self.next_value = 0;
                     self.next_block = 0;
                     self.bind_param_structs(&decl.params, Some(module_name));
@@ -898,6 +939,7 @@ impl Lowerer {
                     self.next_block = saved_next_block;
                     self.var_structs = saved_var_structs;
                     self.var_files = saved_var_files;
+            self.var_mmaps = saved_var_mmaps;
                 }
                 Stmt::Let {
                     name, initializer, ..
@@ -1269,6 +1311,9 @@ impl Lowerer {
                 }
                 if self.var_files.contains(object) {
                     return self.lower_file_method(object, method, args);
+                }
+                if self.var_mmaps.contains(object) {
+                    return self.lower_mmap_method(object, method, args);
                 }
                 if let Some(stype) = self.var_structs.get(object).cloned() {
                     let layout = self.structs.get(&stype);
@@ -1672,6 +1717,7 @@ impl Lowerer {
                 let saved_next_block = self.next_block;
                 let saved_var_structs = self.var_structs.clone();
                 let saved_var_files = self.var_files.clone();
+            let saved_var_mmaps = self.var_mmaps.clone();
                 self.next_value = 0;
                 self.next_block = 0;
                 self.bind_param_structs(&decl.params, None);
@@ -1691,6 +1737,7 @@ impl Lowerer {
                 self.next_block = saved_next_block;
                 self.var_structs = saved_var_structs;
                 self.var_files = saved_var_files;
+            self.var_mmaps = saved_var_mmaps;
             }
             Stmt::Return { value, .. } => {
                 // Bare `return` may be Literal::None from parser.
@@ -1721,8 +1768,39 @@ impl Lowerer {
                     value: dest,
                 });
             }
-            Stmt::WithMmap { .. } => {
-                self.error("memory-mapped file blocks are not supported by the compiler yet");
+            Stmt::WithMmap {
+                path,
+                var,
+                body,
+                ..
+            } => {
+                let path_val = self.lower_expr(path);
+                let line = self.line_arg();
+                let handle = self.fresh_value();
+                self.emit(IrInstr::Call {
+                    dest: handle,
+                    func: "hyper_rt_mmap_open".to_string(),
+                    args: vec![path_val, line],
+                });
+                self.var_mmaps.insert(var.clone());
+                self.emit(IrInstr::Store {
+                    name: var.clone(),
+                    value: handle,
+                });
+                self.lower_stmt(body);
+                let loaded = self.fresh_value();
+                self.emit(IrInstr::Load {
+                    dest: loaded,
+                    name: var.clone(),
+                });
+                let line = self.line_arg();
+                let none = self.fresh_value();
+                self.emit(IrInstr::ConstNone { dest: none });
+                self.emit(IrInstr::Call {
+                    dest: none,
+                    func: "hyper_rt_mmap_close".to_string(),
+                    args: vec![loaded, line],
+                });
             }
             Stmt::With {
                 value,
@@ -1979,6 +2057,29 @@ mod tests {
              print(p.b)\n",
         );
         assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    fn with_open_mmap_lowers_for_compile() {
+        let module = lower_source(
+            "with open_mmap(\"t.txt\") as m:\n\
+             \x20   print(m.read_chunk(0, 4))\n",
+        )
+        .expect("with open_mmap should lower");
+        let calls: Vec<_> = module
+            .main
+            .iter()
+            .filter_map(|i| {
+                if let IrInstr::Call { func, .. } = i {
+                    Some(func.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(calls.contains(&"hyper_rt_mmap_open"));
+        assert!(calls.contains(&"hyper_rt_mmap_read_chunk"));
+        assert!(calls.contains(&"hyper_rt_mmap_close"));
     }
 
     #[test]
