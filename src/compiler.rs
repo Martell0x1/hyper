@@ -162,6 +162,83 @@ impl Lowerer {
         dest
     }
 
+    fn const_zero(&mut self) -> ValueId {
+        let dest = self.fresh_value();
+        self.emit(IrInstr::ConstI64 { dest, value: 0 });
+        dest
+    }
+
+    fn lower_json_call(&mut self, method: &str, args: &[Expr]) -> ValueId {
+        let line = self.line_arg();
+        let dest = self.fresh_value();
+        match method {
+            "loads" => {
+                if args.len() != 1 {
+                    self.error("json.loads expects 1 argument");
+                    return self.error_value();
+                }
+                let text = self.lower_expr(&args[0]);
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_json_loads".to_string(),
+                    args: vec![text, line],
+                });
+            }
+            "dumps" => {
+                if args.is_empty() || args.len() > 2 {
+                    self.error("json.dumps expects 1 or 2 argument(s)");
+                    return self.error_value();
+                }
+                let value = self.lower_expr(&args[0]);
+                let indent = if args.len() == 2 {
+                    self.lower_expr(&args[1])
+                } else {
+                    self.const_zero()
+                };
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_json_dumps".to_string(),
+                    args: vec![value, indent, line],
+                });
+            }
+            "load" => {
+                if args.len() != 1 {
+                    self.error("json.load expects 1 argument");
+                    return self.error_value();
+                }
+                let handle = self.lower_expr(&args[0]);
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_json_load".to_string(),
+                    args: vec![handle, line],
+                });
+            }
+            "dump" => {
+                if args.len() < 2 || args.len() > 3 {
+                    self.error("json.dump expects 2 or 3 argument(s)");
+                    return self.error_value();
+                }
+                let value = self.lower_expr(&args[0]);
+                let handle = self.lower_expr(&args[1]);
+                let indent = if args.len() == 3 {
+                    self.lower_expr(&args[2])
+                } else {
+                    self.const_zero()
+                };
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_json_dump".to_string(),
+                    args: vec![value, handle, indent, line],
+                });
+            }
+            other => {
+                self.error(format!("json has no method '{other}'"));
+                return self.error_value();
+            }
+        }
+        dest
+    }
+
     fn lower_file_method(&mut self, object: &str, method: &str, args: &[Expr]) -> ValueId {
         let handle = self.fresh_value();
         self.emit(IrInstr::Load {
@@ -638,6 +715,15 @@ impl Lowerer {
 
     fn bind_import_name(&mut self, module: &str, item: &ImportName) {
         let bind = item.alias.as_ref().unwrap_or(&item.name).clone();
+        if module == "json" {
+            if module::builtin_module_members(module)
+                .is_some_and(|members| members.contains(&item.name.as_str()))
+            {
+                self.call_aliases
+                    .insert(bind, format!("hyper_rt_json_{}", item.name));
+                return;
+            }
+        }
         let mangled = module::mangle_module_fn(module, &item.name);
         if let Some(layout) = self.structs.get(&mangled).cloned() {
             self.structs.insert(bind, layout);
@@ -658,17 +744,13 @@ impl Lowerer {
             return;
         }
 
+        if module::builtin_module_members(module_name).is_some() {
+            return;
+        }
+
         let stmts = match self.load_state.load_stmts(module_name) {
             Ok((_path, stmts)) => stmts,
             Err(msg) => {
-                if module::builtin_module_members(module_name).is_some() {
-                    self.current_line = line;
-                    self.error(format!(
-                        "module '{}' is a builtin module and is only available on the interpreter path",
-                        module_name
-                    ));
-                    return;
-                }
                 error::runtime(line, msg);
             }
         };
@@ -1161,6 +1243,9 @@ impl Lowerer {
                 args,
             } => {
                 if let Some(mod_name) = self.module_aliases.get(object).cloned() {
+                    if mod_name == "json" {
+                        return self.lower_json_call(method, args);
+                    }
                     let struct_key = module::mangle_module_fn(&mod_name, method);
                     if self.structs.contains_key(&struct_key) {
                         let call_args: Vec<CallArg> = args
@@ -1917,5 +2002,17 @@ mod tests {
         assert!(calls.contains(&"hyper_rt_file_open"));
         assert!(calls.contains(&"hyper_rt_file_write"));
         assert!(calls.contains(&"hyper_rt_file_close"));
+    }
+
+    #[test]
+    fn json_import_lowers_for_compile() {
+        let module = lower_source(
+            "import json\n\
+             print(json.dumps({\"a\": 1}))\n",
+        )
+        .expect("json import should lower");
+        assert!(module.main.iter().any(|i| {
+            matches!(i, IrInstr::Call { func, .. } if func == "hyper_rt_json_dumps")
+        }));
     }
 }
