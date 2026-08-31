@@ -13,7 +13,8 @@ enum {
     KIND_LIST = 5,
     KIND_DICT = 6,
     KIND_STRUCT = 7,
-    KIND_FILE = 8
+    KIND_FILE = 8,
+    KIND_MMAP = 9
 };
 
 typedef struct {
@@ -276,6 +277,9 @@ static void format_value(const RtValue *v) {
         break;
     case KIND_FILE:
         fputs("<file>", stdout);
+        break;
+    case KIND_MMAP:
+        fputs("<mmap file>", stdout);
         break;
     default:
         fputs("<?>", stdout);
