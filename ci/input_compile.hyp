@@ -1,0 +1,5 @@
+# input() compile-path smoke (stdin piped in CI).
+let name = input()
+print(name)
+
+print(input("prompt> "))
