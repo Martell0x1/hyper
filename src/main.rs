@@ -14,10 +14,7 @@ mod text_utils;
 mod interpreter;
 mod semantic;
 mod module;
-mod ir;
 mod compiler;
-mod runtime;
-mod codegen;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
