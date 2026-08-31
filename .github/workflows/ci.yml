@@ -55,6 +55,10 @@ jobs:
           cargo run --quiet -- compile ci/mmap_compile.hyp
           rm -f ci_compile_mmap.txt
 
+      - name: Compiler input smoke
+        run: |
+          printf 'hello\nworld\n' | cargo run --quiet -- compile ci/input_compile.hyp
+
       - name: Compiler emit-exe smoke
         run: |
           cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
