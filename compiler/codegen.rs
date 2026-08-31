@@ -20,6 +20,7 @@ use super::runtime::{
     hyper_rt_file_readline, hyper_rt_file_readlines, hyper_rt_file_seek, hyper_rt_file_size,
     hyper_rt_file_tell, hyper_rt_file_write, hyper_rt_file_writelines,
     hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
+    hyper_rt_mmap_close, hyper_rt_mmap_open, hyper_rt_mmap_read_chunk,
     hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
     hyper_rt_list_set, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64, hyper_rt_pow_f64,
     hyper_rt_pow_i64, hyper_rt_print_dict,
@@ -42,6 +43,7 @@ enum ValueKind {
     Dict,
     Struct,
     File,
+    Mmap,
     /// Element kind known only at runtime (e.g. after index_get).
     Dynamic,
 }
@@ -58,6 +60,7 @@ impl ValueKind {
             ValueKind::Dict => 6,
             ValueKind::Struct => 7,
             ValueKind::File => 8,
+            ValueKind::Mmap => 9,
             ValueKind::Dynamic => 0,
         }
     }
@@ -134,6 +137,9 @@ struct RuntimeIds {
     file_is_closed: FuncId,
     file_path: FuncId,
     file_mode: FuncId,
+    mmap_open: FuncId,
+    mmap_close: FuncId,
+    mmap_read_chunk: FuncId,
     json_loads: FuncId,
     json_dumps: FuncId,
     json_load: FuncId,
@@ -443,6 +449,9 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     let file_is_closed = declare_file("hyper_rt_file_is_closed", 2, 1)?;
     let file_path = declare_file("hyper_rt_file_path", 4, 1)?;
     let file_mode = declare_file("hyper_rt_file_mode", 4, 1)?;
+    let mmap_open = declare_file("hyper_rt_mmap_open", 4, 1)?;
+    let mmap_close = declare_file("hyper_rt_mmap_close", 4, 0)?;
+    let mmap_read_chunk = declare_file("hyper_rt_mmap_read_chunk", 8, 1)?;
     let json_loads = declare_file("hyper_rt_json_loads", 5, 1)?;
     let json_dumps = declare_file("hyper_rt_json_dumps", 6, 1)?;
     let json_load = declare_file("hyper_rt_json_load", 5, 1)?;
@@ -494,6 +503,9 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         file_is_closed,
         file_path,
         file_mode,
+        mmap_open,
+        mmap_close,
+        mmap_read_chunk,
         json_loads,
         json_dumps,
         json_load,
@@ -627,6 +639,9 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_file_is_closed", hyper_rt_file_is_closed as *const u8);
     jit_builder.symbol("hyper_rt_file_path", hyper_rt_file_path as *const u8);
     jit_builder.symbol("hyper_rt_file_mode", hyper_rt_file_mode as *const u8);
+    jit_builder.symbol("hyper_rt_mmap_open", hyper_rt_mmap_open as *const u8);
+    jit_builder.symbol("hyper_rt_mmap_close", hyper_rt_mmap_close as *const u8);
+    jit_builder.symbol("hyper_rt_mmap_read_chunk", hyper_rt_mmap_read_chunk as *const u8);
     jit_builder.symbol("hyper_rt_json_loads", hyper_rt_json_loads as *const u8);
     jit_builder.symbol("hyper_rt_json_dumps", hyper_rt_json_dumps as *const u8);
     jit_builder.symbol("hyper_rt_json_load", hyper_rt_json_load as *const u8);
@@ -767,6 +782,15 @@ fn runtime_json_c_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn runtime_mmap_c_path() -> Result<PathBuf, String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest.join("compiler").join("runtime").join("hyper_rt_mmap.c");
+    if !path.exists() {
+        return Err(format!("runtime source not found: {}", path.display()));
+    }
+    Ok(path)
+}
+
 fn find_cc() -> Result<&'static str, String> {
     for cand in ["cc", "clang", "gcc"] {
         if Command::new(cand)
@@ -796,12 +820,14 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
     let rt = runtime_c_path()?;
     let rt_file = runtime_file_c_path()?;
     let rt_json = runtime_json_c_path()?;
+    let rt_mmap = runtime_mmap_c_path()?;
     let cc = find_cc()?;
     let status = Command::new(cc)
         .arg(obj_str)
         .arg(rt.as_os_str())
         .arg(rt_file.as_os_str())
         .arg(rt_json.as_os_str())
+        .arg(rt_mmap.as_os_str())
         .arg("-o")
         .arg(out_path)
         .arg("-lm")
@@ -851,6 +877,15 @@ fn file_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueK
         }
         "hyper_rt_file_close" => Some((runtime.file_close, ValueKind::None_, false)),
         "hyper_rt_file_flush" => Some((runtime.file_flush, ValueKind::None_, false)),
+        _ => None,
+    }
+}
+
+fn mmap_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
+    match func {
+        "hyper_rt_mmap_open" => Some((runtime.mmap_open, ValueKind::Mmap, false)),
+        "hyper_rt_mmap_read_chunk" => Some((runtime.mmap_read_chunk, ValueKind::Str, false)),
+        "hyper_rt_mmap_close" => Some((runtime.mmap_close, ValueKind::None_, false)),
         _ => None,
     }
 }
@@ -1492,6 +1527,43 @@ fn define_function<M: Module>(
                             builder.def_var(value_vars[dest], payload);
                             value_kinds.insert(*dest, out_kind);
                         }
+                    } else if let Some((rt_id, out_kind, uses_out_kind)) =
+                        mmap_runtime_call(func, runtime)
+                    {
+                        if uses_out_kind {
+                            let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                                StackSlotKind::ExplicitSlot,
+                                8,
+                                0,
+                            ));
+                            let kind_ptr = builder.ins().stack_addr(types::I64, slot, 0);
+                            arg_vals.push(kind_ptr);
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            let call = builder.ins().call(fref, &arg_vals);
+                            let payload = builder.inst_results(call)[0];
+                            builder.def_var(value_vars[dest], payload);
+                            let kind_val =
+                                builder.ins().load(types::I64, MemFlags::new(), kind_ptr, 0);
+                            let kv = declare_var(&mut builder, &mut next_var);
+                            builder.def_var(kv, kind_val);
+                            kind_vars.insert(*dest, kv);
+                            value_kinds.insert(*dest, ValueKind::Dynamic);
+                        } else if out_kind == ValueKind::None_ {
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            builder.ins().call(fref, &arg_vals);
+                            let zero = builder.ins().iconst(types::I64, 0);
+                            builder.def_var(value_vars[dest], zero);
+                            value_kinds.insert(*dest, ValueKind::None_);
+                        } else {
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            let call = builder.ins().call(fref, &arg_vals);
+                            let payload = builder.inst_results(call)[0];
+                            builder.def_var(value_vars[dest], payload);
+                            value_kinds.insert(*dest, out_kind);
+                        }
                     } else {
                         let id = func_ids.get(func).copied().ok_or_else(|| {
                             match func.as_str() {
@@ -1791,6 +1863,14 @@ fn define_function<M: Module>(
                             }
                             ValueKind::File => {
                                 let k = builder.ins().iconst(types::I64, ValueKind::File.as_i64());
+                                let fref = module.declare_func_in_func(
+                                    runtime.print_value,
+                                    &mut builder.func,
+                                );
+                                builder.ins().call(fref, &[v, k]);
+                            }
+                            ValueKind::Mmap => {
+                                let k = builder.ins().iconst(types::I64, ValueKind::Mmap.as_i64());
                                 let fref = module.declare_func_in_func(
                                     runtime.print_value,
                                     &mut builder.func,
