@@ -50,6 +50,11 @@ jobs:
           cargo run --quiet -- compile ci/json_compile.hyp
           rm -f ci_json_compile.json
 
+      - name: Compiler mmap smoke
+        run: |
+          cargo run --quiet -- compile ci/mmap_compile.hyp
+          rm -f ci_compile_mmap.txt
+
       - name: Compiler emit-exe smoke
         run: |
           cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
