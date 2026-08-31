@@ -1,0 +1,80 @@
+name: Bug report
+description: Something is wrong in the interpreter, compiler, or tooling.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Include a **minimal `.hyp` reproducer** when you can.
+        See [known compiler limitations](doc/compiler/known-limitations.md) before filing compile-path bugs.
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Where did it happen?
+      options:
+        - hyper run (interpreter)
+        - hyper compile (JIT)
+        - hyper compile --emit-exe
+        - cargo test / build
+        - other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Hyper version or commit
+      description: Output of `hyper --version`, `cargo run -- --version`, or a git commit SHA.
+      placeholder: "0.1.0 or abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: Paste a short `.hyp` program or the exact command you ran.
+      placeholder: |
+        hyper run repro.hyp
+        ---
+        print(1 / 0)
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include full stderr/stdout and exit code if relevant.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Optional screenshots, related issues, or notes about run vs compile differences.
