@@ -1,7 +1,7 @@
 use crate::ast::*;
 use crate::driver;
 use crate::error::{self, ErrorKind};
-use crate::ir::{BlockId, IrFunction, IrInstr, IrModule, IrOp, ValueId};
+use super::ir::{BlockId, IrFunction, IrInstr, IrModule, IrOp, ValueId};
 use crate::module::{self, ModuleLoadState};
 use crate::semantic;
 use std::collections::{HashMap, HashSet};
@@ -1821,13 +1821,13 @@ pub fn run_compile(file_contents: String, entry_path: &str, mode: CompileMode) {
     };
 
     let result = match mode {
-        CompileMode::Jit => crate::codegen::jit_execute(&module),
+        CompileMode::Jit => super::codegen::jit_execute(&module),
         CompileMode::EmitIr => {
-            crate::codegen::dump_ir(&module);
+            super::codegen::dump_ir(&module);
             Ok(())
         }
-        CompileMode::EmitObj { path } => crate::codegen::emit_object(&module, &path),
-        CompileMode::EmitExe { path } => crate::codegen::emit_exe(&module, &path),
+        CompileMode::EmitObj { path } => super::codegen::emit_object(&module, &path),
+        CompileMode::EmitExe { path } => super::codegen::emit_exe(&module, &path),
     };
 
     if let Err(msg) = result {

@@ -1,4 +1,4 @@
-use crate::ir::{BlockId, IrInstr, IrModule, IrOp, ValueId};
+use super::ir::{BlockId, IrInstr, IrModule, IrOp, ValueId};
 use cranelift_codegen::entity::EntityRef;
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::immediates::Ieee64;
@@ -13,7 +13,7 @@ use std::mem;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::runtime::{
+use super::runtime::{
     hyper_rt_dict_get, hyper_rt_dict_new, hyper_rt_dict_push, hyper_rt_dict_set,
     hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
     hyper_rt_file_open, hyper_rt_file_path, hyper_rt_file_read_all, hyper_rt_file_read_n,
@@ -742,7 +742,7 @@ pub fn emit_object(module: &IrModule, out_path: &str) -> Result<(), String> {
 
 fn runtime_c_path() -> Result<PathBuf, String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let path = manifest.join("src").join("runtime").join("hyper_rt.c");
+    let path = manifest.join("compiler").join("runtime").join("hyper_rt.c");
     if !path.exists() {
         return Err(format!("runtime source not found: {}", path.display()));
     }
@@ -751,7 +751,7 @@ fn runtime_c_path() -> Result<PathBuf, String> {
 
 fn runtime_file_c_path() -> Result<PathBuf, String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let path = manifest.join("src").join("runtime").join("hyper_rt_file.c");
+    let path = manifest.join("compiler").join("runtime").join("hyper_rt_file.c");
     if !path.exists() {
         return Err(format!("runtime source not found: {}", path.display()));
     }
@@ -760,7 +760,7 @@ fn runtime_file_c_path() -> Result<PathBuf, String> {
 
 fn runtime_json_c_path() -> Result<PathBuf, String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let path = manifest.join("src").join("runtime").join("hyper_rt_json.c");
+    let path = manifest.join("compiler").join("runtime").join("hyper_rt_json.c");
     if !path.exists() {
         return Err(format!("runtime source not found: {}", path.display()));
     }
