@@ -474,6 +474,40 @@ void hyper_rt_dict_set(
     dict->len++;
 }
 
+int64_t hyper_rt_index_get(
+    int64_t obj,
+    int64_t obj_kind,
+    int64_t idx,
+    int64_t idx_kind,
+    int64_t *out_kind
+) {
+    if (obj_kind == KIND_DICT) {
+        return hyper_rt_dict_get(obj, idx, idx_kind, out_kind);
+    }
+    if (obj_kind == KIND_LIST) {
+        return hyper_rt_list_get(obj, idx, out_kind);
+    }
+    if (out_kind) {
+        *out_kind = KIND_NONE;
+    }
+    return 0;
+}
+
+void hyper_rt_index_set(
+    int64_t obj,
+    int64_t obj_kind,
+    int64_t idx,
+    int64_t idx_kind,
+    int64_t value,
+    int64_t val_kind
+) {
+    if (obj_kind == KIND_DICT) {
+        hyper_rt_dict_set(obj, idx, idx_kind, value, val_kind);
+    } else if (obj_kind == KIND_LIST) {
+        hyper_rt_list_set(obj, idx, value, val_kind);
+    }
+}
+
 int64_t hyper_rt_list_len(int64_t list_h) {
     if (!list_h) {
         return 0;
