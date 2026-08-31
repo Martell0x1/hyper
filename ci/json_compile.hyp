@@ -1,0 +1,13 @@
+import json
+
+let config = {"name": "Hyper", "version": 1, "fast": true, "ratio": 2.5, "tags": ["io", "json"]}
+print(json.dumps(config))
+print(json.loads(json.dumps(config))["name"])
+
+with open("ci_json_compile.json", "w") as f:
+    json.dump(config, f, 2)
+
+with open("ci_json_compile.json", "r") as f:
+    let loaded = json.load(f)
+    print(loaded["version"])
+    print(loaded["tags"])
