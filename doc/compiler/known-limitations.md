@@ -4,11 +4,11 @@ Hyper v0.1 targets a **working compiler for core programs**, not full language p
 
 ## Interpreter-only today
 
-| Construct | Compile-time message (typical) | Workaround |
-|-----------|-------------------------------|------------|
-| `input()` as a call | `'input' is only available on the interpreter path` | Use `hyper run` |
+_None — all previously interpreter-only I/O builtins listed here are now supported on the compile path._
 
-`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, and `import json` (`loads`, `dumps`, `load`, `dump`) **are supported** on the compile path (JIT and `--emit-exe`).
+## Supported on compile path (JIT and `--emit-exe`)
+
+`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, and `import json` (`loads`, `dumps`, `load`, `dump`).
 
 ## Lowered differently than interpreted
 
