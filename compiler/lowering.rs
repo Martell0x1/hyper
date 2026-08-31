@@ -402,6 +402,32 @@ impl Lowerer {
         dest
     }
 
+    fn lower_input(&mut self, args: &[CallArg]) -> ValueId {
+        if args.len() > 1 {
+            self.error(format!(
+                "input expects 0 or 1 argument(s) but got {}",
+                args.len()
+            ));
+            return self.error_value();
+        }
+        let prompt = match args.first() {
+            Some(CallArg::Positional(e) | CallArg::Named { value: e, .. }) => self.lower_expr(e),
+            None => {
+                let dest = self.fresh_value();
+                self.emit(IrInstr::ConstNone { dest });
+                dest
+            }
+        };
+        let line = self.line_arg();
+        let dest = self.fresh_value();
+        self.emit(IrInstr::Call {
+            dest,
+            func: "hyper_rt_input".to_string(),
+            args: vec![prompt, line],
+        });
+        dest
+    }
+
     fn lower_mmap_method(&mut self, object: &str, method: &str, args: &[Expr]) -> ValueId {
         let handle = self.fresh_value();
         self.emit(IrInstr::Load {
@@ -1250,6 +1276,9 @@ impl Lowerer {
                     if name == "open" {
                         return self.lower_open(args);
                     }
+                    if name == "input" {
+                        return self.lower_input(args);
+                    }
                     if self.structs.contains_key(name) {
                         return self.lower_struct_ctor(name, args);
                     }
@@ -2057,6 +2086,14 @@ mod tests {
              print(p.b)\n",
         );
         assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    fn input_lowers_for_compile() {
+        let module = lower_source("let x = input()\nprint(x)\n").expect("input should lower");
+        assert!(module.main.iter().any(|i| {
+            matches!(i, IrInstr::Call { func, .. } if func == "hyper_rt_input")
+        }));
     }
 
     #[test]
