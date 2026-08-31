@@ -45,6 +45,11 @@ jobs:
           cargo run --quiet -- compile ci/io_compile.hyp
           rm -f ci_compile_io.txt
 
+      - name: Compiler JSON smoke
+        run: |
+          cargo run --quiet -- compile ci/json_compile.hyp
+          rm -f ci_json_compile.json
+
       - name: Compiler emit-exe smoke
         run: |
           cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
