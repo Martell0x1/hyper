@@ -13,11 +13,15 @@ pub const KIND_STRUCT: i64 = 7;
 pub const KIND_FILE: i64 = 8;
 
 mod file;
+mod json;
 pub use file::{
     hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
     hyper_rt_file_open, hyper_rt_file_path, hyper_rt_file_read_all, hyper_rt_file_read_n,
     hyper_rt_file_readline, hyper_rt_file_readlines, hyper_rt_file_seek, hyper_rt_file_size,
     hyper_rt_file_tell, hyper_rt_file_write, hyper_rt_file_writelines,
+};
+pub use json::{
+    hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
 };
 
 #[derive(Clone)]
@@ -30,7 +34,7 @@ pub(crate) struct RtList {
     items: Vec<RtValue>,
 }
 
-struct RtDict {
+pub(crate) struct RtDict {
     entries: Vec<(String, RtValue)>,
 }
 
@@ -337,6 +341,44 @@ pub extern "C" fn hyper_rt_dict_set(
             payload: value,
         },
     ));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_index_get(
+    obj: i64,
+    obj_kind: i64,
+    idx: i64,
+    idx_kind: i64,
+    out_kind: *mut i64,
+) -> i64 {
+    if obj_kind == KIND_DICT {
+        hyper_rt_dict_get(obj, idx, idx_kind, out_kind)
+    } else if obj_kind == KIND_LIST {
+        hyper_rt_list_get(obj, idx, out_kind)
+    } else if !out_kind.is_null() {
+        unsafe {
+            *out_kind = KIND_NONE;
+        }
+        0
+    } else {
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_index_set(
+    obj: i64,
+    obj_kind: i64,
+    idx: i64,
+    idx_kind: i64,
+    value: i64,
+    val_kind: i64,
+) {
+    if obj_kind == KIND_DICT {
+        hyper_rt_dict_set(obj, idx, idx_kind, value, val_kind);
+    } else if obj_kind == KIND_LIST {
+        hyper_rt_list_set(obj, idx, value, val_kind);
+    }
 }
 
 #[unsafe(no_mangle)]
