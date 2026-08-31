@@ -1,0 +1,76 @@
+name: Compiler / compile path
+description: Lowering, codegen, JIT, or --emit-exe issue (not general language design).
+title: "[Compiler]: "
+labels:
+  - compiler
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For compile-path bugs: include **both** `hyper run` and `hyper compile` results if they differ.
+        Many constructs are still interpreter-only — see [known limitations](doc/compiler/known-limitations.md).
+
+  - type: dropdown
+    id: compile_mode
+    attributes:
+      label: Compile mode
+      options:
+        - JIT (`hyper compile`)
+        - Native binary (`hyper compile --emit-exe`)
+        - both
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Hyper version or commit
+      placeholder: "0.1.0 or abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal `.hyp` reproducer
+      placeholder: |
+        with open("f.txt", "w") as f:
+            f.write("x")
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: compile_output
+    attributes:
+      label: Compile output
+      description: Full error from `hyper compile` or link step for `--emit-exe`.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: run_output
+    attributes:
+      label: Interpreter output (if different)
+      description: Leave empty if `hyper run` is not applicable or matches compile.
+      render: shell
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected compile behavior
+    validations:
+      required: true
