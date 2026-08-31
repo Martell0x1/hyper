@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/muhammadyusufpov/hyper/tree/main/doc
+    about: Read the Hyper docs (overview, compiler, standard library, errors).
+  - name: Known compiler limitations
+    url: https://github.com/muhammadyusufpov/hyper/blob/main/doc/compiler/known-limitations.md
+    about: Check whether the behavior is already documented as unsupported or interpreter-only.
