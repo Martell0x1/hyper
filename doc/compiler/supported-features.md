@@ -1,6 +1,6 @@
 # Compiler supported features
 
-This list reflects what **`hyper compile`** can lower today. For syntax samples see `doc/examples/` — that folder is **code only**, not prose documentation.
+This list reflects what **`hyper compile`** can lower today (JIT and `--emit-exe`). For syntax samples see `doc/examples/`.
 
 ## Language constructs
 
@@ -11,21 +11,41 @@ This list reflects what **`hyper compile`** can lower today. For syntax samples 
 - Literals: integers, floats, strings, f-strings, lists, dicts, `None`, booleans
 - Structs: fields, methods, `__init__`, field get/set
 - Modules: `import m`, `import m as alias`, `from m import name`
-- Builtins: `print` (variadic), integer/float math with division-by-zero guards on integer `/`, `%`, `//`
+- Decorators: `@parallel`, `@vectorize` on `for` (emitted as sequential loops today)
+
+## Builtins and standard library (compile path)
+
+| Feature | Notes |
+|---------|--------|
+| `print(...)` | Variadic |
+| `open(path, mode?)` | Buffered file handle |
+| `with open(...) as f:` | Auto-close; file methods |
+| File methods | `read`, `readline`, `readlines`, `write`, `seek`, `tell`, `size`, `flush`, `close`, … |
+| `with open_mmap(path) as m:` | `read_chunk(offset, size)` |
+| `input(prompt?)` | Stdin line read |
+| `clock()` | Seconds since UNIX epoch (`f64`) |
+| `import json` | `loads`, `dumps`, `load`, `dump` |
+
+Integer `/`, `%`, `//` guard division by zero at runtime.
 
 ## Codegen modes
 
-- JIT via Cranelift
+- JIT via Cranelift (`hyper compile`)
 - Object emission (`--emit-obj`)
-- Executable linking with `hyper_rt.c` runtime (`--emit-exe`)
+- Executable linking with C runtime (`--emit-exe`)
 
-## CI-verified parity
+## CI-verified programs
 
-These programs must match between `run`, `compile` (JIT), and `--emit-exe`:
-
-- `ci/smoke.hyp` — structs, modules, equality, floats, dict order, forward calls
-- `ci/divzero.hyp` — integer division by zero exits with `RuntimeError`
+| Program | What it checks |
+|---------|----------------|
+| `ci/smoke.hyp` | Core language; run / JIT / `--emit-exe` output parity |
+| `ci/divzero.hyp` | `RuntimeError` exit code 70 |
+| `ci/io_compile.hyp` | File I/O on compile path |
+| `ci/json_compile.hyp` | JSON module on compile path |
+| `ci/mmap_compile.hyp` | Memory-mapped files on compile path |
+| `ci/input_compile.hyp` | `input()` on compile path |
+| `ci/clock_compile.hyp` | `clock()` on compile path |
 
 ## Not compiled (see limitations)
 
-File I/O (`with`, `open`), JSON module calls, `input()`, memory-mapped files, trait generics, and real `@parallel` thread codegen — listed in [Known limitations](known-limitations.md).
+Generics, full trait enforcement, `break` / `continue`, collection methods (`len`, `append`, `keys`), real `@parallel` thread/GPU codegen, Python library interop — [Known limitations](known-limitations.md).
