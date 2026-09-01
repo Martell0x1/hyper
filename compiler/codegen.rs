@@ -28,6 +28,7 @@ use super::runtime::{
     hyper_rt_print_separator, hyper_rt_print_str, hyper_rt_print_struct, hyper_rt_print_value,
     hyper_rt_str_concat,
     hyper_rt_div_by_zero, hyper_rt_struct_get, hyper_rt_struct_new, hyper_rt_struct_set,
+    hyper_rt_clock,
     hyper_rt_index_get, hyper_rt_index_set,
     hyper_rt_input,
     hyper_rt_value_eq, hyper_rt_value_to_str,
@@ -142,6 +143,7 @@ struct RuntimeIds {
     mmap_close: FuncId,
     mmap_read_chunk: FuncId,
     input_fn: FuncId,
+    clock_fn: FuncId,
     json_loads: FuncId,
     json_dumps: FuncId,
     json_load: FuncId,
@@ -455,6 +457,7 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     let mmap_close = declare_file("hyper_rt_mmap_close", 4, 0)?;
     let mmap_read_chunk = declare_file("hyper_rt_mmap_read_chunk", 8, 1)?;
     let input_fn = declare_file("hyper_rt_input", 4, 1)?;
+    let clock_fn = declare_file("hyper_rt_clock", 0, 1)?;
     let json_loads = declare_file("hyper_rt_json_loads", 5, 1)?;
     let json_dumps = declare_file("hyper_rt_json_dumps", 6, 1)?;
     let json_load = declare_file("hyper_rt_json_load", 5, 1)?;
@@ -510,6 +513,7 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         mmap_close,
         mmap_read_chunk,
         input_fn,
+        clock_fn,
         json_loads,
         json_dumps,
         json_load,
@@ -647,6 +651,7 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_mmap_close", hyper_rt_mmap_close as *const u8);
     jit_builder.symbol("hyper_rt_mmap_read_chunk", hyper_rt_mmap_read_chunk as *const u8);
     jit_builder.symbol("hyper_rt_input", hyper_rt_input as *const u8);
+    jit_builder.symbol("hyper_rt_clock", hyper_rt_clock as *const u8);
     jit_builder.symbol("hyper_rt_json_loads", hyper_rt_json_loads as *const u8);
     jit_builder.symbol("hyper_rt_json_dumps", hyper_rt_json_dumps as *const u8);
     jit_builder.symbol("hyper_rt_json_load", hyper_rt_json_load as *const u8);
@@ -902,6 +907,13 @@ fn mmap_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueK
         "hyper_rt_mmap_open" => Some((runtime.mmap_open, ValueKind::Mmap, false)),
         "hyper_rt_mmap_read_chunk" => Some((runtime.mmap_read_chunk, ValueKind::Str, false)),
         "hyper_rt_mmap_close" => Some((runtime.mmap_close, ValueKind::None_, false)),
+        _ => None,
+    }
+}
+
+fn clock_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
+    match func {
+        "hyper_rt_clock" => Some((runtime.clock_fn, ValueKind::F64, false)),
         _ => None,
     }
 }
@@ -1587,6 +1599,17 @@ fn define_function<M: Module>(
                             builder.def_var(value_vars[dest], payload);
                             value_kinds.insert(*dest, out_kind);
                         }
+                    } else if let Some((rt_id, out_kind, uses_out_kind)) =
+                        clock_runtime_call(func, runtime)
+                    {
+                        if uses_out_kind {
+                            return Err(format!("codegen: {func} uses out_kind but should not"));
+                        }
+                        let fref = module.declare_func_in_func(rt_id, &mut builder.func);
+                        let call = builder.ins().call(fref, &arg_vals);
+                        let payload = builder.inst_results(call)[0];
+                        builder.def_var(value_vars[dest], payload);
+                        value_kinds.insert(*dest, out_kind);
                     } else if let Some((rt_id, out_kind, uses_out_kind)) =
                         input_runtime_call(func, runtime)
                     {
