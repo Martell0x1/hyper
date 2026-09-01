@@ -1,13 +1,13 @@
 # Interpreter and compiler today
 
-Hyper currently ships **two execution paths** in one binary. This is a **transition layout**, not the permanent design.
+Hyper ships **two execution paths** in one binary while the toolchain moves toward **compile-by-default** native execution for AI and data workloads. This layout is **transitional**, not the permanent design.
 
 ## Commands
 
 | Command | Backend | Use when |
 |---------|---------|----------|
-| `hyper run file.hyp` | Tree-walk interpreter | Exploring language features, file I/O, JSON, `input()`, or when `compile` reports an unsupported construct. |
-| `hyper compile file.hyp` | Cranelift JIT | Fast native execution for supported programs. |
+| `hyper run file.hyp` | Tree-walk interpreter | Prototyping, or when `compile` reports an unsupported construct. |
+| `hyper compile file.hyp` | Cranelift JIT | **Preferred** — native-speed execution for supported programs. |
 | `hyper compile file.hyp --emit-ir` | Compiler | Debugging IR lowering. |
 | `hyper compile file.hyp --emit-exe out` | AOT + C runtime | Standalone binary (needs a C linker). |
 | `hyper typecheck file.hyp` | Semantic analysis only | Checking types without running. |
@@ -16,14 +16,14 @@ Hyper currently ships **two execution paths** in one binary. This is a **transit
 
 - **`run`** treats type errors as **warnings** and continues.
 - **`compile`** treats type errors as **failures** and stops before codegen.
-- Some builtins (`open`, `input`, `json` in modules) are **interpreter-only until lowered** — the compiler emits a clear `SyntaxError` at compile time rather than failing silently.
+- Core I/O builtins — `open`, `with`, file methods, `open_mmap`, `import json`, `input()` — are **supported on the compile path** (JIT and `--emit-exe`). Remaining gaps are listed in [Known limitations](../compiler/known-limitations.md).
 
 ## Direction
 
 Hyper moves **toward compile-only** in measured steps:
 
-1. First release: compiler covers the **core language**; interpreter fills gaps.
-2. Each release: move another subsystem (files, JSON, parallel loops) onto the compiler.
-3. End state: `run` removed or aliased to JIT compile of a scratch module.
+1. **v0.1** — Compiler covers core language plus standard I/O and JSON; interpreter fills rare gaps.
+2. **Post v0.1** — Real `@parallel` / GPU codegen, Python library interop, collection methods.
+3. **End state** — `run` retired; Hyper is the **fast, Python-compatible, AI-oriented** compiled runtime.
 
 Do not build long-term workflows that depend on interpreter-only behavior unless you accept migration work later.
