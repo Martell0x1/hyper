@@ -8,7 +8,7 @@ _None — all previously interpreter-only I/O builtins listed here are now suppo
 
 ## Supported on compile path (JIT and `--emit-exe`)
 
-`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, and `import json` (`loads`, `dumps`, `load`, `dump`).
+`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, and `import json` (`loads`, `dumps`, `load`, `dump`).
 
 ## Lowered differently than interpreted
 
