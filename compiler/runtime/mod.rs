@@ -175,6 +175,15 @@ pub extern "C" fn hyper_rt_pow_f64(base: f64, exp: f64) -> f64 {
     base.powf(exp)
 }
 
+/// Seconds since the UNIX epoch as an `f64` bit pattern (`KIND_F64` payload).
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_clock() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64().to_bits() as i64)
+        .unwrap_or(0)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_floor_div_i64(a: i64, b: i64) -> i64 {
     a.div_euclid(b)
