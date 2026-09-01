@@ -1,0 +1,2 @@
+# clock() compile-path smoke
+print(clock() > 1000000000.0)
