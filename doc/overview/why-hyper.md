@@ -1,31 +1,69 @@
 # Why Hyper
 
-Hyper is a compiled language that keeps **Python-like readability** while targeting **native performance** through a Cranelift-based compiler. The long-term direction is a **single compiled toolchain** — not a permanent split between “run with the interpreter” and “compile for speed.”
+Hyper is a **compiled** programming language for teams that want **Python’s ergonomics** with **systems-level speed**, **hardware utilization**, and a toolchain aimed at **AI and large-scale data**.
 
-## What Hyper offers today
+This page is Hyper’s **official product description**. Implementation details and the current v0.1 gap list live in [First release scope](first-release-scope.md) and [Known limitations](../compiler/known-limitations.md).
 
-| Strength | What it means in practice |
-|----------|---------------------------|
-| **Readable syntax** | Indentation-based blocks, familiar operators, structs, modules, and typed bindings where you want them. |
-| **Dual backend (transition)** | `run` for exploration; `compile` for JIT, object files, and native executables. The compiler path is the focus of the first release. |
-| **Static struct flow** | The compiler tracks struct types through constructors, fields, returns, and annotations so method calls lower to direct code. |
-| **Clear errors** | `SyntaxError`, `IndentationError`, and `RuntimeError` with line numbers — no scattered debug prints in user programs. |
-| **Buffered I/O** | File handles use read/write buffers (interpreter today; compiler support is in progress for v0.1). |
+## Full Python compatibility (design goal)
+
+Hyper’s syntax is **very close to Python**: indentation-based blocks, familiar operators, modules, and collection literals. The long-term goal is **full compatibility with the Python surface** so that:
+
+- Existing Python scripts can be ported with minimal edits.
+- Python ecosystems — including libraries such as **NumPy** — can run in the **Hyper environment** without rewriting the mental model.
+
+v0.1 does not claim every Python feature or every third-party wheel yet; the **direction** is unambiguous: Hyper should feel like Python that compiles to native code.
+
+## Maximum speed and efficiency
+
+Hyper targets **C and C++-grade memory discipline** and **direct use of hardware**:
+
+- **CPU:** native code via Cranelift (JIT and `--emit-exe`), buffered I/O, and minimal interpreter overhead on the compile path.
+- **GPU and SIMD:** the language surface includes `@vectorize` and parallel loop forms; codegen for real GPU backends is on the roadmap, with sequential lowering today where parallelism is not yet emitted.
+
+Programs that spend time in tight numeric loops and data pipelines are expected to run **10×–100× faster** than equivalent CPython — the range depends on workload, but that order of magnitude is the design target, not an afterthought.
+
+## Built for artificial intelligence
+
+Hyper is **purpose-built for AI workloads**:
+
+- Training and inference pipelines that stress memory bandwidth and CPU/GPU throughput.
+- Large files and datasets (`open`, `open_mmap`, JSON) without paying per-op interpreter cost on the compile path.
+- A toolchain that will grow toward tensor-friendly builtins and accelerator integration.
+
+If your work involves **neural networks**, **batch processing**, or **multi-terabyte data**, Hyper is meant to be the language layer — not a slow glue script around native libraries.
+
+## Security and modern architecture
+
+Hyper’s implementation is **Rust-hosted** and follows a **memory-safe** systems style:
+
+- Clear error kinds (`SyntaxError`, `IndentationError`, `RuntimeError`) instead of silent corruption.
+- A compiled runtime with explicit value kinds and bounded buffers for I/O.
+- **Parallel and multithreaded execution** as a language feature (`@parallel`, with real thread pools planned as codegen matures).
+
+The goal is **safe concurrency** plus **predictable performance**, not “fast but fragile” native code.
+
+## What the toolchain offers today
+
+| Area | Today |
+|------|--------|
+| **Syntax** | Python-shaped core: functions, structs, modules, collections, typed bindings |
+| **Execution** | `hyper run` (interpreter) and `hyper compile` (JIT / native binary) |
+| **I/O & JSON** | `open`, `with`, file methods, `open_mmap`, `import json`, `input()` on the compile path |
+| **Parallelism** | `@parallel` / `@vectorize` parse and run; compiler emits sequential loops until thread/GPU backends land |
+| **Gaps** | Generics, traits, `break`/`continue`, full Python/stdlib parity — see [Known limitations](../compiler/known-limitations.md) |
 
 ## Why pick Hyper over …
 
-**Python** — Hyper is for teams that outgrow interpreter overhead but do not want to rewrite everything in C++ or Rust. Syntax stays approachable; execution moves toward native code.
+**Python (CPython)** — Keep readability and library-oriented workflows; compile hot paths to native code instead of rewriting in C++ or Rust.
 
-**Rust / C++** — Hyper trades maximum low-level control for faster iteration: less ceremony for scripts, small tools, and learning projects.
+**Rust / C++** — Less ceremony for data and ML scripts; Hyper prioritizes approachability first, then performance, with safety built into the runtime rather than manual ownership everywhere.
 
-**Zig** — Hyper prioritizes approachability and a Python-shaped surface first; systems-level manual memory control is not the primary story.
-
-Hyper’s first release is intentionally **modest**: enough to write small programs, compile them, and feel the direction. It is not claiming production parity with mature languages on day one — the same path every new language takes.
+**Julia / Mojo / others** — Hyper bets on **Python familiarity** as the on-ramp, plus a **single compile-first binary** (interpreter as a transitional dev path).
 
 ## Where Hyper is headed
 
-1. **v0.1** — Compiler-backed first release: core language compiles reliably; interpreter remains for gaps during transition.
-2. **Post v0.1** — Close compiler gaps (`with`, builtins, parallel codegen), tighten semantics (`pub`, `mut`, `ref`).
-3. **Long term** — Interpreter retired; Hyper is compile-by-default.
+1. **v0.1** — Credible compiler for core programs; honest documentation; CI smoke for run and compile.
+2. **Post v0.1** — Deeper Python/library interop, real `@parallel` codegen, GPU backends, collection methods, stricter `pub` / `mut` / `ref`.
+3. **Long term** — Hyper as the default runtime for **Python-compatible, AI-scale, native-speed** code: compile-by-default, interpreter retired.
 
-See [First release scope](first-release-scope.md) for the concrete v0.1 checklist.
+See [First release scope](first-release-scope.md) for the v0.1 checklist.
