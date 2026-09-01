@@ -1,6 +1,7 @@
 # Hyper
 
-Hyper is a programming language with Python-like readability and a Cranelift-based native compiler. The toolchain is moving toward **compile-by-default**; v0.1 targets small, real programs you can build with `compile`, not a feature-complete runtime.
+
+The repository ships a Cranelift-based **compiler** (`hyper compile`), a transitional **interpreter** (`hyper run`), and this mdBook. v0.1 targets real small programs on the compile path; the [full vision](overview/why-hyper.md) describes where Hyper is going.
 
 ## Quick start
 
@@ -49,12 +50,12 @@ Browse chapters from the sidebar ([`SUMMARY.md`](SUMMARY.md)) or use the map bel
 |:--------|:---------|:-------------------|
 | **Introduction** | [readme.md](readme.md) | Orientation, layout, quick start |
 | **Building** | [building.md](building.md) | Prerequisites, `cargo build`, CLI subcommands, mdBook |
-| **Why Hyper** | [overview/why-hyper.md](overview/why-hyper.md) | Motivation; comparison with Python, Rust, C++, Zig |
+| **Why Hyper** | [overview/why-hyper.md](overview/why-hyper.md) | Official vision: Python compat, speed, AI, safety |
 | **First release** | [overview/first-release-scope.md](overview/first-release-scope.md) | v0.1 readiness checklist |
 | **Dual backend** | [toolchain/dual-backend.md](toolchain/dual-backend.md) | When to use `run` vs `compile`; long-term direction |
 | **Compiler overview** | [compiler/overview.md](compiler/overview.md) | AST → IR → Cranelift pipeline; flags |
 | **Supported features** | [compiler/supported-features.md](compiler/supported-features.md) | Constructs lowered by `hyper compile` today |
-| **Known limitations** | [compiler/known-limitations.md](compiler/known-limitations.md) | Interpreter-only or unimplemented compile paths |
+| **Known limitations** | [compiler/known-limitations.md](compiler/known-limitations.md) | Unimplemented or partial compile paths |
 | **File handling** | [standard-library/file-handling.md](standard-library/file-handling.md) | `open`, `with`, file methods, `open_mmap` |
 | **JSON module** | [standard-library/json-module.md](standard-library/json-module.md) | `import json`; `loads`, `dumps`, `load`, `dump` |
 | **Error kinds** | [errors/overview.md](errors/overview.md) | `SyntaxError`, `IndentationError`, `RuntimeError`; exit codes |
@@ -77,7 +78,7 @@ These directories contain **executable examples**, not markdown chapters. They a
 | Data types | `examples/data_type/` | Numbers, strings, booleans, `None` |
 | Structs | `examples/struct/` | Objects, inheritance, traits (some aspirational) |
 | Modules | `examples/module/` | `math.hyp`, `import.hyp` |
-| File I/O | `examples/file_handling/` | `standard.hyp`, `json_io.hyp`, `mmap.hyo` sketch |
+| File I/O | `examples/file_handling/` | `standard.hyp`, `json_io.hyp`, `mmap.hyp` sketch |
 | I/O builtins | `examples/io/` | `print`, `input` |
 | Error demos | `examples/errors/` | Programs that trigger each error kind when run |
 
