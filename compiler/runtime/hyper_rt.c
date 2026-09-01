@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 enum {
     KIND_I64 = 0,
@@ -171,6 +172,20 @@ int64_t hyper_rt_pow_i64(int64_t base, int64_t exp) {
 
 double hyper_rt_pow_f64(double base, double exp) {
     return pow(base, exp);
+}
+
+int64_t hyper_rt_clock(void) {
+    struct timespec ts;
+    if (timespec_get(&ts, TIME_UTC) == 0) {
+        return 0;
+    }
+    double secs = (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+    union {
+        double d;
+        uint64_t u;
+    } bits;
+    bits.d = secs;
+    return (int64_t)bits.u;
 }
 
 int64_t hyper_rt_floor_div_i64(int64_t a, int64_t b) {
