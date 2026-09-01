@@ -402,6 +402,23 @@ impl Lowerer {
         dest
     }
 
+    fn lower_clock(&mut self, args: &[CallArg]) -> ValueId {
+        if !args.is_empty() {
+            self.error(format!(
+                "clock expects 0 arguments but got {}",
+                args.len()
+            ));
+            return self.error_value();
+        }
+        let dest = self.fresh_value();
+        self.emit(IrInstr::Call {
+            dest,
+            func: "hyper_rt_clock".to_string(),
+            args: vec![],
+        });
+        dest
+    }
+
     fn lower_input(&mut self, args: &[CallArg]) -> ValueId {
         if args.len() > 1 {
             self.error(format!(
@@ -1279,6 +1296,9 @@ impl Lowerer {
                     if name == "input" {
                         return self.lower_input(args);
                     }
+                    if name == "clock" {
+                        return self.lower_clock(args);
+                    }
                     if self.structs.contains_key(name) {
                         return self.lower_struct_ctor(name, args);
                     }
@@ -2086,6 +2106,14 @@ mod tests {
              print(p.b)\n",
         );
         assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    fn clock_lowers_for_compile() {
+        let module = lower_source("print(clock())\n").expect("clock should lower");
+        assert!(module.main.iter().any(|i| {
+            matches!(i, IrInstr::Call { func, .. } if func == "hyper_rt_clock")
+        }));
     }
 
     #[test]
