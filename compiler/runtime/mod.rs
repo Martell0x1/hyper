@@ -405,6 +405,79 @@ pub extern "C" fn hyper_rt_list_len(list: i64) -> i64 {
     list.items.len() as i64
 }
 
+fn utf8_char_len(payload: i64) -> i64 {
+    if payload == 0 {
+        return 0;
+    }
+    let s = unsafe { CStr::from_ptr(payload as *const c_char) }
+        .to_str()
+        .unwrap_or("");
+    s.chars().count() as i64
+}
+
+fn dict_len(dict: i64) -> i64 {
+    if dict == 0 {
+        return 0;
+    }
+    let dict = unsafe { &*(dict as *const RtDict) };
+    dict.entries.len() as i64
+}
+
+/// `len()` on a list, array, dict, or string. Other kinds raise at `line`.
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_coll_len(payload: i64, kind: i64, line: i64, _line_kind: i64) -> i64 {
+    match kind {
+        KIND_LIST => hyper_rt_list_len(payload),
+        KIND_DICT => dict_len(payload),
+        KIND_STR => utf8_char_len(payload),
+        _ => error::runtime(line as u32, "this type has no method 'len'"),
+    }
+}
+
+/// `append(x)` on a list or array. Mutates the handle in place.
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_coll_append(
+    payload: i64,
+    kind: i64,
+    value: i64,
+    val_kind: i64,
+    line: i64,
+    _line_kind: i64,
+) {
+    if kind == KIND_LIST {
+        hyper_rt_list_push(payload, value, val_kind);
+        return;
+    }
+    if kind == KIND_DICT {
+        error::runtime(line as u32, "dict has no method 'append'");
+    }
+    error::runtime(line as u32, "this type has no method 'append'");
+}
+
+/// `keys()` on a dict. Returns a new list of string keys in insertion order.
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_coll_keys(payload: i64, kind: i64, line: i64, _line_kind: i64) -> i64 {
+    if kind != KIND_DICT {
+        if kind == KIND_LIST {
+            error::runtime(line as u32, "list has no method 'keys'");
+        }
+        error::runtime(line as u32, "this type has no method 'keys'");
+    }
+    let list = hyper_rt_list_new();
+    if payload == 0 {
+        return list;
+    }
+    let dict = unsafe { &*(payload as *const RtDict) };
+    for (key, _) in &dict.entries {
+        let payload = match CString::new(key.as_str()) {
+            Ok(c) => c.into_raw() as i64,
+            Err(_) => 0,
+        };
+        hyper_rt_list_push(list, payload, KIND_STR);
+    }
+    list
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_value_to_str(payload: i64, kind: i64) -> i64 {
     let s = format_value(&RtValue { kind, payload });
@@ -618,6 +691,22 @@ mod tests {
         hyper_rt_dict_push(b, str_payload("y"), KIND_STR, 2, KIND_I64);
         hyper_rt_dict_push(b, str_payload("x"), KIND_STR, 1, KIND_I64);
         assert_eq!(hyper_rt_value_eq(a, KIND_DICT, b, KIND_DICT), 1);
+    }
+
+    #[test]
+    fn coll_len_append_keys() {
+        let list = list_of(&[(1, KIND_I64)]);
+        assert_eq!(hyper_rt_coll_len(list, KIND_LIST, 1, 0), 1);
+        hyper_rt_coll_append(list, KIND_LIST, 2, KIND_I64, 1, 0);
+        assert_eq!(hyper_rt_coll_len(list, KIND_LIST, 1, 0), 2);
+
+        let dict = hyper_rt_dict_new();
+        hyper_rt_dict_push(dict, str_payload("math"), KIND_STR, 100, KIND_I64);
+        hyper_rt_dict_push(dict, str_payload("physics"), KIND_STR, 95, KIND_I64);
+        assert_eq!(hyper_rt_coll_len(dict, KIND_DICT, 1, 0), 2);
+        let keys = hyper_rt_coll_keys(dict, KIND_DICT, 1, 0);
+        assert_eq!(hyper_rt_coll_len(keys, KIND_LIST, 1, 0), 2);
+        assert_eq!(hyper_rt_coll_len(str_payload("hi"), KIND_STR, 1, 0), 2);
     }
 
     #[test]

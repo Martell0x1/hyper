@@ -24,6 +24,7 @@ This list reflects what **`hyper compile`** can lower today (JIT and `--emit-exe
 | `with open_mmap(path) as m:` | `read_chunk(offset, size)` |
 | `input(prompt?)` | Stdin line read |
 | `clock()` | Seconds since UNIX epoch (`f64`) |
+| Collection methods | list/array `len()`, `append(x)`; dict `len()`, `keys()` |
 | `import json` | `loads`, `dumps`, `load`, `dump` |
 
 Integer `/`, `%`, `//` guard division by zero at runtime.
@@ -45,7 +46,8 @@ Integer `/`, `%`, `//` guard division by zero at runtime.
 | `ci/mmap_compile.hyp` | Memory-mapped files on compile path |
 | `ci/input_compile.hyp` | `input()` on compile path |
 | `ci/clock_compile.hyp` | `clock()` on compile path |
+| `ci/collections_compile.hyp` | list/array/dict `len`, `append`, `keys` on compile path |
 
 ## Not compiled (see limitations)
 
-Generics, full trait enforcement, `break` / `continue`, collection methods (`len`, `append`, `keys`), real `@parallel` thread/GPU codegen, Python library interop — [Known limitations](known-limitations.md).
+Generics, full trait enforcement, `break` / `continue`, real `@parallel` thread/GPU codegen, Python library interop — [Known limitations](known-limitations.md).

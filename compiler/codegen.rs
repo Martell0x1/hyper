@@ -21,6 +21,7 @@ use super::runtime::{
     hyper_rt_file_tell, hyper_rt_file_write, hyper_rt_file_writelines,
     hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
     hyper_rt_mmap_close, hyper_rt_mmap_open, hyper_rt_mmap_read_chunk,
+    hyper_rt_coll_append, hyper_rt_coll_keys, hyper_rt_coll_len,
     hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
     hyper_rt_list_set, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64, hyper_rt_pow_f64,
     hyper_rt_pow_i64, hyper_rt_print_dict,
@@ -144,6 +145,9 @@ struct RuntimeIds {
     mmap_read_chunk: FuncId,
     input_fn: FuncId,
     clock_fn: FuncId,
+    coll_len: FuncId,
+    coll_append: FuncId,
+    coll_keys: FuncId,
     json_loads: FuncId,
     json_dumps: FuncId,
     json_load: FuncId,
@@ -458,6 +462,9 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     let mmap_read_chunk = declare_file("hyper_rt_mmap_read_chunk", 8, 1)?;
     let input_fn = declare_file("hyper_rt_input", 4, 1)?;
     let clock_fn = declare_file("hyper_rt_clock", 0, 1)?;
+    let coll_len = declare_file("hyper_rt_coll_len", 4, 1)?;
+    let coll_append = declare_file("hyper_rt_coll_append", 6, 0)?;
+    let coll_keys = declare_file("hyper_rt_coll_keys", 4, 1)?;
     let json_loads = declare_file("hyper_rt_json_loads", 5, 1)?;
     let json_dumps = declare_file("hyper_rt_json_dumps", 6, 1)?;
     let json_load = declare_file("hyper_rt_json_load", 5, 1)?;
@@ -514,6 +521,9 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         mmap_read_chunk,
         input_fn,
         clock_fn,
+        coll_len,
+        coll_append,
+        coll_keys,
         json_loads,
         json_dumps,
         json_load,
@@ -652,6 +662,9 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_mmap_read_chunk", hyper_rt_mmap_read_chunk as *const u8);
     jit_builder.symbol("hyper_rt_input", hyper_rt_input as *const u8);
     jit_builder.symbol("hyper_rt_clock", hyper_rt_clock as *const u8);
+    jit_builder.symbol("hyper_rt_coll_len", hyper_rt_coll_len as *const u8);
+    jit_builder.symbol("hyper_rt_coll_append", hyper_rt_coll_append as *const u8);
+    jit_builder.symbol("hyper_rt_coll_keys", hyper_rt_coll_keys as *const u8);
     jit_builder.symbol("hyper_rt_json_loads", hyper_rt_json_loads as *const u8);
     jit_builder.symbol("hyper_rt_json_dumps", hyper_rt_json_dumps as *const u8);
     jit_builder.symbol("hyper_rt_json_load", hyper_rt_json_load as *const u8);
@@ -914,6 +927,15 @@ fn mmap_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueK
 fn clock_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
     match func {
         "hyper_rt_clock" => Some((runtime.clock_fn, ValueKind::F64, false)),
+        _ => None,
+    }
+}
+
+fn coll_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
+    match func {
+        "hyper_rt_coll_len" => Some((runtime.coll_len, ValueKind::I64, false)),
+        "hyper_rt_coll_append" => Some((runtime.coll_append, ValueKind::None_, false)),
+        "hyper_rt_coll_keys" => Some((runtime.coll_keys, ValueKind::List, false)),
         _ => None,
     }
 }
@@ -1584,6 +1606,26 @@ fn define_function<M: Module>(
                             builder.def_var(kv, kind_val);
                             kind_vars.insert(*dest, kv);
                             value_kinds.insert(*dest, ValueKind::Dynamic);
+                        } else if out_kind == ValueKind::None_ {
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            builder.ins().call(fref, &arg_vals);
+                            let zero = builder.ins().iconst(types::I64, 0);
+                            builder.def_var(value_vars[dest], zero);
+                            value_kinds.insert(*dest, ValueKind::None_);
+                        } else {
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            let call = builder.ins().call(fref, &arg_vals);
+                            let payload = builder.inst_results(call)[0];
+                            builder.def_var(value_vars[dest], payload);
+                            value_kinds.insert(*dest, out_kind);
+                        }
+                    } else if let Some((rt_id, out_kind, uses_out_kind)) =
+                        coll_runtime_call(func, runtime)
+                    {
+                        if uses_out_kind {
+                            return Err(format!("codegen: {func} uses out_kind but should not"));
                         } else if out_kind == ValueKind::None_ {
                             let fref =
                                 module.declare_func_in_func(rt_id, &mut builder.func);

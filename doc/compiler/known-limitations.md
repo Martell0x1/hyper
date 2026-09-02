@@ -4,11 +4,11 @@ Hyper v0.1 targets a **working compiler for core programs**, not full language p
 
 ## Interpreter-only today
 
-Collection methods on lists/arrays (`len`, `append`) and dicts (`len`, `keys`).
+_None — collection methods (`len`, `append`, `keys`) are supported on both `run` and `compile`._
 
 ## Supported on compile path (JIT and `--emit-exe`)
 
-`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, and `import json` (`loads`, `dumps`, `load`, `dump`).
+`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, collection methods (`len`, `append`, `keys`), and `import json` (`loads`, `dumps`, `load`, `dump`).
 
 ## Lowered differently than interpreted
 
@@ -23,7 +23,6 @@ Collection methods on lists/arrays (`len`, `append`) and dicts (`len`, `keys`).
 - `break` / `continue`
 - Enforced `pub` / `mut` on struct members (parsed, not enforced)
 - Real `ref` semantics (zero-copy references)
-- Compiler path: collection methods `len`, `append`, `keys` on Hyper values (interpreter `run` supports them)
 
 ## Struct method resolution
 

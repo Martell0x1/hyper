@@ -492,6 +492,44 @@ impl Lowerer {
         }
     }
 
+    fn lower_collection_method(
+        &mut self,
+        object: &str,
+        method: &str,
+        args: &[Expr],
+    ) -> Option<ValueId> {
+        let (func, wanted) = match method {
+            "len" => ("hyper_rt_coll_len", 0),
+            "append" => ("hyper_rt_coll_append", 1),
+            "keys" => ("hyper_rt_coll_keys", 0),
+            _ => return None,
+        };
+        if args.len() != wanted {
+            self.error(format!(
+                "{method} expects {wanted} argument(s) but got {}",
+                args.len()
+            ));
+            return Some(self.error_value());
+        }
+        let obj = self.fresh_value();
+        self.emit(IrInstr::Load {
+            dest: obj,
+            name: object.to_string(),
+        });
+        let mut call_args = vec![obj];
+        for arg in args {
+            call_args.push(self.lower_expr(arg));
+        }
+        call_args.push(self.line_arg());
+        let dest = self.fresh_value();
+        self.emit(IrInstr::Call {
+            dest,
+            func: func.to_string(),
+            args: call_args,
+        });
+        Some(dest)
+    }
+
     fn method_error(&self, object: &str, method: &str) -> String {
         if self.var_files.contains(object) {
             return format!("file has no method '{method}'");
@@ -1392,6 +1430,9 @@ impl Lowerer {
                     });
                     return dest;
                 }
+                if let Some(dest) = self.lower_collection_method(object, method, args) {
+                    return dest;
+                }
                 let message = self.method_error(object, method);
                 self.error(message);
                 self.error_value()
@@ -2047,6 +2088,38 @@ mod tests {
     #[test]
     fn multiplication_needs_no_guard() {
         assert!(!guards_divisor("print(6 * 7)\n"));
+    }
+
+    #[test]
+    fn collection_methods_lower_to_runtime_calls() {
+        let module = lower_source(
+            "let mut items = [1, 2]\n\
+             print(items.len())\n\
+             items.append(3)\n\
+             let scores = {\"a\": 1}\n\
+             print(scores.keys())\n",
+        )
+        .expect("collection methods should lower");
+        let calls: Vec<&str> = module
+            .main
+            .iter()
+            .filter_map(|i| match i {
+                IrInstr::Call { func, .. } => Some(func.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(calls.contains(&"hyper_rt_coll_len"));
+        assert!(calls.contains(&"hyper_rt_coll_append"));
+        assert!(calls.contains(&"hyper_rt_coll_keys"));
+    }
+
+    #[test]
+    fn collection_method_arity_is_checked() {
+        let errors = errors_of("let items = [1]\nitems.append()\n");
+        assert!(
+            errors.iter().any(|e| e.contains("append expects 1 argument")),
+            "{errors:?}"
+        );
     }
 
     #[test]
