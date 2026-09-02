@@ -11,6 +11,7 @@ mod environment;
 mod fileio;
 mod json;
 mod text_utils;
+mod collection_utils;
 mod interpreter;
 mod semantic;
 mod module;
