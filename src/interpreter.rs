@@ -620,7 +620,9 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                 }
             }
 
-            target_val.call_method(method, &evaluated_args, line)
+            env.borrow_mut().with_value_mut(object, line, |current| {
+                current.call_method(method, &evaluated_args, line)
+            })
         }
         Expr::List(items) => {
             let mut elements = Vec::new();

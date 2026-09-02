@@ -4,7 +4,7 @@ Hyper v0.1 targets a **working compiler for core programs**, not full language p
 
 ## Interpreter-only today
 
-_None — all previously interpreter-only I/O builtins listed here are now supported on the compile path._
+Collection methods on lists/arrays (`len`, `append`) and dicts (`len`, `keys`).
 
 ## Supported on compile path (JIT and `--emit-exe`)
 
@@ -23,7 +23,7 @@ _None — all previously interpreter-only I/O builtins listed here are now suppo
 - `break` / `continue`
 - Enforced `pub` / `mut` on struct members (parsed, not enforced)
 - Real `ref` semantics (zero-copy references)
-- Collection methods: `len`, `append`, `keys` on Hyper values
+- Compiler path: collection methods `len`, `append`, `keys` on Hyper values (interpreter `run` supports them)
 
 ## Struct method resolution
 

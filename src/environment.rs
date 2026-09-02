@@ -5,6 +5,7 @@ use std::rc::Rc;
 use crate::error;
 use crate::ast::Stmt;
 use crate::fileio::{call_file_method, call_mmap_method, HyperFile, MappedFile};
+use crate::collection_utils::{call_dict_method, call_list_method};
 use crate::text_utils::call_string_method;
 
 #[derive(Debug, Clone)]
@@ -156,11 +157,14 @@ macro_rules! impl_cmp_op {
 }
 
 impl HyperValue {
-    pub fn call_method(&self, method_name: &str, args: &[HyperValue], line: u32) -> Option<HyperValue> {
+    pub fn call_method(&mut self, method_name: &str, args: &[HyperValue], line: u32) -> Option<HyperValue> {
         match self {
             HyperValue::String(s) => call_string_method(s, method_name, args, line),
             HyperValue::File { file, .. } => call_file_method(file, method_name, args, line),
             HyperValue::MmapFile { map, .. } => call_mmap_method(map, method_name, args, line),
+            HyperValue::List(items) => call_list_method(items, method_name, args, line),
+            HyperValue::Array { elements, .. } => call_list_method(elements, method_name, args, line),
+            HyperValue::Dict { entries, .. } => call_dict_method(entries, method_name, args, line),
             HyperValue::Instance { struct_name: _, fields: _, methods, .. } => {
                 if methods.contains_key(method_name) {
                     Some(HyperValue::None)
@@ -169,7 +173,7 @@ impl HyperValue {
                 }
             }
             _ => {
-                error::runtime(line, "method calls are not supported on this type");
+                error::runtime(line, format!("this type has no method '{}'", method_name));
             }
         }
     }
@@ -450,17 +454,15 @@ impl Environment {
     }
 
     /// Mutate a binding in place (e.g. list/dict element update) without rebinding.
-    pub fn with_value_mut<F>(&mut self, name: &str, line: u32, f: F)
+    pub fn with_value_mut<F, R>(&mut self, name: &str, line: u32, f: F) -> R
     where
-        F: FnOnce(&mut HyperValue),
+        F: FnOnce(&mut HyperValue) -> R,
     {
         if let Some(let_entry) = self.values.get_mut(name) {
-            f(&mut let_entry.value);
-            return;
+            return f(&mut let_entry.value);
         }
         if let Some(ref enclosing) = self.enclosing {
-            enclosing.borrow_mut().with_value_mut(name, line, f);
-            return;
+            return enclosing.borrow_mut().with_value_mut(name, line, f);
         }
         error::runtime(line, format!("name '{}' is not defined", name));
     }
