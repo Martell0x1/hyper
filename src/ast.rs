@@ -93,6 +93,11 @@ pub enum Expr {
         then_branch: Box<Expr>,
         else_branch: Box<Expr>,
     },
+    /// `handle attempt else fallback` — recover from `raise` without try/except.
+    Handle {
+        attempt: Box<Expr>,
+        fallback: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,6 +113,8 @@ pub struct FunctionDecl {
     pub is_strict: bool,
     pub params: Vec<Param>,
     pub return_type: Option<String>,
+    /// When true, the function may `raise` or call other `raises` functions.
+    pub raises: bool,
     pub body: Box<Stmt>,
 }
 
@@ -176,6 +183,10 @@ pub enum Stmt {
     },
     Function(FunctionDecl),
     Return { line: u32, value: Expr },
+    Break { line: u32 },
+    Continue { line: u32 },
+    /// `raise <expr>` — recoverable when inside `handle`, otherwise fatal.
+    Raise { line: u32, value: Expr },
     Struct {
         name: String,
         implemented_trait: Option<String>,
@@ -212,6 +223,69 @@ pub enum Stmt {
         module: String,
         names: Vec<ImportName>,
     },
+}
+
+/// Method name plus declared parameter count — the slice of a signature that
+/// trait conformance compares on both backends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MethodSig {
+    pub name: String,
+    pub params: usize,
+}
+
+impl MethodSig {
+    pub fn new(name: impl Into<String>, params: usize) -> Self {
+        MethodSig {
+            name: name.into(),
+            params,
+        }
+    }
+
+    /// Signatures of the methods a trait declares.
+    pub fn from_trait_methods(methods: &[FunctionDecl]) -> Vec<MethodSig> {
+        methods
+            .iter()
+            .map(|m| MethodSig::new(m.name.clone(), m.params.len()))
+            .collect()
+    }
+
+    /// Signatures of the methods a struct body defines.
+    pub fn from_struct_methods(methods: &[MethodDecl]) -> Vec<MethodSig> {
+        methods
+            .iter()
+            .map(|m| MethodSig::new(m.function.name.clone(), m.function.params.len()))
+            .collect()
+    }
+}
+
+/// One message per trait method the struct fails to satisfy: a missing method,
+/// or an arity mismatch when both declarations list parameters. Empty when the
+/// struct conforms.
+pub fn trait_conformance_errors(
+    struct_name: &str,
+    trait_name: &str,
+    required: &[MethodSig],
+    provided: &[MethodSig],
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    for method in required {
+        match provided.iter().find(|m| m.name == method.name) {
+            None => errors.push(format!(
+                "struct '{}' does not implement method '{}' required by trait '{}'",
+                struct_name, method.name, trait_name
+            )),
+            Some(found) => {
+                // Arity is only comparable when neither side leaves it implicit.
+                if method.params > 0 && found.params > 0 && method.params != found.params {
+                    errors.push(format!(
+                        "method '{}' on struct '{}' takes {} parameter(s) but trait '{}' declares {}",
+                        method.name, struct_name, found.params, trait_name, method.params
+                    ));
+                }
+            }
+        }
+    }
+    errors
 }
 
 impl fmt::Display for BinOp {
@@ -359,6 +433,9 @@ impl fmt::Display for Expr {
                 then_branch,
                 else_branch,
             } => write!(f, "(if {} {} {})", condition, then_branch, else_branch),
+            Expr::Handle { attempt, fallback } => {
+                write!(f, "(handle {} {})", attempt, fallback)
+            }
         }
     }
 }
@@ -463,6 +540,9 @@ impl fmt::Display for Stmt {
             ),
             Stmt::Function(decl) => write!(f, "{}", decl),
             Stmt::Return { line, value } => write!(f, "(return line:{} {})", line, value),
+            Stmt::Break { line } => write!(f, "(break line:{})", line),
+            Stmt::Continue { line } => write!(f, "(continue line:{})", line),
+            Stmt::Raise { line, value } => write!(f, "(raise line:{} {})", line, value),
             Stmt::Struct {
                 name,
                 implemented_trait,
