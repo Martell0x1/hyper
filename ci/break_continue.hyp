@@ -1,0 +1,54 @@
+# break / continue smoke: keep the output stable on run, JIT and --emit-exe.
+
+# while: continue skips one value, break leaves the loop early.
+let mut i = 0
+while i < 10:
+    i = i + 1
+    if i == 3:
+        continue
+    if i > 5:
+        break
+    print(i)
+
+print("while done")
+
+# for over a range: continue must still advance the induction variable.
+let mut total = 0
+for n in range(10):
+    if n % 2 == 0:
+        continue
+    if n > 7:
+        break
+    total = total + n
+
+print(total)
+
+# for over a list: same jumps, index-driven loop.
+let items = [1, 2, 3, 4, 5]
+for x in items:
+    if x == 2:
+        continue
+    if x == 4:
+        break
+    print(x)
+
+# break only leaves the innermost loop.
+let mut hits = 0
+for a in range(3):
+    for b in range(3):
+        if b == 1:
+            break
+        hits = hits + 1
+
+print(hits)
+
+# break and continue work inside a function body too.
+fn first_over(limit: i64) -> i64:
+    for k in range(20):
+        if k < limit:
+            continue
+        return k
+    return 0
+
+print(first_over(6))
+print("done")
