@@ -68,6 +68,27 @@ jobs:
       - name: Compiler string methods smoke
         run: cargo run --quiet -- compile ci/strings_compile.hyp
 
+      - name: Break and continue smoke
+        run: cargo run --quiet -- compile ci/break_continue.hyp
+
+      - name: Raise and handle smoke
+        run: |
+          cargo run --quiet -- run ci/raise_handle.hyp > /tmp/rh_run.txt
+          cargo run --quiet -- compile ci/raise_handle.hyp > /tmp/rh_jit.txt
+          diff /tmp/rh_run.txt /tmp/rh_jit.txt
+
+      - name: Traits smoke
+        run: cargo run --quiet -- compile ci/traits_compile.hyp
+
+      - name: Pub and mut smoke
+        run: cargo run --quiet -- compile ci/pub_mut.hyp
+
+      - name: Ref smoke
+        run: cargo run --quiet -- compile ci/ref_compile.hyp
+
+      - name: Vectorize and parallel smoke
+        run: cargo run --quiet -- compile ci/vectorize_compile.hyp
+
       - name: Compiler emit-exe smoke
         run: |
           cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
@@ -82,6 +103,17 @@ jobs:
         run: |
           cargo run --quiet -- compile ci/strings_compile.hyp --emit-exe /tmp/hyper_str
           /tmp/hyper_str
+
+      - name: Compiler emit-exe break and continue smoke
+        run: |
+          cargo run --quiet -- compile ci/break_continue.hyp --emit-exe /tmp/hyper_bc
+          /tmp/hyper_bc
+
+      - name: Compiler emit-exe raise and handle smoke
+        run: |
+          cargo run --quiet -- compile ci/raise_handle.hyp --emit-exe /tmp/hyper_rh
+          /tmp/hyper_rh > /tmp/rh_exe.txt
+          diff /tmp/rh_run.txt /tmp/rh_exe.txt
 
       - name: Division by zero parity
         run: |
@@ -102,3 +134,11 @@ jobs:
           /tmp/hyper_smoke > /tmp/out_exe.txt
           diff /tmp/out_run.txt /tmp/out_jit.txt
           diff /tmp/out_run.txt /tmp/out_exe.txt
+
+      - name: Break and continue output parity
+        run: |
+          cargo run --quiet -- run ci/break_continue.hyp > /tmp/bc_run.txt
+          cargo run --quiet -- compile ci/break_continue.hyp > /tmp/bc_jit.txt
+          /tmp/hyper_bc > /tmp/bc_exe.txt
+          diff /tmp/bc_run.txt /tmp/bc_jit.txt
+          diff /tmp/bc_run.txt /tmp/bc_exe.txt
