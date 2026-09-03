@@ -514,115 +514,122 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             method,
             args,
         } => {
-            let target_val = env.borrow().get(object, line);
             let mut evaluated_args = Vec::new();
             for arg in args {
                 evaluated_args.push(evaluate(arg, line, Rc::clone(&env))?);
             }
 
-            if let HyperValue::Instance { ref methods, .. } = target_val {
-                if let Some((
-                    _is_pub,
-                    HyperValue::Function {
-                        params,
-                        body,
-                        closure,
-                        ..
-                    },
-                )) = methods.get(method)
-                {
-                    let method_env =
-                        Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(
+            if let Expr::Variable { name: object_name, .. } = object.as_ref() {
+                let target_val = env.borrow().get(object_name, line);
+
+                if let HyperValue::Instance { ref methods, .. } = target_val {
+                    if let Some((
+                        _is_pub,
+                        HyperValue::Function {
+                            params,
+                            body,
                             closure,
-                        ))));
-                    method_env
-                        .borrow_mut()
-                        .define("self".to_string(), target_val.clone(), true);
-
-                    for (param_name, arg_value) in params.iter().skip(1).zip(evaluated_args.iter()) {
-                        method_env
-                            .borrow_mut()
-                            .define(param_name.clone(), arg_value.clone(), true);
-                    }
-
-                    return match execute(body, method_env) {
-                        ExecResult::Return(val) => Some(val),
-                        ExecResult::Ok => Some(HyperValue::None),
-                    };
-                } else if methods.contains_key(method) {
-                    error::runtime(line, format!("method '{}' not found", method));
-                }
-            }
-
-            if let HyperValue::Module { name, exports } = &target_val {
-                match exports.get(method) {
-                    Some(HyperValue::Function {
-                        params,
-                        body,
-                        closure,
-                        ..
-                    }) => {
-                        let call_env =
+                            ..
+                        },
+                    )) = methods.get(method)
+                    {
+                        let method_env =
                             Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(
                                 closure,
                             ))));
-                        if params.len() != evaluated_args.len() {
-                            error::runtime(
-                                line,
-                                format!(
-                                    "expected {} arguments but got {}",
-                                    params.len(),
-                                    evaluated_args.len()
-                                ),
-                            );
-                        }
-                        for (param_name, arg_value) in params.iter().zip(evaluated_args.iter()) {
-                            call_env
+                        method_env
+                            .borrow_mut()
+                            .define("self".to_string(), target_val.clone(), true);
+
+                        for (param_name, arg_value) in params.iter().skip(1).zip(evaluated_args.iter())
+                        {
+                            method_env
                                 .borrow_mut()
                                 .define(param_name.clone(), arg_value.clone(), true);
                         }
-                        return match execute(body, call_env) {
+
+                        return match execute(body, method_env) {
                             ExecResult::Return(val) => Some(val),
                             ExecResult::Ok => Some(HyperValue::None),
                         };
+                    } else if methods.contains_key(method) {
+                        error::runtime(line, format!("method '{}' not found", method));
                     }
-                    Some(HyperValue::StructDef {
-                        name: sname,
-                        fields,
-                        methods,
-                        implemented_trait,
-                    }) => {
-                        return Some(instantiate_struct(
-                            sname,
+                }
+
+                if let HyperValue::Module { name, exports } = &target_val {
+                    match exports.get(method) {
+                        Some(HyperValue::Function {
+                            params,
+                            body,
+                            closure,
+                            ..
+                        }) => {
+                            let call_env =
+                                Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(
+                                    closure,
+                                ))));
+                            if params.len() != evaluated_args.len() {
+                                error::runtime(
+                                    line,
+                                    format!(
+                                        "expected {} arguments but got {}",
+                                        params.len(),
+                                        evaluated_args.len()
+                                    ),
+                                );
+                            }
+                            for (param_name, arg_value) in params.iter().zip(evaluated_args.iter()) {
+                                call_env
+                                    .borrow_mut()
+                                    .define(param_name.clone(), arg_value.clone(), true);
+                            }
+                            return match execute(body, call_env) {
+                                ExecResult::Return(val) => Some(val),
+                                ExecResult::Ok => Some(HyperValue::None),
+                            };
+                        }
+                        Some(HyperValue::StructDef {
+                            name: sname,
                             fields,
                             methods,
                             implemented_trait,
-                            evaluated_args,
-                            &HashMap::new(),
-                            line,
-                        ));
-                    }
-                    Some(HyperValue::NativeFunction(native)) => {
-                        return call_native(native, &evaluated_args, line);
-                    }
-                    Some(_) => {
-                        error::runtime(
-                            line,
-                            format!("'{}.{}' is not callable", name, method),
-                        );
-                    }
-                    None => {
-                        error::runtime(
-                            line,
-                            format!("module '{}' has no export '{}'", name, method),
-                        );
+                        }) => {
+                            return Some(instantiate_struct(
+                                sname,
+                                fields,
+                                methods,
+                                implemented_trait,
+                                evaluated_args,
+                                &HashMap::new(),
+                                line,
+                            ));
+                        }
+                        Some(HyperValue::NativeFunction(native)) => {
+                            return call_native(native, &evaluated_args, line);
+                        }
+                        Some(_) => {
+                            error::runtime(
+                                line,
+                                format!("'{}.{}' is not callable", name, method),
+                            );
+                        }
+                        None => {
+                            error::runtime(
+                                line,
+                                format!("module '{}' has no export '{}'", name, method),
+                            );
+                        }
                     }
                 }
+
+                return env.borrow_mut().with_value_mut(object_name, line, |current| {
+                    current.call_method(method, &evaluated_args, line)
+                });
             }
 
-            env.borrow_mut().with_value_mut(object, line, |current| {
-                current.call_method(method, &evaluated_args, line)
-            })
+            let mut target_val = evaluate(object, line, Rc::clone(&env))?;
+            target_val.call_method(method, &evaluated_args, line)
         }
         Expr::List(items) => {
             let mut elements = Vec::new();
