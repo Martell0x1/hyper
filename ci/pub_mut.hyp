@@ -1,0 +1,16 @@
+struct Point:
+    let pub mut x: i64
+    let y: i64
+
+    pub fn __init__(ref self, x: i64, y: i64):
+        self.x = x
+        self.y = y
+
+    pub fn get_y(ref self) -> i64:
+        return self.y
+
+let mut p = Point(1, 2)
+print(p.x)
+p.x = 9
+print(p.x)
+print(p.get_y())
