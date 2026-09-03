@@ -16,17 +16,17 @@ struct Counter:
     fn __init__(ref self, start: i32):
         self.value = start
 
-    fn label(ref self):
+    pub fn label(ref self):
         return f"count={self.value}"
 
 let c = Counter(value: 7)
 
 struct Animal:
-    let name: string
+    let pub name: string
 
 struct Dog:
-    let animal: Animal
-    let breed: string
+    let pub animal: Animal
+    let pub breed: string
 
 let base = Animal(name: "Rex")
 let dog = Dog(animal: base, breed: "Bulldog")
@@ -82,12 +82,12 @@ print(None == None)
 
 # Structs survive function returns and typed parameters.
 struct Box:
-    let mut size: i64
+    let pub mut size: i64
 
-    fn __init__(ref self, size_val: i64):
+    pub fn __init__(ref self, size_val: i64):
         self.size = size_val
 
-    fn grown(ref self, by: i64) -> Box:
+    pub fn grown(ref self, by: i64) -> Box:
         return Box(self.size + by)
 
 fn make_box(size: i64) -> Box:
