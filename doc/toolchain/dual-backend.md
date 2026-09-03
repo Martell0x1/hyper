@@ -16,7 +16,7 @@ Hyper ships **two execution paths** in one binary while the toolchain moves towa
 
 - **`run`** treats type errors as **warnings** and continues.
 - **`compile`** treats type errors as **failures** and stops before codegen.
-- Core I/O builtins — `open`, `with`, file methods, `open_mmap`, `import json`, `input()`, `clock()`, collection methods, and common string methods — are **supported on the compile path** (JIT and `--emit-exe`). Remaining gaps are listed in [Known limitations](../compiler/known-limitations.md).
+- Core I/O builtins — `open`, `with`, file methods, `open_mmap`, `import json`, `input()`, `clock()`, collection methods, and **full string methods** — are **supported on the compile path** (JIT and `--emit-exe`). Remaining gaps are listed in [Known limitations](../compiler/known-limitations.md).
 
 ## Direction
 
