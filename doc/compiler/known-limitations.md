@@ -8,7 +8,7 @@ _None — collection methods (`len`, `append`, `keys`) are supported on both `ru
 
 ## Supported on compile path (JIT and `--emit-exe`)
 
-`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, collection methods (`len`, `append`, `keys`), and `import json` (`loads`, `dumps`, `load`, `dump`).
+`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, collection methods (`len`, `append`, `keys`), string methods (`upper`, `lower`, `strip`, `startswith`, `endswith`, `split`, `replace`, …), and `import json` (`loads`, `dumps`, `load`, `dump`).
 
 ## Lowered differently than interpreted
 
@@ -23,6 +23,10 @@ _None — collection methods (`len`, `append`, `keys`) are supported on both `ru
 - `break` / `continue`
 - Enforced `pub` / `mut` on struct members (parsed, not enforced)
 - Real `ref` semantics (zero-copy references)
+
+## String methods: partial compile support
+
+Common methods (`upper`, `lower`, `strip`, `startswith`, `endswith`, `split`, `replace`) work on **`compile`**. Others (`join`, `find`, `count`, `isdigit`, …) are **interpreter-only** until lowered.
 
 ## Struct method resolution
 
