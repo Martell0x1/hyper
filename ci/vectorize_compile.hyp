@@ -1,0 +1,10 @@
+# @vectorize is a SIMD-oriented hint; every index still runs (parity with run).
+let mut sum = 0
+@vectorize
+for i in range(0, 8):
+    sum = sum + i
+print(sum)
+
+@parallel
+for j in range(0, 4):
+    print(j)
