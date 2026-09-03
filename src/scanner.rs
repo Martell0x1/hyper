@@ -79,6 +79,11 @@ pub enum TokenType {
     Print,
     Input, 
     Return,
+    Break,
+    Continue,
+    Raise,
+    Raises,
+    Handle,
 
     Array,
     Dict,  
@@ -487,6 +492,11 @@ fn match_char(
                 "fn" => TokenType::Fn,
                 "ref" => TokenType::Ref,
                 "return" => TokenType::Return,
+                "break" => TokenType::Break,
+                "continue" => TokenType::Continue,
+                "raise" => TokenType::Raise,
+                "raises" => TokenType::Raises,
+                "handle" => TokenType::Handle,
 
                 "print" => TokenType::Print,
                 "input" => TokenType::Input,

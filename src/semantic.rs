@@ -50,7 +50,14 @@ struct TypeChecker {
     errors: Vec<String>,
     expected_return: Option<HyperType>,
     structs: HashMap<String, ()>,
-    traits: HashMap<String, ()>,
+    /// Trait name → method signatures a struct must provide to implement it.
+    traits: HashMap<String, Vec<MethodSig>>,
+    /// Enclosing loops, so `break` / `continue` can be rejected outside one.
+    loop_depth: u32,
+    /// Nested `handle … else …` expressions that may recover from `raise`.
+    handle_depth: u32,
+    /// Current function is marked `raises` (may contain bare `raise`).
+    allows_raise: bool,
 }
 
 impl TypeChecker {
@@ -61,6 +68,9 @@ impl TypeChecker {
             expected_return: None,
             structs: HashMap::new(),
             traits: HashMap::new(),
+            loop_depth: 0,
+            handle_depth: 0,
+            allows_raise: false,
         };
         tc.push_scope();
         // Builtins
@@ -574,6 +584,21 @@ impl TypeChecker {
                     HyperType::Any
                 }
             }
+            Expr::Handle { attempt, fallback } => {
+                self.handle_depth += 1;
+                let at = self.check_expr(attempt);
+                self.handle_depth -= 1;
+                let ft = self.check_expr(fallback);
+                if Self::is_compatible(&at, &ft) || Self::is_compatible(&ft, &at) {
+                    if Self::is_numeric(&at) && Self::is_numeric(&ft) {
+                        Self::widen_numeric(&at, &ft)
+                    } else {
+                        at
+                    }
+                } else {
+                    HyperType::Any
+                }
+            }
         }
     }
 
@@ -769,7 +794,9 @@ impl TypeChecker {
                 condition, body, ..
             } => {
                 let _ = self.check_expr(condition);
+                self.loop_depth += 1;
                 self.check_stmt(body);
+                self.loop_depth -= 1;
             }
             Stmt::For {
                 var,
@@ -826,7 +853,9 @@ impl TypeChecker {
                         );
                     }
                 }
+                self.loop_depth += 1;
                 self.check_stmt(body);
+                self.loop_depth -= 1;
                 self.pop_scope();
             }
             Stmt::Function(decl) => self.check_function(decl),
@@ -847,6 +876,27 @@ impl TypeChecker {
                     }
                 }
             }
+            Stmt::Break { line } => {
+                if self.loop_depth == 0 {
+                    self.syntax_error(*line, "break outside loop");
+                }
+            }
+            Stmt::Continue { line } => {
+                if self.loop_depth == 0 {
+                    self.syntax_error(*line, "continue outside loop");
+                }
+            }
+            Stmt::Raise { line, value } => {
+                let _ = self.check_expr(value);
+                // Module-level `raise` is allowed (process exits). Inside a function,
+                // require `raises` on the signature (or an enclosing `handle`).
+                if self.expected_return.is_some() && !self.allows_raise && self.handle_depth == 0 {
+                    self.syntax_error(
+                        *line,
+                        "raise outside a `raises` function or `handle` expression",
+                    );
+                }
+            }
             Stmt::Struct {
                 name,
                 implemented_trait,
@@ -854,9 +904,16 @@ impl TypeChecker {
                 methods,
             } => {
                 if let Some(t) = implemented_trait {
-                    if !self.traits.contains_key(t) {
-                        // Soft: trait may be defined later — warn only if clearly missing later.
-                        let _ = t;
+                    match self.traits.get(t).cloned() {
+                        Some(required) => {
+                            let provided = MethodSig::from_struct_methods(methods);
+                            for msg in trait_conformance_errors(name, t, &required, &provided) {
+                                self.error(msg);
+                            }
+                        }
+                        // The interpreter needs the trait bound before the
+                        // struct runs, so a later declaration is still an error.
+                        None => self.error(format!("trait '{}' is not defined", t)),
                     }
                 }
                 for field in fields {
@@ -876,7 +933,8 @@ impl TypeChecker {
                 }
             }
             Stmt::Trait { name, methods } => {
-                self.traits.insert(name.clone(), ());
+                self.traits
+                    .insert(name.clone(), MethodSig::from_trait_methods(methods));
                 self.define(
                     name,
                     Binding {
@@ -1041,7 +1099,13 @@ impl TypeChecker {
             );
         }
         let prev_ret = self.expected_return.replace(ret);
+        // A function body does not sit inside the loop that encloses its declaration.
+        let prev_depth = std::mem::take(&mut self.loop_depth);
+        let prev_raise = self.allows_raise;
+        self.allows_raise = decl.raises;
         self.check_stmt(&decl.body);
+        self.allows_raise = prev_raise;
+        self.loop_depth = prev_depth;
         self.expected_return = prev_ret;
         self.pop_scope();
     }
@@ -1109,6 +1173,58 @@ mod tests {
         .expect_err("an annotated variable should not widen");
         assert!(
             errors.iter().any(|e| e.contains("cannot assign")),
+            "unexpected errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn loop_jumps_are_allowed_inside_loops() {
+        check(
+            "let mut i = 0\n\
+             while i < 5:\n\
+             \x20   i = i + 1\n\
+             \x20   if i == 2:\n\
+             \x20       continue\n\
+             \x20   break\n\
+             \n\
+             for n in range(3):\n\
+             \x20   if n == 1:\n\
+             \x20       break\n",
+        )
+        .expect("break and continue inside loops should typecheck");
+    }
+
+    #[test]
+    fn break_outside_a_loop_is_rejected() {
+        let errors = check("break\n").expect_err("a top-level break should fail");
+        assert!(
+            errors.iter().any(|e| e.contains("break outside loop")),
+            "unexpected errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn continue_outside_a_loop_is_rejected() {
+        let errors = check("continue\n").expect_err("a top-level continue should fail");
+        assert!(
+            errors.iter().any(|e| e.contains("continue outside loop")),
+            "unexpected errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_function_body_does_not_inherit_the_enclosing_loop() {
+        let errors = check(
+            "for n in range(3):\n\
+             \x20   fn helper():\n\
+             \x20       break\n",
+        )
+        .expect_err("a break in a nested function should fail");
+        assert!(
+            errors.iter().any(|e| e.contains("break outside loop")),
             "unexpected errors: {:?}",
             errors
         );
