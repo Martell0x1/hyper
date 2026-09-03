@@ -287,13 +287,48 @@ impl Parser {
 
     fn postfix(&mut self) -> Result<Expr, ()> {
         let mut expr = self.primary()?;
-        while self.match_types(&[TokenType::LeftBracket]) {
-            let index = self.expression()?;
-            self.consume(TokenType::RightBracket, "Expect ']' after index.")?;
-            expr = Expr::Index {
-                object: Box::new(expr),
-                index: Box::new(index),
-            };
+        loop {
+            if self.match_types(&[TokenType::LeftBracket]) {
+                let index = self.expression()?;
+                self.consume(TokenType::RightBracket, "Expect ']' after index.")?;
+                expr = Expr::Index {
+                    object: Box::new(expr),
+                    index: Box::new(index),
+                };
+            } else if self.match_types(&[TokenType::Dot]) {
+                let member_name =
+                    self.consume_member_name("Expect property or method name after '.'")?;
+                if self.match_types(&[TokenType::LeftParen]) {
+                    let mut args = Vec::new();
+                    if !self.check(&TokenType::RightParen) {
+                        loop {
+                            args.push(self.expression()?);
+                            if !self.match_types(&[TokenType::Comma]) {
+                                break;
+                            }
+                        }
+                    }
+                    self.consume(TokenType::RightParen, "Expect ')' after arguments.")?;
+                    expr = Expr::CallMethod {
+                        object: Box::new(expr),
+                        method: member_name,
+                        args,
+                    };
+                } else if let Expr::Variable { name, .. } = expr {
+                    expr = Expr::GetField {
+                        object: name,
+                        field: member_name,
+                    };
+                } else {
+                    error::syntax_msg(
+                        self.peek().line as u32,
+                        "field access requires a named variable",
+                    );
+                    return Err(());
+                }
+            } else {
+                break;
+            }
         }
         Ok(expr)
     }
@@ -402,34 +437,6 @@ impl Parser {
         if self.match_types(&[TokenType::Identifier]) {
             let name = self.previous().lexeme.clone();
             let line = self.previous().line as u32;
-
-            if self.match_types(&[TokenType::Dot]) {
-                let member_name =
-                    self.consume_member_name("Expect property or method name after '.'")?;
-
-                if self.match_types(&[TokenType::LeftParen]) {
-                    let mut args = Vec::new();
-                    if !self.check(&TokenType::RightParen) {
-                        loop {
-                            args.push(self.expression()?);
-                            if !self.match_types(&[TokenType::Comma]) {
-                                break;
-                            }
-                        }
-                    }
-                    self.consume(TokenType::RightParen, "Expect ')' after arguments.")?;
-                    return Ok(Expr::CallMethod {
-                        object: name,
-                        method: member_name,
-                        args,
-                    });
-                }
-
-                return Ok(Expr::GetField {
-                    object: name,
-                    field: member_name,
-                });
-            }
 
             if self.match_types(&[TokenType::LeftParen]) {
                 let mut args = Vec::new();
