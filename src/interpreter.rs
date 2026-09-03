@@ -2,15 +2,76 @@ use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::{cell::RefCell, io};
+use std::{cell::Cell, cell::RefCell, io};
 use std::rc::Rc;
 use crate::ast::*;
 use crate::environment::{Environment, HyperValue};
 use crate::error;
 use crate::module;
 
+fn is_self_access(object: &str) -> bool {
+    object == "self"
+}
+
+fn private_field_message(field: &str) -> String {
+    format!("field '{field}' is private")
+}
+
+fn immutable_field_message(field: &str) -> String {
+    format!("field '{field}' is immutable; declare it with 'let mut'")
+}
+
+fn private_method_message(method: &str) -> String {
+    format!("method '{method}' is private")
+}
+
+/// Thread-safe snapshot of outer locals for `@parallel` workers.
+#[derive(Clone)]
+enum ParallelCapture {
+    I64(i64),
+    F64(f64),
+    Bool(bool),
+    Str(String),
+    None,
+}
+
+fn to_parallel_capture(value: &HyperValue) -> Option<ParallelCapture> {
+    match value {
+        HyperValue::I8(n) => Some(ParallelCapture::I64(*n as i64)),
+        HyperValue::I16(n) => Some(ParallelCapture::I64(*n as i64)),
+        HyperValue::I32(n) => Some(ParallelCapture::I64(*n as i64)),
+        HyperValue::I64(n) => Some(ParallelCapture::I64(*n)),
+        HyperValue::U8(n) => Some(ParallelCapture::I64(*n as i64)),
+        HyperValue::U16(n) => Some(ParallelCapture::I64(*n as i64)),
+        HyperValue::U32(n) => Some(ParallelCapture::I64(*n as i64)),
+        HyperValue::U64(n) => Some(ParallelCapture::I64(*n as i64)),
+        HyperValue::F32(n) => Some(ParallelCapture::F64(*n as f64)),
+        HyperValue::F64(n) => Some(ParallelCapture::F64(*n)),
+        HyperValue::Boolean(b) => Some(ParallelCapture::Bool(*b)),
+        HyperValue::String(s) => Some(ParallelCapture::Str(s.clone())),
+        HyperValue::None => Some(ParallelCapture::None),
+        _ => None,
+    }
+}
+
+fn from_parallel_capture(value: ParallelCapture) -> HyperValue {
+    match value {
+        ParallelCapture::I64(n) => HyperValue::I64(n),
+        ParallelCapture::F64(n) => HyperValue::F64(n),
+        ParallelCapture::Bool(b) => HyperValue::Boolean(b),
+        ParallelCapture::Str(s) => HyperValue::String(s),
+        ParallelCapture::None => HyperValue::None,
+    }
+}
+
+fn take_pending_raise() -> Option<HyperValue> {
+    PENDING_RAISE.with(|cell| cell.borrow_mut().take())
+}
+
 thread_local! {
     static MODULE_RUNTIME: RefCell<Option<ModuleRuntime>> = const { RefCell::new(None) };
+    static HANDLE_DEPTH: Cell<u32> = const { Cell::new(0) };
+    static PENDING_RAISE: RefCell<Option<HyperValue>> = const { RefCell::new(None) };
 }
 
 struct ModuleRuntime {
@@ -99,7 +160,8 @@ fn load_module(module_name: &str, line: u32) -> HyperValue {
 
     let mod_env = Rc::new(RefCell::new(Environment::new()));
     for stmt in &stmts {
-        execute(stmt, Rc::clone(&mod_env));
+        let result = execute(stmt, Rc::clone(&mod_env));
+        reject_loop_jump(&result);
     }
     let exports = mod_env.borrow().snapshot_bindings();
     let module_val = HyperValue::Module {
@@ -121,6 +183,54 @@ fn load_module(module_name: &str, line: u32) -> HyperValue {
 pub enum ExecResult {
     Ok,
     Return(HyperValue),
+    Break { line: u32 },
+    Continue { line: u32 },
+    Raise(HyperValue),
+}
+
+/// `break` / `continue` that escaped every enclosing loop.
+fn reject_loop_jump(result: &ExecResult) {
+    match result {
+        ExecResult::Break { line } => error::runtime(*line, "break outside loop"),
+        ExecResult::Continue { line } => error::runtime(*line, "continue outside loop"),
+        _ => {}
+    }
+}
+
+fn finish_call_result(result: ExecResult, line: u32) -> Option<HyperValue> {
+    match result {
+        ExecResult::Return(val) => Some(val),
+        ExecResult::Raise(val) => {
+            if HANDLE_DEPTH.get() > 0 {
+                PENDING_RAISE.with(|cell| *cell.borrow_mut() = Some(val));
+                None
+            } else {
+                error::runtime(line, val.to_string());
+            }
+        }
+        ExecResult::Ok => Some(HyperValue::None),
+        other => {
+            reject_loop_jump(&other);
+            Some(HyperValue::None)
+        }
+    }
+}
+
+/// Line of a `break` / `continue` bound to the loop directly around `stmt`.
+/// Nested loops and function bodies capture their own, so they are not visited.
+fn loop_jump_line(stmt: &Stmt) -> Option<u32> {
+    match stmt {
+        Stmt::Break { line } | Stmt::Continue { line } => Some(*line),
+        Stmt::Block(stmts) => stmts.iter().find_map(loop_jump_line),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => loop_jump_line(then_branch)
+            .or_else(|| else_branch.as_deref().and_then(loop_jump_line)),
+        Stmt::With { body, .. } | Stmt::WithMmap { body, .. } => loop_jump_line(body),
+        _ => None,
+    }
 }
 
 fn is_truthy(value: &HyperValue) -> bool {
@@ -287,8 +397,10 @@ fn function_from_decl(
     HyperValue::Function {
         name: decl.name.clone(),
         params: decl.params.iter().map(|p| p.name.clone()).collect(),
+        param_refs: decl.params.iter().map(|p| p.is_ref).collect(),
         body: Rc::new(*decl.body.clone()),
         is_strict: decl.is_strict,
+        raises: decl.raises,
         closure: env,
     }
 }
@@ -462,9 +574,13 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                 HyperValue::Instance {
                     fields,
                     field_indices,
+                    field_visibility,
                     ..
                 } => {
                     if let Some(&idx) = field_indices.get(field) {
+                        if !is_self_access(object) && !field_visibility.get(field).copied().unwrap_or(false) {
+                            error::runtime(line, private_field_message(field));
+                        }
                         Some(fields.borrow()[idx].clone())
                     } else {
                         error::runtime(line, format!("undefined field '{}'", field));
@@ -495,10 +611,23 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             if let HyperValue::Instance {
                 fields,
                 field_indices,
+                field_visibility,
+                field_mutability,
                 ..
             } = target
             {
                 if let Some(&idx) = field_indices.get(field) {
+                    if !is_self_access(object) && !field_visibility.get(field).copied().unwrap_or(false) {
+                        error::runtime(line, private_field_message(field));
+                    }
+                    let is_mut = field_mutability.get(field).copied().unwrap_or(false);
+                    if !is_mut {
+                        let current = fields.borrow()[idx].clone();
+                        // Immutable fields may be written once (typically from `__init__`).
+                        if !matches!(current, HyperValue::None) {
+                            error::runtime(line, immutable_field_message(field));
+                        }
+                    }
                     fields.borrow_mut()[idx] = val.clone();
                     Some(val)
                 } else {
@@ -524,7 +653,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
 
                 if let HyperValue::Instance { ref methods, .. } = target_val {
                     if let Some((
-                        _is_pub,
+                        is_pub,
                         HyperValue::Function {
                             params,
                             body,
@@ -533,6 +662,9 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                         },
                     )) = methods.get(method)
                     {
+                        if !is_self_access(object_name) && !*is_pub {
+                            error::runtime(line, private_method_message(method));
+                        }
                         let method_env =
                             Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(
                                 closure,
@@ -548,10 +680,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                                 .define(param_name.clone(), arg_value.clone(), true);
                         }
 
-                        return match execute(body, method_env) {
-                            ExecResult::Return(val) => Some(val),
-                            ExecResult::Ok => Some(HyperValue::None),
-                        };
+                        return finish_call_result(execute(body, method_env), line);
                     } else if methods.contains_key(method) {
                         error::runtime(line, format!("method '{}' not found", method));
                     }
@@ -584,10 +713,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                                     .borrow_mut()
                                     .define(param_name.clone(), arg_value.clone(), true);
                             }
-                            return match execute(body, call_env) {
-                                ExecResult::Return(val) => Some(val),
-                                ExecResult::Ok => Some(HyperValue::None),
-                            };
+                            return finish_call_result(execute(body, call_env), line);
                         }
                         Some(HyperValue::StructDef {
                             name: sname,
@@ -705,6 +831,18 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                 evaluate(else_branch, line, env)
             }
         }
+        Expr::Handle { attempt, fallback } => {
+            HANDLE_DEPTH.set(HANDLE_DEPTH.get() + 1);
+            take_pending_raise();
+            let value = evaluate(attempt, line, Rc::clone(&env));
+            let pending = take_pending_raise();
+            HANDLE_DEPTH.set(HANDLE_DEPTH.get().saturating_sub(1));
+            if pending.is_some() || value.is_none() {
+                evaluate(fallback, line, env)
+            } else {
+                value
+            }
+        }
     }
 }
 
@@ -720,12 +858,14 @@ fn instantiate_struct(
     let mut instance_fields_vec = Vec::new();
     let mut field_indices = HashMap::new();
     let mut field_visibility = HashMap::new();
+    let mut field_mutability = HashMap::new();
 
-    for (idx, (f_name, _, is_pub, _, _)) in fields.iter().enumerate() {
+    for (idx, (f_name, _, is_pub, is_mut, _)) in fields.iter().enumerate() {
         let initial = named_args.get(f_name).cloned().unwrap_or(HyperValue::None);
         instance_fields_vec.push(initial);
         field_indices.insert(f_name.clone(), idx);
         field_visibility.insert(f_name.clone(), *is_pub);
+        field_mutability.insert(f_name.clone(), *is_mut);
     }
 
     let instance = HyperValue::Instance {
@@ -733,6 +873,7 @@ fn instantiate_struct(
         fields: Rc::new(RefCell::new(instance_fields_vec)),
         field_indices,
         field_visibility,
+        field_mutability,
         methods: methods.clone(),
     };
 
@@ -767,7 +908,8 @@ fn instantiate_struct(
                 .define(param_name.clone(), arg_value, true);
         }
 
-        execute(body, init_env);
+        let result = execute(body, init_env);
+        reject_loop_jump(&result);
     }
     instance
 }
@@ -911,6 +1053,7 @@ fn evaluate_call(
         }
         HyperValue::Function {
             params,
+            param_refs,
             body,
             closure,
             ..
@@ -937,16 +1080,17 @@ fn evaluate_call(
 
             let closure_env =
                 Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&closure))));
-            for (param_name, arg_value) in params.iter().zip(evaluated_args) {
+            for ((param_name, is_ref), arg_value) in
+                params.iter().zip(param_refs.iter()).zip(evaluated_args)
+            {
+                // `ref` keeps mutability of the binding; struct instances already share
+                // fields through Rc on clone.
                 closure_env
                     .borrow_mut()
-                    .define(param_name.clone(), arg_value, false);
+                    .define(param_name.clone(), arg_value, *is_ref);
             }
 
-            match execute(&body, closure_env) {
-                ExecResult::Return(val) => Some(val),
-                ExecResult::Ok => Some(HyperValue::None),
-            }
+            finish_call_result(execute(&body, closure_env), line)
         }
         HyperValue::StructDef {
             name,
@@ -1021,8 +1165,9 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             let block_env =
                 Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
             for sub_stmt in statements {
-                if let ExecResult::Return(val) = execute(sub_stmt, Rc::clone(&block_env)) {
-                    return ExecResult::Return(val);
+                match execute(sub_stmt, Rc::clone(&block_env)) {
+                    ExecResult::Ok => {}
+                    unwind => return unwind,
                 }
             }
             ExecResult::Ok
@@ -1036,8 +1181,16 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             let trait_name = implemented_trait.clone().unwrap_or_default();
             if !trait_name.is_empty() {
                 let trait_check = env.borrow().get(&trait_name, 0);
-                if !matches!(trait_check, HyperValue::TraitDef { .. }) {
-                    error::runtime(0, format!("trait '{}' is not defined", trait_name));
+                match trait_check {
+                    HyperValue::TraitDef {
+                        methods: required, ..
+                    } => {
+                        let provided = MethodSig::from_struct_methods(methods);
+                        for msg in trait_conformance_errors(name, &trait_name, &required, &provided) {
+                            error::runtime(0, msg);
+                        }
+                    }
+                    _ => error::runtime(0, format!("trait '{}' is not defined", trait_name)),
                 }
             }
 
@@ -1068,10 +1221,10 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             ExecResult::Ok
         }
         Stmt::Trait { name, methods } => {
-            let method_names: Vec<String> = methods.iter().map(|m| m.name.clone()).collect();
+            let method_sigs = MethodSig::from_trait_methods(methods);
             let trait_def = HyperValue::TraitDef {
                 name: name.clone(),
-                methods: method_names,
+                methods: method_sigs,
             };
             env.borrow_mut().define(name.clone(), trait_def, false);
             ExecResult::Ok
@@ -1084,12 +1237,12 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             if let Some(cond_val) = evaluate(condition, 1, Rc::clone(&env)) {
                 if is_truthy(&cond_val) {
                     let res = execute(then_branch, env);
-                    if matches!(res, ExecResult::Return(_)) {
+                    if !matches!(res, ExecResult::Ok) {
                         return res;
                     }
                 } else if let Some(else_b) = else_branch {
                     let res = execute(else_b, env);
-                    if matches!(res, ExecResult::Return(_)) {
+                    if !matches!(res, ExecResult::Ok) {
                         return res;
                     }
                 }
@@ -1103,8 +1256,11 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
         } => {
             while let Some(cond_val) = evaluate(condition, *line, Rc::clone(&env)) {
                 if is_truthy(&cond_val) {
-                    if let ExecResult::Return(val) = execute(body, Rc::clone(&env)) {
-                        return ExecResult::Return(val);
+                    match execute(body, Rc::clone(&env)) {
+                        ExecResult::Return(val) => return ExecResult::Return(val),
+                        ExecResult::Raise(val) => return ExecResult::Raise(val),
+                        ExecResult::Break { .. } => break,
+                        ExecResult::Ok | ExecResult::Continue { .. } => {}
                     }
                 } else {
                     break;
@@ -1136,6 +1292,12 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                         matches!(kind, ForKind::Vectorized | ForKind::ParallelVectorized);
 
                     if is_parallel {
+                        if let Some(jump_line) = loop_jump_line(body) {
+                            error::runtime(
+                                jump_line,
+                                "break and continue are not allowed inside a @parallel for body",
+                            );
+                        }
                         let num_threads = std::thread::available_parallelism()
                             .map(|n| n.get())
                             .unwrap_or(4);
@@ -1146,6 +1308,12 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                             let vec_step: i64 = if is_vectorized { 4 } else { 1 };
                             let body_stmt = (*body).clone();
                             let var_name = var.clone();
+                            let captured: Vec<(String, ParallelCapture)> = env
+                                .borrow()
+                                .snapshot_all_bindings()
+                                .into_iter()
+                                .filter_map(|(k, v)| to_parallel_capture(&v).map(|c| (k, c)))
+                                .collect();
 
                             std::thread::scope(|s| {
                                 for t in 0..num_threads {
@@ -1157,12 +1325,17 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
 
                                     let var_n = var_name.clone();
                                     let b_stmt = body_stmt.clone();
+                                    let captured = captured.clone();
 
                                     s.spawn(move || {
-                                        let thread_local_rc =
-                                            Rc::new(RefCell::new(Environment::new()));
+                                        let mut base = Environment::new();
+                                        for (name, value) in captured {
+                                            base.define(name, from_parallel_capture(value), true);
+                                        }
                                         let loop_env = Rc::new(RefCell::new(
-                                            Environment::new_with_enclosing(thread_local_rc),
+                                            Environment::new_with_enclosing(Rc::new(
+                                                RefCell::new(base),
+                                            )),
                                         ));
 
                                         let mut i = t_start;
@@ -1174,7 +1347,25 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                                                     HyperValue::I64(i),
                                                     true,
                                                 );
-                                                execute(&b_stmt, Rc::clone(&loop_env));
+                                                match execute(&b_stmt, Rc::clone(&loop_env)) {
+                                                    ExecResult::Return(_) => {}
+                                                    ExecResult::Raise(val) => {
+                                                        error::runtime(
+                                                            *line,
+                                                            format!(
+                                                                "uncaught raise in @parallel body: {val}"
+                                                            ),
+                                                        );
+                                                    }
+                                                    ExecResult::Break { line }
+                                                    | ExecResult::Continue { line } => {
+                                                        error::runtime(
+                                                            line,
+                                                            "break and continue are not allowed inside a @parallel for body",
+                                                        );
+                                                    }
+                                                    ExecResult::Ok => {}
+                                                }
                                                 i += 1;
                                             }
                                         }
@@ -1184,7 +1375,7 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                         }
                     } else if is_vectorized {
                         let mut i = start_val;
-                        while i < end_val {
+                        'lanes: while i < end_val {
                             let lane_end = (i + 4).min(end_val);
                             while i < lane_end {
                                 let loop_env = Rc::new(RefCell::new(
@@ -1193,10 +1384,14 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                                 loop_env
                                     .borrow_mut()
                                     .define(var.clone(), HyperValue::I64(i), true);
-                                if let ExecResult::Return(val) = execute(body, loop_env) {
-                                    return ExecResult::Return(val);
-                                }
+                                let res = execute(body, loop_env);
                                 i += 1;
+                                match res {
+                                    ExecResult::Return(val) => return ExecResult::Return(val),
+                                    ExecResult::Raise(val) => return ExecResult::Raise(val),
+                                    ExecResult::Break { .. } => break 'lanes,
+                                    ExecResult::Ok | ExecResult::Continue { .. } => {}
+                                }
                             }
                         }
                     } else {
@@ -1207,8 +1402,11 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                             loop_env
                                 .borrow_mut()
                                 .define(var.clone(), HyperValue::I64(i), true);
-                            if let ExecResult::Return(val) = execute(body, loop_env) {
-                                return ExecResult::Return(val);
+                            match execute(body, loop_env) {
+                                ExecResult::Return(val) => return ExecResult::Return(val),
+                                ExecResult::Raise(val) => return ExecResult::Raise(val),
+                                ExecResult::Break { .. } => break,
+                                ExecResult::Ok | ExecResult::Continue { .. } => {}
                             }
                         }
                     }
@@ -1231,8 +1429,11 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                             Rc::clone(&env),
                         )));
                         loop_env.borrow_mut().define(var.clone(), item, true);
-                        if let ExecResult::Return(val) = execute(body, Rc::clone(&loop_env)) {
-                            return ExecResult::Return(val);
+                        match execute(body, Rc::clone(&loop_env)) {
+                            ExecResult::Return(val) => return ExecResult::Return(val),
+                            ExecResult::Raise(val) => return ExecResult::Raise(val),
+                            ExecResult::Break { .. } => break,
+                            ExecResult::Ok | ExecResult::Continue { .. } => {}
                         }
                     }
                 }
@@ -1248,6 +1449,16 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
         Stmt::Return { line, value } => {
             let val = evaluate(value, *line, env).unwrap_or(HyperValue::None);
             ExecResult::Return(val)
+        }
+        Stmt::Break { line } => ExecResult::Break { line: *line },
+        Stmt::Continue { line } => ExecResult::Continue { line: *line },
+        Stmt::Raise { line, value } => {
+            let raised = evaluate(value, *line, Rc::clone(&env)).unwrap_or(HyperValue::None);
+            if HANDLE_DEPTH.get() > 0 {
+                ExecResult::Raise(raised)
+            } else {
+                error::runtime(*line, raised.to_string());
+            }
         }
         Stmt::WithMmap {
             line,
@@ -1270,7 +1481,7 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                     let block_env =
                         Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
                     block_env.borrow_mut().define(var.clone(), mmap_val, false);
-                    execute(body, block_env);
+                    execute(body, block_env)
                 }
                 Err(e) => {
                     error::runtime(
@@ -1279,7 +1490,6 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                     );
                 }
             }
-            ExecResult::Ok
         }
         Stmt::With {
             line,
@@ -1382,7 +1592,8 @@ pub fn run_program(file_contents: String, entry_path: &str) {
 
     let env = Rc::new(RefCell::new(Environment::new()));
     for stmt in statements {
-        execute(&stmt, Rc::clone(&env));
+        let result = execute(&stmt, Rc::clone(&env));
+        reject_loop_jump(&result);
     }
 
     MODULE_RUNTIME.with(|cell| {
