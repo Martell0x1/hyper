@@ -1,0 +1,9 @@
+# String methods on the compile path.
+let mut text = "  hello world  "
+print(text.strip())
+print(text.upper())
+print(text.lower())
+print(text.startswith("  "))
+print(text.endswith("world  "))
+print(text.split())
+print(text.replace("hello", "Hyper"))
