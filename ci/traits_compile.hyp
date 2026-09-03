@@ -1,0 +1,20 @@
+trait Speaker:
+    fn speak(ref self) -> string
+
+struct Dog(Speaker):
+    let pub name: string
+
+    pub fn speak(ref self) -> string:
+        return "Woof!"
+
+struct Cat(Speaker):
+    let pub name: string
+
+    pub fn speak(ref self) -> string:
+        return "Meow!"
+
+let my_dog = Dog(name: "Tuzlon")
+print(my_dog.speak())
+
+let my_cat = Cat(name: "Mosh")
+print(my_cat.speak())
