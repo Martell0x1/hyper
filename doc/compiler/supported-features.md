@@ -24,7 +24,8 @@ This list reflects what **`hyper compile`** can lower today (JIT and `--emit-exe
 | `with open_mmap(path) as m:` | `read_chunk(offset, size)` |
 | `input(prompt?)` | Stdin line read |
 | `clock()` | Seconds since UNIX epoch (`f64`) |
-| Collection methods | list/array `len()`, `append(x)`; dict `len()`, `keys()` |
+| Collection methods | list/array `len()`, `append(x)`; dict `len()`, `keys()`; string `len()` |
+| String methods | `upper`, `lower`, `strip`, `lstrip`, `rstrip`, `startswith`, `endswith`, `split`, `replace` |
 | `import json` | `loads`, `dumps`, `load`, `dump` |
 
 Integer `/`, `%`, `//` guard division by zero at runtime.
@@ -47,6 +48,7 @@ Integer `/`, `%`, `//` guard division by zero at runtime.
 | `ci/input_compile.hyp` | `input()` on compile path |
 | `ci/clock_compile.hyp` | `clock()` on compile path |
 | `ci/collections_compile.hyp` | list/array/dict `len`, `append`, `keys` on compile path |
+| `ci/strings_compile.hyp` | string methods on compile path (JIT and `--emit-exe`) |
 
 ## Not compiled (see limitations)
 
