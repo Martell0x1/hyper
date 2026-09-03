@@ -38,12 +38,15 @@ pub enum HyperValue {
         struct_name: String,
         fields: Rc<RefCell<Vec<HyperValue>>>, 
         field_indices: HashMap<String, usize>,
+        /// Field name → declared `pub`.
         field_visibility: HashMap<String, bool>,
+        /// Field name → declared `mut`.
+        field_mutability: HashMap<String, bool>,
         methods: HashMap<String, (bool, HyperValue)>,
     },
     TraitDef {
         name: String,
-        methods: Vec<String>,
+        methods: Vec<crate::ast::MethodSig>,
     },
     
 
@@ -77,8 +80,11 @@ pub enum HyperValue {
     Function {
         name: String,
         params: Vec<String>,
+        /// Parallel to `params`: true when the parameter was declared `ref`.
+        param_refs: Vec<bool>,
         body: Rc<Stmt>,
         is_strict: bool,
+        raises: bool,
         closure: Rc<RefCell<Environment>>,
     },
 }
@@ -110,8 +116,8 @@ impl PartialEq for HyperValue {
             (HyperValue::MmapFile { path: a, .. }, HyperValue::MmapFile { path: b, .. }) => a == b,
             (HyperValue::File { path: a, .. }, HyperValue::File { path: b, .. }) => a == b,
             (HyperValue::NativeFunction(a), HyperValue::NativeFunction(b)) => a == b,
-            (HyperValue::Function { name: n1, params: p1, is_strict: s1, .. }, HyperValue::Function { name: n2, params: p2, is_strict: s2, .. }) => {
-                n1 == n2 && p1 == p2 && s1 == s2
+            (HyperValue::Function { name: n1, params: p1, is_strict: s1, raises: r1, .. }, HyperValue::Function { name: n2, params: p2, is_strict: s2, raises: r2, .. }) => {
+                n1 == n2 && p1 == p2 && s1 == s2 && r1 == r2
             }
             _ => false,
         }
@@ -418,6 +424,16 @@ impl Environment {
             .iter()
             .map(|(k, v)| (k.clone(), v.value.clone()))
             .collect()
+    }
+
+    /// Flatten this environment and its enclosing chain for parallel workers.
+    pub fn snapshot_all_bindings(&self) -> HashMap<String, HyperValue> {
+        let mut out = HashMap::new();
+        if let Some(ref enclosing) = self.enclosing {
+            out.extend(enclosing.borrow().snapshot_all_bindings());
+        }
+        out.extend(self.snapshot_bindings());
+        out
     }
 
     pub fn get(&self, name: &str, line: u32) -> HyperValue {
