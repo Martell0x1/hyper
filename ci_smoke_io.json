@@ -1,0 +1,10 @@
+{
+  "name": "Hyper",
+  "version": 1,
+  "fast": true,
+  "ratio": 2.5,
+  "tags": [
+    "io",
+    "json"
+  ]
+}
