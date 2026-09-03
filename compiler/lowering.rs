@@ -14,7 +14,10 @@ struct StructLayout {
     field_order: Vec<String>,
     /// Field name → type name key in `structs` (primitives do not match a layout).
     field_types: HashMap<String, String>,
+    field_pub: HashMap<String, bool>,
+    field_mut: HashMap<String, bool>,
     methods: HashSet<String>,
+    method_pub: HashMap<String, bool>,
     has_init: bool,
     /// IR / mangled base name for methods (`Point` or `shapes__Point`).
     ir_name: String,
@@ -43,8 +46,14 @@ struct Lowerer {
     var_mmaps: HashSet<String>,
     /// function name → struct type it returns, so `let p = make()` keeps methods
     fn_struct_returns: HashMap<String, String>,
+    /// Enclosing loops as `(continue target, break target)` block pairs.
+    loop_stack: Vec<(BlockId, BlockId)>,
+    /// Trait name → required method signatures.
+    traits: HashMap<String, Vec<MethodSig>>,
     /// Line of the statement being lowered, used for diagnostics.
     current_line: u32,
+    /// True while lowering `__init__` (immutable fields may be written via `self`).
+    in_init: bool,
     /// Diagnostics collected while lowering, reported before codegen runs.
     errors: Vec<String>,
 }
@@ -66,7 +75,10 @@ impl Lowerer {
             var_files: HashSet::new(),
             var_mmaps: HashSet::new(),
             fn_struct_returns: HashMap::new(),
+            loop_stack: Vec::new(),
+            traits: HashMap::new(),
             current_line: 0,
+            in_init: false,
             errors: Vec::new(),
         }
     }
@@ -92,10 +104,30 @@ impl Lowerer {
             | Stmt::Print { line, .. }
             | Stmt::Expr { line, .. }
             | Stmt::Return { line, .. }
+            | Stmt::Break { line }
+            | Stmt::Continue { line }
+            | Stmt::Raise { line, .. }
             | Stmt::WithMmap { line, .. }
             | Stmt::With { line, .. }
             | Stmt::Import { line, .. }
             | Stmt::ImportFrom { line, .. } => Some(*line),
+            _ => None,
+        }
+    }
+
+    /// Line of a `break` / `continue` bound to the loop directly around `stmt`.
+    /// Nested loops and function bodies capture their own, so they are not visited.
+    fn loop_jump_line(stmt: &Stmt) -> Option<u32> {
+        match stmt {
+            Stmt::Break { line } | Stmt::Continue { line } => Some(*line),
+            Stmt::Block(stmts) => stmts.iter().find_map(Self::loop_jump_line),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => Self::loop_jump_line(then_branch)
+                .or_else(|| else_branch.as_deref().and_then(Self::loop_jump_line)),
+            Stmt::With { body, .. } | Stmt::WithMmap { body, .. } => Self::loop_jump_line(body),
             _ => None,
         }
     }
@@ -785,7 +817,10 @@ impl Lowerer {
                 fields: HashMap::new(),
                 field_order: Vec::new(),
                 field_types: HashMap::new(),
+                field_pub: HashMap::new(),
+                field_mut: HashMap::new(),
                 methods: HashSet::new(),
+                method_pub: HashMap::new(),
                 has_init: false,
                 ir_name: struct_key.to_string(),
             });
@@ -850,20 +885,31 @@ impl Lowerer {
         let mut field_map = HashMap::new();
         let mut field_order = Vec::new();
         let mut field_types = HashMap::new();
+        let mut field_pub = HashMap::new();
+        let mut field_mut = HashMap::new();
         for (i, f) in fields.iter().enumerate() {
             field_map.insert(f.name.clone(), i as u32);
             field_order.push(f.name.clone());
             field_types.insert(f.name.clone(), f.type_name.clone());
+            field_pub.insert(f.name.clone(), f.is_pub);
+            field_mut.insert(f.name.clone(), f.is_mut);
         }
         let has_init = methods.iter().any(|m| m.function.name == "__init__");
+        let mut method_pub = HashMap::new();
+        for m in methods {
+            method_pub.insert(m.function.name.clone(), m.is_pub);
+        }
         let layout = StructLayout {
             fields: field_map,
             field_order,
             field_types,
+            field_pub,
+            field_mut,
             methods: methods
                 .iter()
                 .map(|m| m.function.name.clone())
                 .collect(),
+            method_pub,
             has_init,
             ir_name: ir_name.to_string(),
         };
@@ -881,13 +927,17 @@ impl Lowerer {
             let saved_var_structs = self.var_structs.clone();
             let saved_var_files = self.var_files.clone();
             let saved_var_mmaps = self.var_mmaps.clone();
+            let saved_loops = std::mem::take(&mut self.loop_stack);
             self.next_value = 0;
             self.next_block = 0;
             self.var_structs
                 .insert("self".to_string(), name.to_string());
             self.bind_param_structs(&method.function.params, None);
 
+            let saved_in_init = self.in_init;
+            self.in_init = method.function.name == "__init__";
             self.lower_stmt(&method.function.body);
+            self.in_init = saved_in_init;
 
             let body = std::mem::take(&mut self.current);
             self.functions.push(IrFunction {
@@ -907,6 +957,7 @@ impl Lowerer {
             self.var_structs = saved_var_structs;
             self.var_files = saved_var_files;
             self.var_mmaps = saved_var_mmaps;
+            self.loop_stack = saved_loops;
         }
     }
 
@@ -991,20 +1042,31 @@ impl Lowerer {
                 let mut field_map = HashMap::new();
                 let mut field_order = Vec::new();
                 let mut field_types = HashMap::new();
+                let mut field_pub = HashMap::new();
+                let mut field_mut = HashMap::new();
                 for (i, f) in fields.iter().enumerate() {
                     field_map.insert(f.name.clone(), i as u32);
                     field_order.push(f.name.clone());
                     field_types.insert(f.name.clone(), f.type_name.clone());
+                    field_pub.insert(f.name.clone(), f.is_pub);
+                    field_mut.insert(f.name.clone(), f.is_mut);
                 }
                 let has_init = methods.iter().any(|m| m.function.name == "__init__");
+                let mut method_pub = HashMap::new();
+                for m in methods {
+                    method_pub.insert(m.function.name.clone(), m.is_pub);
+                }
                 let layout = StructLayout {
                     fields: field_map,
                     field_order,
                     field_types,
+                    field_pub,
+                    field_mut,
                     methods: methods
                         .iter()
                         .map(|m| m.function.name.clone())
                         .collect(),
+                    method_pub,
                     has_init,
                     ir_name: ir_name.clone(),
                 };
@@ -1039,13 +1101,17 @@ impl Lowerer {
                 let saved_var_structs = self.var_structs.clone();
                 let saved_var_files = self.var_files.clone();
             let saved_var_mmaps = self.var_mmaps.clone();
+                let saved_loops = std::mem::take(&mut self.loop_stack);
                 self.next_value = 0;
                 self.next_block = 0;
                 self.var_structs
                     .insert("self".to_string(), (*name).to_string());
                 self.bind_param_structs(&method.function.params, Some(module_name));
 
+                let saved_in_init = self.in_init;
+                self.in_init = method.function.name == "__init__";
                 self.lower_stmt(&method.function.body);
+                self.in_init = saved_in_init;
 
                 let body = std::mem::take(&mut self.current);
                 self.functions.push(IrFunction {
@@ -1065,6 +1131,7 @@ impl Lowerer {
                 self.var_structs = saved_var_structs;
                 self.var_files = saved_var_files;
             self.var_mmaps = saved_var_mmaps;
+                self.loop_stack = saved_loops;
             }
         }
 
@@ -1080,6 +1147,7 @@ impl Lowerer {
                     let saved_var_structs = self.var_structs.clone();
                     let saved_var_files = self.var_files.clone();
             let saved_var_mmaps = self.var_mmaps.clone();
+                    let saved_loops = std::mem::take(&mut self.loop_stack);
                     self.next_value = 0;
                     self.next_block = 0;
                     self.bind_param_structs(&decl.params, Some(module_name));
@@ -1099,6 +1167,7 @@ impl Lowerer {
                     self.var_structs = saved_var_structs;
                     self.var_files = saved_var_files;
             self.var_mmaps = saved_var_mmaps;
+                    self.loop_stack = saved_loops;
                 }
                 Stmt::Let {
                     name, initializer, ..
@@ -1358,6 +1427,12 @@ impl Lowerer {
                 if let Some(stype) = self.var_structs.get(object).cloned() {
                     if let Some(layout) = self.structs.get(&stype) {
                         if let Some(&idx) = layout.fields.get(field) {
+                            if object != "self"
+                                && !layout.field_pub.get(field).copied().unwrap_or(false)
+                            {
+                                self.error(format!("field '{field}' is private"));
+                                return self.error_value();
+                            }
                             let obj = self.fresh_value();
                             self.emit(IrInstr::Load {
                                 dest: obj,
@@ -1386,6 +1461,20 @@ impl Lowerer {
                 if let Some(stype) = self.var_structs.get(object).cloned() {
                     if let Some(layout) = self.structs.get(&stype) {
                         if let Some(&idx) = layout.fields.get(field) {
+                            if object != "self"
+                                && !layout.field_pub.get(field).copied().unwrap_or(false)
+                            {
+                                self.error(format!("field '{field}' is private"));
+                                return self.error_value();
+                            }
+                            if !layout.field_mut.get(field).copied().unwrap_or(false)
+                                && !(object == "self" && self.in_init)
+                            {
+                                self.error(format!(
+                                    "field '{field}' is immutable; declare it with 'let mut'"
+                                ));
+                                return self.error_value();
+                            }
                             let obj = self.fresh_value();
                             self.emit(IrInstr::Load {
                                 dest: obj,
@@ -1490,6 +1579,13 @@ impl Lowerer {
                         if !known {
                             let message = self.method_error(object, method);
                             self.error(message);
+                            return self.error_value();
+                        }
+                        let is_pub = layout
+                            .and_then(|l| l.method_pub.get(method).copied())
+                            .unwrap_or(false);
+                        if object != "self" && !is_pub {
+                            self.error(format!("method '{method}' is private"));
                             return self.error_value();
                         }
                         let obj = self.fresh_value();
@@ -1664,6 +1760,56 @@ impl Lowerer {
                 });
                 dest
             }
+            Expr::Handle { attempt, fallback } => {
+                let enter = self.fresh_value();
+                self.emit(IrInstr::Call {
+                    dest: enter,
+                    func: "hyper_rt_handle_enter".to_string(),
+                    args: vec![],
+                });
+                let attempt_v = self.lower_expr(attempt);
+                let pending = self.fresh_value();
+                self.emit(IrInstr::Call {
+                    dest: pending,
+                    func: "hyper_rt_handle_leave".to_string(),
+                    args: vec![],
+                });
+
+                let then_b = self.fresh_block();
+                let else_b = self.fresh_block();
+                let merge_b = self.fresh_block();
+                let result_name = format!("__handle_{}", then_b);
+
+                // pending != 0 → take fallback
+                self.emit(IrInstr::Branch {
+                    cond: pending,
+                    then_block: else_b,
+                    else_block: then_b,
+                });
+
+                self.emit(IrInstr::Label { block: then_b });
+                self.emit(IrInstr::Store {
+                    name: result_name.clone(),
+                    value: attempt_v,
+                });
+                self.emit(IrInstr::Jump { target: merge_b });
+
+                self.emit(IrInstr::Label { block: else_b });
+                let fb = self.lower_expr(fallback);
+                self.emit(IrInstr::Store {
+                    name: result_name.clone(),
+                    value: fb,
+                });
+                self.emit(IrInstr::Jump { target: merge_b });
+
+                self.emit(IrInstr::Label { block: merge_b });
+                let dest = self.fresh_value();
+                self.emit(IrInstr::Load {
+                    dest,
+                    name: result_name,
+                });
+                dest
+            }
         }
     }
 
@@ -1743,22 +1889,32 @@ impl Lowerer {
                 });
 
                 self.emit(IrInstr::Label { block: body_b });
+                self.loop_stack.push((header, exit_b));
                 self.lower_stmt(body);
+                self.loop_stack.pop();
                 self.emit(IrInstr::Jump { target: header });
 
                 self.emit(IrInstr::Label { block: exit_b });
             }
             Stmt::For {
-                kind: _,
+                kind,
                 var,
                 iter,
                 body,
                 ..
             } => {
+                let is_parallel = matches!(kind, ForKind::Parallel | ForKind::ParallelVectorized);
+                if is_parallel {
+                    if let Some(line) = Self::loop_jump_line(body) {
+                        self.current_line = line;
+                        self.error("break and continue are not allowed inside a @parallel for body");
+                    }
+                }
                 match iter {
                     ForIter::Range { start, end } => {
-                        // Always sequential label/branch loop so @parallel/@vectorize still
-                        // compile via sequential codegen. ForKind is kept in AST only.
+                        // Sequential label/branch loop. `@parallel` still compiles
+                        // sequentially (interpreter has real threads). `@vectorize` is a
+                        // SIMD-oriented hint with the same per-index semantics today.
                         let start_v = self.lower_expr(start);
                         let end_v = self.lower_expr(end);
 
@@ -1768,6 +1924,7 @@ impl Lowerer {
                         });
                         let header = self.fresh_block();
                         let body_b = self.fresh_block();
+                        let cont_b = self.fresh_block();
                         let exit_b = self.fresh_block();
 
                         self.emit(IrInstr::Jump { target: header });
@@ -1792,8 +1949,13 @@ impl Lowerer {
                         });
 
                         self.emit(IrInstr::Label { block: body_b });
+                        self.loop_stack.push((cont_b, exit_b));
                         self.lower_stmt(body);
+                        self.loop_stack.pop();
+                        self.emit(IrInstr::Jump { target: cont_b });
 
+                        // `continue` lands here so the induction variable still advances.
+                        self.emit(IrInstr::Label { block: cont_b });
                         let i2 = self.fresh_value();
                         self.emit(IrInstr::Load {
                             dest: i2,
@@ -1837,6 +1999,7 @@ impl Lowerer {
 
                         let header = self.fresh_block();
                         let body_b = self.fresh_block();
+                        let cont_b = self.fresh_block();
                         let exit_b = self.fresh_block();
 
                         self.emit(IrInstr::Jump { target: header });
@@ -1871,8 +2034,13 @@ impl Lowerer {
                             name: var.clone(),
                             value: elem,
                         });
+                        self.loop_stack.push((cont_b, exit_b));
                         self.lower_stmt(body);
+                        self.loop_stack.pop();
+                        self.emit(IrInstr::Jump { target: cont_b });
 
+                        // `continue` lands here so the index still advances.
+                        self.emit(IrInstr::Label { block: cont_b });
                         let i2 = self.fresh_value();
                         self.emit(IrInstr::Load {
                             dest: i2,
@@ -1908,6 +2076,7 @@ impl Lowerer {
                 let saved_var_structs = self.var_structs.clone();
                 let saved_var_files = self.var_files.clone();
             let saved_var_mmaps = self.var_mmaps.clone();
+                let saved_loops = std::mem::take(&mut self.loop_stack);
                 self.next_value = 0;
                 self.next_block = 0;
                 self.bind_param_structs(&decl.params, None);
@@ -1928,6 +2097,7 @@ impl Lowerer {
                 self.var_structs = saved_var_structs;
                 self.var_files = saved_var_files;
             self.var_mmaps = saved_var_mmaps;
+                self.loop_stack = saved_loops;
             }
             Stmt::Return { value, .. } => {
                 // Bare `return` may be Literal::None from parser.
@@ -1939,15 +2109,59 @@ impl Lowerer {
                     self.emit(IrInstr::Return { value: Some(v) });
                 }
             }
+            Stmt::Break { .. } => match self.loop_stack.last() {
+                Some(&(_, break_target)) => {
+                    self.emit(IrInstr::Jump {
+                        target: break_target,
+                    });
+                }
+                None => self.error("break outside loop"),
+            },
+            Stmt::Continue { .. } => match self.loop_stack.last() {
+                Some(&(continue_target, _)) => {
+                    self.emit(IrInstr::Jump {
+                        target: continue_target,
+                    });
+                }
+                None => self.error("continue outside loop"),
+            },
+            Stmt::Raise { value, .. } => {
+                let raised = self.lower_expr(value);
+                let line = self.line_arg();
+                let dest = self.fresh_value();
+                self.emit(IrInstr::Call {
+                    dest,
+                    func: "hyper_rt_raise".to_string(),
+                    args: vec![raised, line],
+                });
+                // Uncaught raise exits the process. Recovered raise returns here so
+                // exit the current function early (handle picks up the pending flag).
+                self.emit(IrInstr::Return { value: None });
+            }
             Stmt::Struct {
                 name,
+                implemented_trait,
                 fields,
                 methods,
                 ..
             } => {
+                if let Some(trait_name) = implemented_trait {
+                    match self.traits.get(trait_name).cloned() {
+                        Some(required) => {
+                            let provided = MethodSig::from_struct_methods(methods);
+                            for msg in trait_conformance_errors(name, trait_name, &required, &provided)
+                            {
+                                self.error(msg);
+                            }
+                        }
+                        None => self.error(format!("trait '{trait_name}' is not defined")),
+                    }
+                }
                 self.lower_struct_decl(name, fields, methods, name);
             }
-            Stmt::Trait { name, .. } => {
+            Stmt::Trait { name, methods, .. } => {
+                self.traits
+                    .insert(name.clone(), MethodSig::from_trait_methods(methods));
                 let dest = self.fresh_value();
                 self.emit(IrInstr::ConstStr {
                     dest,
@@ -2121,9 +2335,9 @@ mod tests {
     fn struct_program_lowers() {
         let module = lower_source(
             "struct Point:\n\
-             \x20   let mut x: i32\n\
+             \x20   let pub mut x: i32\n\
              \n\
-             \x20   fn bump(ref self, dx: i32):\n\
+             \x20   pub fn bump(ref self, dx: i32):\n\
              \x20       self.x = self.x + dx\n\
              \n\
              let p = Point(x: 1)\n\
@@ -2138,9 +2352,9 @@ mod tests {
     fn struct_returned_by_function_keeps_its_methods() {
         let module = lower_source(
             "struct Point:\n\
-             \x20   let mut x: i32\n\
+             \x20   let pub mut x: i32\n\
              \n\
-             \x20   fn bump(ref self, dx: i32):\n\
+             \x20   pub fn bump(ref self, dx: i32):\n\
              \x20       self.x = self.x + dx\n\
              \n\
              fn origin():\n\
@@ -2156,9 +2370,9 @@ mod tests {
     fn struct_typed_parameter_keeps_its_methods() {
         let module = lower_source(
             "struct Point:\n\
-             \x20   let mut x: i32\n\
+             \x20   let pub mut x: i32\n\
              \n\
-             \x20   fn bump(ref self, dx: i32):\n\
+             \x20   pub fn bump(ref self, dx: i32):\n\
              \x20       self.x = self.x + dx\n\
              \n\
              fn shift(p: Point):\n\
@@ -2168,6 +2382,81 @@ mod tests {
              shift(p)\n",
         );
         module.expect("struct-typed parameter should lower");
+    }
+
+    #[test]
+    fn break_and_continue_lower_in_every_loop_form() {
+        lower_source(
+            "let mut i = 0\n\
+             while i < 10:\n\
+             \x20   i = i + 1\n\
+             \x20   if i == 3:\n\
+             \x20       continue\n\
+             \x20   if i > 5:\n\
+             \x20       break\n\
+             \n\
+             for n in range(10):\n\
+             \x20   if n == 2:\n\
+             \x20       continue\n\
+             \x20   if n == 8:\n\
+             \x20       break\n\
+             \n\
+             for x in [1, 2, 3]:\n\
+             \x20   if x == 1:\n\
+             \x20       continue\n\
+             \x20   break\n",
+        )
+        .expect("break and continue should lower");
+    }
+
+    #[test]
+    fn continue_in_a_range_loop_still_advances_the_index() {
+        let module = lower_source(
+            "for n in range(3):\n\
+             \x20   continue\n",
+        )
+        .expect("continue should lower");
+        // The increment sits in its own block, which `continue` targets.
+        let labels = module
+            .main
+            .iter()
+            .filter(|i| matches!(i, IrInstr::Label { .. }))
+            .count();
+        assert_eq!(labels, 4, "header, body, continue and exit blocks expected");
+    }
+
+    #[test]
+    fn break_outside_a_loop_is_reported() {
+        let errors = errors_of("break\n");
+        assert!(
+            errors.iter().any(|e| e.contains("break outside loop")),
+            "expected a break diagnostic, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn continue_outside_a_loop_is_reported() {
+        let errors = errors_of("continue\n");
+        assert!(
+            errors.iter().any(|e| e.contains("continue outside loop")),
+            "expected a continue diagnostic, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn break_inside_a_parallel_loop_is_rejected() {
+        let errors = errors_of(
+            "@parallel\n\
+             for n in range(8):\n\
+             \x20   break\n",
+        );
+        assert!(
+            errors.iter().any(|e| e.contains("@parallel")),
+            "expected a @parallel diagnostic, got {:?}",
+            errors
+        );
     }
 
     fn guards_divisor(source: &str) -> bool {
