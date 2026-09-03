@@ -1,12 +1,12 @@
 # Struct module for CI smoke (imported by smoke.hyp).
 struct Point:
-    let mut x: i32
-    let mut y: i32
+    let pub mut x: i32
+    let pub mut y: i32
 
-    fn __init__(ref self, x_val: i32, y_val: i32):
+    pub fn __init__(ref self, x_val: i32, y_val: i32):
         self.x = x_val
         self.y = y_val
 
-    fn move(ref self, dx: i32, dy: i32):
+    pub fn move(ref self, dx: i32, dy: i32):
         self.x = self.x + dx
         self.y = self.y + dy
