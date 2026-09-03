@@ -24,10 +24,10 @@ with open("ci_smoke_io.txt", "r+") as f:
     print(f.readlines())
     print(f.size())
 
-let handle = open("ci_smoke_io.txt", "r")
-print(handle.readline())
-handle.close()
-print(handle.closed())
+let fh = open("ci_smoke_io.txt", "r")
+print(fh.readline())
+fh.close()
+print(fh.closed())
 
 let config = {"name": "Hyper", "version": 1, "fast": true, "ratio": 2.5, "tags": ["io", "json"]}
 print(json.dumps(config))
