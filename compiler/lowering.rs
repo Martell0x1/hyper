@@ -530,6 +530,61 @@ impl Lowerer {
         Some(dest)
     }
 
+    fn lower_string_method(
+        &mut self,
+        object: &str,
+        method: &str,
+        args: &[Expr],
+    ) -> Option<ValueId> {
+        let (func, min_args, max_args) = match method {
+            "upper" => ("hyper_rt_str_upper", 0, 0),
+            "lower" => ("hyper_rt_str_lower", 0, 0),
+            "strip" => ("hyper_rt_str_strip", 0, 0),
+            "lstrip" => ("hyper_rt_str_lstrip", 0, 0),
+            "rstrip" => ("hyper_rt_str_rstrip", 0, 0),
+            "startswith" => ("hyper_rt_str_startswith", 1, 1),
+            "endswith" => ("hyper_rt_str_endswith", 1, 1),
+            "split" => ("hyper_rt_str_split", 0, 1),
+            "replace" => ("hyper_rt_str_replace", 2, 2),
+            _ => return None,
+        };
+        if args.len() < min_args || args.len() > max_args {
+            let expected = if min_args == max_args {
+                min_args.to_string()
+            } else {
+                format!("{min_args}-{max_args}")
+            };
+            self.error(format!(
+                "{method} expects {expected} argument(s) but got {}",
+                args.len()
+            ));
+            return Some(self.error_value());
+        }
+        let obj = self.fresh_value();
+        self.emit(IrInstr::Load {
+            dest: obj,
+            name: object.to_string(),
+        });
+        let mut call_args = vec![obj];
+        if method == "split" && args.is_empty() {
+            let none = self.fresh_value();
+            self.emit(IrInstr::ConstNone { dest: none });
+            call_args.push(none);
+        } else {
+            for arg in args {
+                call_args.push(self.lower_expr(arg));
+            }
+        }
+        call_args.push(self.line_arg());
+        let dest = self.fresh_value();
+        self.emit(IrInstr::Call {
+            dest,
+            func: func.to_string(),
+            args: call_args,
+        });
+        Some(dest)
+    }
+
     fn method_error(&self, object: &str, method: &str) -> String {
         if self.var_files.contains(object) {
             return format!("file has no method '{method}'");
@@ -1433,6 +1488,9 @@ impl Lowerer {
                 if let Some(dest) = self.lower_collection_method(object, method, args) {
                     return dest;
                 }
+                if let Some(dest) = self.lower_string_method(object, method, args) {
+                    return dest;
+                }
                 let message = self.method_error(object, method);
                 self.error(message);
                 self.error_value()
@@ -2111,6 +2169,32 @@ mod tests {
         assert!(calls.contains(&"hyper_rt_coll_len"));
         assert!(calls.contains(&"hyper_rt_coll_append"));
         assert!(calls.contains(&"hyper_rt_coll_keys"));
+    }
+
+    #[test]
+    fn string_methods_lower_to_runtime_calls() {
+        let module = lower_source(
+            "let mut text = \"  hi  \"\n\
+             print(text.strip())\n\
+             print(text.upper())\n\
+             print(text.startswith(\" \"))\n\
+             print(text.split())\n\
+             print(text.replace(\"hi\", \"yo\"))\n",
+        )
+        .expect("string methods should lower");
+        let calls: Vec<&str> = module
+            .main
+            .iter()
+            .filter_map(|i| match i {
+                IrInstr::Call { func, .. } => Some(func.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(calls.contains(&"hyper_rt_str_strip"));
+        assert!(calls.contains(&"hyper_rt_str_upper"));
+        assert!(calls.contains(&"hyper_rt_str_startswith"));
+        assert!(calls.contains(&"hyper_rt_str_split"));
+        assert!(calls.contains(&"hyper_rt_str_replace"));
     }
 
     #[test]
