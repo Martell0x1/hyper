@@ -22,6 +22,9 @@ use super::runtime::{
     hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
     hyper_rt_mmap_close, hyper_rt_mmap_open, hyper_rt_mmap_read_chunk,
     hyper_rt_coll_append, hyper_rt_coll_keys, hyper_rt_coll_len,
+    hyper_rt_str_endswith, hyper_rt_str_lower, hyper_rt_str_lstrip, hyper_rt_str_replace,
+    hyper_rt_str_rstrip, hyper_rt_str_split, hyper_rt_str_startswith, hyper_rt_str_strip,
+    hyper_rt_str_upper,
     hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
     hyper_rt_list_set, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64, hyper_rt_pow_f64,
     hyper_rt_pow_i64, hyper_rt_print_dict,
@@ -148,6 +151,15 @@ struct RuntimeIds {
     coll_len: FuncId,
     coll_append: FuncId,
     coll_keys: FuncId,
+    str_upper: FuncId,
+    str_lower: FuncId,
+    str_strip: FuncId,
+    str_lstrip: FuncId,
+    str_rstrip: FuncId,
+    str_startswith: FuncId,
+    str_endswith: FuncId,
+    str_split: FuncId,
+    str_replace: FuncId,
     json_loads: FuncId,
     json_dumps: FuncId,
     json_load: FuncId,
@@ -465,6 +477,15 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     let coll_len = declare_file("hyper_rt_coll_len", 4, 1)?;
     let coll_append = declare_file("hyper_rt_coll_append", 6, 0)?;
     let coll_keys = declare_file("hyper_rt_coll_keys", 4, 1)?;
+    let str_upper = declare_file("hyper_rt_str_upper", 4, 1)?;
+    let str_lower = declare_file("hyper_rt_str_lower", 4, 1)?;
+    let str_strip = declare_file("hyper_rt_str_strip", 4, 1)?;
+    let str_lstrip = declare_file("hyper_rt_str_lstrip", 4, 1)?;
+    let str_rstrip = declare_file("hyper_rt_str_rstrip", 4, 1)?;
+    let str_startswith = declare_file("hyper_rt_str_startswith", 6, 1)?;
+    let str_endswith = declare_file("hyper_rt_str_endswith", 6, 1)?;
+    let str_split = declare_file("hyper_rt_str_split", 6, 1)?;
+    let str_replace = declare_file("hyper_rt_str_replace", 8, 1)?;
     let json_loads = declare_file("hyper_rt_json_loads", 5, 1)?;
     let json_dumps = declare_file("hyper_rt_json_dumps", 6, 1)?;
     let json_load = declare_file("hyper_rt_json_load", 5, 1)?;
@@ -524,6 +545,15 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         coll_len,
         coll_append,
         coll_keys,
+        str_upper,
+        str_lower,
+        str_strip,
+        str_lstrip,
+        str_rstrip,
+        str_startswith,
+        str_endswith,
+        str_split,
+        str_replace,
         json_loads,
         json_dumps,
         json_load,
@@ -665,6 +695,15 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_coll_len", hyper_rt_coll_len as *const u8);
     jit_builder.symbol("hyper_rt_coll_append", hyper_rt_coll_append as *const u8);
     jit_builder.symbol("hyper_rt_coll_keys", hyper_rt_coll_keys as *const u8);
+    jit_builder.symbol("hyper_rt_str_upper", hyper_rt_str_upper as *const u8);
+    jit_builder.symbol("hyper_rt_str_lower", hyper_rt_str_lower as *const u8);
+    jit_builder.symbol("hyper_rt_str_strip", hyper_rt_str_strip as *const u8);
+    jit_builder.symbol("hyper_rt_str_lstrip", hyper_rt_str_lstrip as *const u8);
+    jit_builder.symbol("hyper_rt_str_rstrip", hyper_rt_str_rstrip as *const u8);
+    jit_builder.symbol("hyper_rt_str_startswith", hyper_rt_str_startswith as *const u8);
+    jit_builder.symbol("hyper_rt_str_endswith", hyper_rt_str_endswith as *const u8);
+    jit_builder.symbol("hyper_rt_str_split", hyper_rt_str_split as *const u8);
+    jit_builder.symbol("hyper_rt_str_replace", hyper_rt_str_replace as *const u8);
     jit_builder.symbol("hyper_rt_json_loads", hyper_rt_json_loads as *const u8);
     jit_builder.symbol("hyper_rt_json_dumps", hyper_rt_json_dumps as *const u8);
     jit_builder.symbol("hyper_rt_json_load", hyper_rt_json_load as *const u8);
@@ -823,6 +862,15 @@ fn runtime_io_c_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn runtime_str_c_path() -> Result<PathBuf, String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest.join("compiler").join("runtime").join("hyper_rt_str.c");
+    if !path.exists() {
+        return Err(format!("runtime source not found: {}", path.display()));
+    }
+    Ok(path)
+}
+
 fn find_cc() -> Result<&'static str, String> {
     for cand in ["cc", "clang", "gcc"] {
         if Command::new(cand)
@@ -854,6 +902,7 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
     let rt_json = runtime_json_c_path()?;
     let rt_mmap = runtime_mmap_c_path()?;
     let rt_io = runtime_io_c_path()?;
+    let rt_str = runtime_str_c_path()?;
     let cc = find_cc()?;
     let status = Command::new(cc)
         .arg(obj_str)
@@ -862,6 +911,7 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
         .arg(rt_json.as_os_str())
         .arg(rt_mmap.as_os_str())
         .arg(rt_io.as_os_str())
+        .arg(rt_str.as_os_str())
         .arg("-o")
         .arg(out_path)
         .arg("-lm")
@@ -936,6 +986,35 @@ fn coll_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueK
         "hyper_rt_coll_len" => Some((runtime.coll_len, ValueKind::I64, false)),
         "hyper_rt_coll_append" => Some((runtime.coll_append, ValueKind::None_, false)),
         "hyper_rt_coll_keys" => Some((runtime.coll_keys, ValueKind::List, false)),
+        _ => None,
+    }
+}
+
+fn str_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
+    match func {
+        "hyper_rt_str_upper" | "hyper_rt_str_lower" | "hyper_rt_str_strip"
+        | "hyper_rt_str_lstrip" | "hyper_rt_str_rstrip" | "hyper_rt_str_replace" => Some((
+            match func {
+                "hyper_rt_str_upper" => runtime.str_upper,
+                "hyper_rt_str_lower" => runtime.str_lower,
+                "hyper_rt_str_strip" => runtime.str_strip,
+                "hyper_rt_str_lstrip" => runtime.str_lstrip,
+                "hyper_rt_str_rstrip" => runtime.str_rstrip,
+                _ => runtime.str_replace,
+            },
+            ValueKind::Str,
+            false,
+        )),
+        "hyper_rt_str_startswith" | "hyper_rt_str_endswith" => Some((
+            if func == "hyper_rt_str_startswith" {
+                runtime.str_startswith
+            } else {
+                runtime.str_endswith
+            },
+            ValueKind::Bool,
+            false,
+        )),
+        "hyper_rt_str_split" => Some((runtime.str_split, ValueKind::List, false)),
         _ => None,
     }
 }
@@ -1641,6 +1720,17 @@ fn define_function<M: Module>(
                             builder.def_var(value_vars[dest], payload);
                             value_kinds.insert(*dest, out_kind);
                         }
+                    } else if let Some((rt_id, out_kind, uses_out_kind)) =
+                        str_runtime_call(func, runtime)
+                    {
+                        if uses_out_kind {
+                            return Err(format!("codegen: {func} uses out_kind but should not"));
+                        }
+                        let fref = module.declare_func_in_func(rt_id, &mut builder.func);
+                        let call = builder.ins().call(fref, &arg_vals);
+                        let payload = builder.inst_results(call)[0];
+                        builder.def_var(value_vars[dest], payload);
+                        value_kinds.insert(*dest, out_kind);
                     } else if let Some((rt_id, out_kind, uses_out_kind)) =
                         clock_runtime_call(func, runtime)
                     {
