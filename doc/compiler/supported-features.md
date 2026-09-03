@@ -25,7 +25,7 @@ This list reflects what **`hyper compile`** can lower today (JIT and `--emit-exe
 | `input(prompt?)` | Stdin line read |
 | `clock()` | Seconds since UNIX epoch (`f64`) |
 | Collection methods | list/array `len()`, `append(x)`; dict `len()`, `keys()`; string `len()` |
-| String methods | `upper`, `lower`, `strip`, `lstrip`, `rstrip`, `startswith`, `endswith`, `split`, `replace` |
+| String methods | Full Python-compatible set on compile path: `upper`/`lower`/`capitalize`/`title`/`swapcase`, `strip`/`lstrip`/`rstrip`, `startswith`/`endswith`, `split`/`rsplit`, `replace`, `join`, `find`/`rfind`/`index`/`rindex`, `count`, `isdigit`/`isalpha`/`isalnum`/`isspace`/`islower`/`isupper`/`istitle`/`isascii`, `center`/`ljust`/`rjust`/`zfill`, `removeprefix`/`removesuffix`, `partition`/`rpartition` |
 | `import json` | `loads`, `dumps`, `load`, `dump` |
 
 Integer `/`, `%`, `//` guard division by zero at runtime.
