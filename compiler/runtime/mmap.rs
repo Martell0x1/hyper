@@ -58,7 +58,7 @@ pub extern "C" fn hyper_rt_mmap_open(
 pub extern "C" fn hyper_rt_mmap_close(
     handle: i64,
     _handle_kind: i64,
-    line: i64,
+    _line: i64,
     _line_kind: i64,
 ) {
     if handle == 0 {

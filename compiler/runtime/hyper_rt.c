@@ -766,6 +766,70 @@ void hyper_rt_div_by_zero(int64_t line) {
     exit(70);
 }
 
+static __thread int hyper_rt_handle_depth = 0;
+static __thread int hyper_rt_pending_raise = 0;
+static __thread char hyper_rt_pending_msg[512];
+
+int64_t hyper_rt_handle_enter(void) {
+    hyper_rt_handle_depth++;
+    hyper_rt_pending_raise = 0;
+    hyper_rt_pending_msg[0] = '\0';
+    return 0;
+}
+
+int64_t hyper_rt_handle_leave(void) {
+    if (hyper_rt_handle_depth > 0) {
+        hyper_rt_handle_depth--;
+    }
+    int pending = hyper_rt_pending_raise;
+    hyper_rt_pending_raise = 0;
+    return pending ? 1 : 0;
+}
+
+static void hyper_rt_format_raise(int64_t payload, int64_t kind, char *buf, size_t buflen) {
+    switch (kind) {
+        case KIND_I64:
+            snprintf(buf, buflen, "%lld", (long long)payload);
+            break;
+        case KIND_F64: {
+            double d;
+            memcpy(&d, &payload, sizeof(d));
+            snprintf(buf, buflen, "%g", d);
+            break;
+        }
+        case KIND_STR:
+            if (payload == 0) {
+                buf[0] = '\0';
+            } else {
+                snprintf(buf, buflen, "%s", (const char *)(intptr_t)payload);
+            }
+            break;
+        case KIND_BOOL:
+            snprintf(buf, buflen, "%s", payload ? "true" : "false");
+            break;
+        case KIND_NONE:
+            snprintf(buf, buflen, "None");
+            break;
+        default:
+            snprintf(buf, buflen, "<value>");
+            break;
+    }
+}
+
+int64_t hyper_rt_raise(int64_t payload, int64_t kind, int64_t line, int64_t line_kind) {
+    (void)line_kind;
+    char msg[512];
+    hyper_rt_format_raise(payload, kind, msg, sizeof(msg));
+    if (hyper_rt_handle_depth > 0) {
+        snprintf(hyper_rt_pending_msg, sizeof(hyper_rt_pending_msg), "%s", msg);
+        hyper_rt_pending_raise = 1;
+        return 0;
+    }
+    fflush(stdout);
+    fprintf(stderr, "RuntimeError: line %lld: %s\n", (long long)line, msg);
+    exit(70);
+}
+
 int64_t hyper_rt_value_eq(int64_t a, int64_t a_kind, int64_t b, int64_t b_kind) {
     RtValue left;
     RtValue right;

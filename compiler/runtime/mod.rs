@@ -576,6 +576,47 @@ pub extern "C" fn hyper_rt_div_by_zero(line: i64) {
     error::runtime(line as u32, "division by zero");
 }
 
+thread_local! {
+    static HANDLE_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    static PENDING_RAISE: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_handle_enter() -> i64 {
+    HANDLE_DEPTH.with(|d| d.set(d.get() + 1));
+    PENDING_RAISE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+    0
+}
+
+/// Returns 1 if a raise was recovered inside the matching handle region.
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_handle_leave() -> i64 {
+    HANDLE_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    PENDING_RAISE.with(|cell| cell.borrow_mut().take().is_some() as i64)
+}
+
+/// Uncaught raise prints a RuntimeError and exits 70. Inside `handle`, records the
+/// message and returns so the caller can take the fallback branch.
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_raise(payload: i64, kind: i64, line: i64, _line_kind: i64) -> i64 {
+    let msg = format_value(&RtValue {
+        kind,
+        payload,
+    });
+    let depth = HANDLE_DEPTH.with(|d| d.get());
+    if depth > 0 {
+        PENDING_RAISE.with(|cell| {
+            *cell.borrow_mut() = Some(msg);
+        });
+        0
+    } else {
+        error::runtime(line as u32, msg);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_value_eq(a: i64, a_kind: i64, b: i64, b_kind: i64) -> i64 {
     let left = RtValue {
