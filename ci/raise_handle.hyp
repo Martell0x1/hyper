@@ -1,0 +1,13 @@
+# Explicit error flow: raise + handle (no try/except).
+fn boom(x: i64) raises -> i64:
+    if x < 0:
+        raise "negative"
+    return x * 2
+
+print(handle boom(3) else -1)
+print(handle boom(-1) else -1)
+
+fn ok() raises -> i64:
+    return 7
+
+print(handle ok() else 0)
