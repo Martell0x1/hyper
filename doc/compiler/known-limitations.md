@@ -4,11 +4,11 @@ Hyper v0.1 targets a **working compiler for core programs**, not full language p
 
 ## Interpreter-only today
 
-_None — collection methods (`len`, `append`, `keys`) are supported on both `run` and `compile`._
+_None for the string / collection / I/O surface covered by v0.1 smokes._
 
 ## Supported on compile path (JIT and `--emit-exe`)
 
-`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, collection methods (`len`, `append`, `keys`), string methods (`upper`, `lower`, `strip`, `startswith`, `endswith`, `split`, `replace`, …), and `import json` (`loads`, `dumps`, `load`, `dump`).
+`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, collection methods (`len`, `append`, `keys`), **full string methods** (see [Supported features](supported-features.md)), and `import json` (`loads`, `dumps`, `load`, `dump`).
 
 ## Lowered differently than interpreted
 
@@ -23,10 +23,11 @@ _None — collection methods (`len`, `append`, `keys`) are supported on both `ru
 - `break` / `continue`
 - Enforced `pub` / `mut` on struct members (parsed, not enforced)
 - Real `ref` semantics (zero-copy references)
+- `try` / `except` (structured exception handling)
 
-## String methods: partial compile support
+## String methods
 
-Common methods (`upper`, `lower`, `strip`, `startswith`, `endswith`, `split`, `replace`) work on **`compile`**. Others (`join`, `find`, `count`, `isdigit`, …) are **interpreter-only** until lowered.
+String methods share one runtime on **`run` and `compile`**. `split()` / `rsplit()` with no separator follow Python whitespace rules. `--emit-exe` case transforms are ASCII-oriented in the C runtime; JIT uses full Unicode case mapping.
 
 ## Struct method resolution
 
