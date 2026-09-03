@@ -1,0 +1,13 @@
+# `ref` keeps a mutable binding; struct instances already share field storage.
+struct Box:
+    let pub mut n: i64
+
+    pub fn __init__(ref self, n: i64):
+        self.n = n
+
+fn bump(ref b: Box):
+    b.n = b.n + 1
+
+let mut x = Box(1)
+bump(x)
+print(x.n)
