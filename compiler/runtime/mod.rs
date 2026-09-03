@@ -30,9 +30,15 @@ pub use json::{
 };
 pub use mmap::{hyper_rt_mmap_close, hyper_rt_mmap_open, hyper_rt_mmap_read_chunk};
 pub use str::{
-    hyper_rt_str_endswith, hyper_rt_str_lower, hyper_rt_str_lstrip, hyper_rt_str_replace,
-    hyper_rt_str_rstrip, hyper_rt_str_split, hyper_rt_str_startswith, hyper_rt_str_strip,
-    hyper_rt_str_upper,
+    hyper_rt_str_capitalize, hyper_rt_str_center, hyper_rt_str_count, hyper_rt_str_endswith,
+    hyper_rt_str_find, hyper_rt_str_index, hyper_rt_str_isalnum, hyper_rt_str_isalpha,
+    hyper_rt_str_isascii, hyper_rt_str_isdigit, hyper_rt_str_islower, hyper_rt_str_isspace,
+    hyper_rt_str_istitle, hyper_rt_str_isupper, hyper_rt_str_join, hyper_rt_str_ljust,
+    hyper_rt_str_lower, hyper_rt_str_lstrip, hyper_rt_str_partition, hyper_rt_str_removeprefix,
+    hyper_rt_str_removesuffix, hyper_rt_str_replace, hyper_rt_str_rfind, hyper_rt_str_rindex,
+    hyper_rt_str_rjust, hyper_rt_str_rpartition, hyper_rt_str_rsplit, hyper_rt_str_rstrip,
+    hyper_rt_str_split, hyper_rt_str_startswith, hyper_rt_str_strip, hyper_rt_str_swapcase,
+    hyper_rt_str_title, hyper_rt_str_upper, hyper_rt_str_zfill,
 };
 
 #[derive(Clone)]
