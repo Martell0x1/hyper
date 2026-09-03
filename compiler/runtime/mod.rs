@@ -17,6 +17,7 @@ mod file;
 mod io;
 mod json;
 mod mmap;
+mod str;
 pub use file::{
     hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
     hyper_rt_file_open, hyper_rt_file_path, hyper_rt_file_read_all, hyper_rt_file_read_n,
@@ -28,6 +29,11 @@ pub use json::{
     hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
 };
 pub use mmap::{hyper_rt_mmap_close, hyper_rt_mmap_open, hyper_rt_mmap_read_chunk};
+pub use str::{
+    hyper_rt_str_endswith, hyper_rt_str_lower, hyper_rt_str_lstrip, hyper_rt_str_replace,
+    hyper_rt_str_rstrip, hyper_rt_str_split, hyper_rt_str_startswith, hyper_rt_str_strip,
+    hyper_rt_str_upper,
+};
 
 #[derive(Clone)]
 pub(crate) struct RtValue {
