@@ -65,10 +65,23 @@ jobs:
       - name: Compiler collection methods smoke
         run: cargo run --quiet -- compile ci/collections_compile.hyp
 
+      - name: Compiler string methods smoke
+        run: cargo run --quiet -- compile ci/strings_compile.hyp
+
       - name: Compiler emit-exe smoke
         run: |
           cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
           /tmp/hyper_smoke
+
+      - name: Compiler emit-exe collections smoke
+        run: |
+          cargo run --quiet -- compile ci/collections_compile.hyp --emit-exe /tmp/hyper_coll
+          /tmp/hyper_coll
+
+      - name: Compiler emit-exe strings smoke
+        run: |
+          cargo run --quiet -- compile ci/strings_compile.hyp --emit-exe /tmp/hyper_str
+          /tmp/hyper_str
 
       - name: Division by zero parity
         run: |
