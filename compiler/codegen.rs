@@ -22,9 +22,15 @@ use super::runtime::{
     hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
     hyper_rt_mmap_close, hyper_rt_mmap_open, hyper_rt_mmap_read_chunk,
     hyper_rt_coll_append, hyper_rt_coll_keys, hyper_rt_coll_len,
-    hyper_rt_str_endswith, hyper_rt_str_lower, hyper_rt_str_lstrip, hyper_rt_str_replace,
-    hyper_rt_str_rstrip, hyper_rt_str_split, hyper_rt_str_startswith, hyper_rt_str_strip,
-    hyper_rt_str_upper,
+    hyper_rt_str_capitalize, hyper_rt_str_center, hyper_rt_str_count, hyper_rt_str_endswith,
+    hyper_rt_str_find, hyper_rt_str_index, hyper_rt_str_isalnum, hyper_rt_str_isalpha,
+    hyper_rt_str_isascii, hyper_rt_str_isdigit, hyper_rt_str_islower, hyper_rt_str_isspace,
+    hyper_rt_str_istitle, hyper_rt_str_isupper, hyper_rt_str_join, hyper_rt_str_ljust,
+    hyper_rt_str_lower, hyper_rt_str_lstrip, hyper_rt_str_partition, hyper_rt_str_removeprefix,
+    hyper_rt_str_removesuffix, hyper_rt_str_replace, hyper_rt_str_rfind, hyper_rt_str_rindex,
+    hyper_rt_str_rjust, hyper_rt_str_rpartition, hyper_rt_str_rsplit, hyper_rt_str_rstrip,
+    hyper_rt_str_split, hyper_rt_str_startswith, hyper_rt_str_strip, hyper_rt_str_swapcase,
+    hyper_rt_str_title, hyper_rt_str_upper, hyper_rt_str_zfill,
     hyper_rt_list_get, hyper_rt_list_len, hyper_rt_list_new, hyper_rt_list_push,
     hyper_rt_list_set, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64, hyper_rt_pow_f64,
     hyper_rt_pow_i64, hyper_rt_print_dict,
@@ -153,13 +159,39 @@ struct RuntimeIds {
     coll_keys: FuncId,
     str_upper: FuncId,
     str_lower: FuncId,
+    str_capitalize: FuncId,
+    str_title: FuncId,
+    str_swapcase: FuncId,
     str_strip: FuncId,
     str_lstrip: FuncId,
     str_rstrip: FuncId,
     str_startswith: FuncId,
     str_endswith: FuncId,
     str_split: FuncId,
+    str_rsplit: FuncId,
     str_replace: FuncId,
+    str_join: FuncId,
+    str_find: FuncId,
+    str_rfind: FuncId,
+    str_index: FuncId,
+    str_rindex: FuncId,
+    str_count: FuncId,
+    str_isdigit: FuncId,
+    str_isalpha: FuncId,
+    str_isalnum: FuncId,
+    str_isspace: FuncId,
+    str_islower: FuncId,
+    str_isupper: FuncId,
+    str_istitle: FuncId,
+    str_isascii: FuncId,
+    str_center: FuncId,
+    str_ljust: FuncId,
+    str_rjust: FuncId,
+    str_zfill: FuncId,
+    str_removeprefix: FuncId,
+    str_removesuffix: FuncId,
+    str_partition: FuncId,
+    str_rpartition: FuncId,
     json_loads: FuncId,
     json_dumps: FuncId,
     json_load: FuncId,
@@ -479,13 +511,39 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     let coll_keys = declare_file("hyper_rt_coll_keys", 4, 1)?;
     let str_upper = declare_file("hyper_rt_str_upper", 4, 1)?;
     let str_lower = declare_file("hyper_rt_str_lower", 4, 1)?;
+    let str_capitalize = declare_file("hyper_rt_str_capitalize", 4, 1)?;
+    let str_title = declare_file("hyper_rt_str_title", 4, 1)?;
+    let str_swapcase = declare_file("hyper_rt_str_swapcase", 4, 1)?;
     let str_strip = declare_file("hyper_rt_str_strip", 4, 1)?;
     let str_lstrip = declare_file("hyper_rt_str_lstrip", 4, 1)?;
     let str_rstrip = declare_file("hyper_rt_str_rstrip", 4, 1)?;
     let str_startswith = declare_file("hyper_rt_str_startswith", 6, 1)?;
     let str_endswith = declare_file("hyper_rt_str_endswith", 6, 1)?;
     let str_split = declare_file("hyper_rt_str_split", 6, 1)?;
+    let str_rsplit = declare_file("hyper_rt_str_rsplit", 6, 1)?;
     let str_replace = declare_file("hyper_rt_str_replace", 8, 1)?;
+    let str_join = declare_file("hyper_rt_str_join", 6, 1)?;
+    let str_find = declare_file("hyper_rt_str_find", 6, 1)?;
+    let str_rfind = declare_file("hyper_rt_str_rfind", 6, 1)?;
+    let str_index = declare_file("hyper_rt_str_index", 6, 1)?;
+    let str_rindex = declare_file("hyper_rt_str_rindex", 6, 1)?;
+    let str_count = declare_file("hyper_rt_str_count", 6, 1)?;
+    let str_isdigit = declare_file("hyper_rt_str_isdigit", 4, 1)?;
+    let str_isalpha = declare_file("hyper_rt_str_isalpha", 4, 1)?;
+    let str_isalnum = declare_file("hyper_rt_str_isalnum", 4, 1)?;
+    let str_isspace = declare_file("hyper_rt_str_isspace", 4, 1)?;
+    let str_islower = declare_file("hyper_rt_str_islower", 4, 1)?;
+    let str_isupper = declare_file("hyper_rt_str_isupper", 4, 1)?;
+    let str_istitle = declare_file("hyper_rt_str_istitle", 4, 1)?;
+    let str_isascii = declare_file("hyper_rt_str_isascii", 4, 1)?;
+    let str_center = declare_file("hyper_rt_str_center", 8, 1)?;
+    let str_ljust = declare_file("hyper_rt_str_ljust", 8, 1)?;
+    let str_rjust = declare_file("hyper_rt_str_rjust", 8, 1)?;
+    let str_zfill = declare_file("hyper_rt_str_zfill", 6, 1)?;
+    let str_removeprefix = declare_file("hyper_rt_str_removeprefix", 6, 1)?;
+    let str_removesuffix = declare_file("hyper_rt_str_removesuffix", 6, 1)?;
+    let str_partition = declare_file("hyper_rt_str_partition", 6, 1)?;
+    let str_rpartition = declare_file("hyper_rt_str_rpartition", 6, 1)?;
     let json_loads = declare_file("hyper_rt_json_loads", 5, 1)?;
     let json_dumps = declare_file("hyper_rt_json_dumps", 6, 1)?;
     let json_load = declare_file("hyper_rt_json_load", 5, 1)?;
@@ -547,13 +605,39 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         coll_keys,
         str_upper,
         str_lower,
+        str_capitalize,
+        str_title,
+        str_swapcase,
         str_strip,
         str_lstrip,
         str_rstrip,
         str_startswith,
         str_endswith,
         str_split,
+        str_rsplit,
         str_replace,
+        str_join,
+        str_find,
+        str_rfind,
+        str_index,
+        str_rindex,
+        str_count,
+        str_isdigit,
+        str_isalpha,
+        str_isalnum,
+        str_isspace,
+        str_islower,
+        str_isupper,
+        str_istitle,
+        str_isascii,
+        str_center,
+        str_ljust,
+        str_rjust,
+        str_zfill,
+        str_removeprefix,
+        str_removesuffix,
+        str_partition,
+        str_rpartition,
         json_loads,
         json_dumps,
         json_load,
@@ -697,13 +781,39 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_coll_keys", hyper_rt_coll_keys as *const u8);
     jit_builder.symbol("hyper_rt_str_upper", hyper_rt_str_upper as *const u8);
     jit_builder.symbol("hyper_rt_str_lower", hyper_rt_str_lower as *const u8);
+    jit_builder.symbol("hyper_rt_str_capitalize", hyper_rt_str_capitalize as *const u8);
+    jit_builder.symbol("hyper_rt_str_title", hyper_rt_str_title as *const u8);
+    jit_builder.symbol("hyper_rt_str_swapcase", hyper_rt_str_swapcase as *const u8);
     jit_builder.symbol("hyper_rt_str_strip", hyper_rt_str_strip as *const u8);
     jit_builder.symbol("hyper_rt_str_lstrip", hyper_rt_str_lstrip as *const u8);
     jit_builder.symbol("hyper_rt_str_rstrip", hyper_rt_str_rstrip as *const u8);
     jit_builder.symbol("hyper_rt_str_startswith", hyper_rt_str_startswith as *const u8);
     jit_builder.symbol("hyper_rt_str_endswith", hyper_rt_str_endswith as *const u8);
     jit_builder.symbol("hyper_rt_str_split", hyper_rt_str_split as *const u8);
+    jit_builder.symbol("hyper_rt_str_rsplit", hyper_rt_str_rsplit as *const u8);
     jit_builder.symbol("hyper_rt_str_replace", hyper_rt_str_replace as *const u8);
+    jit_builder.symbol("hyper_rt_str_join", hyper_rt_str_join as *const u8);
+    jit_builder.symbol("hyper_rt_str_find", hyper_rt_str_find as *const u8);
+    jit_builder.symbol("hyper_rt_str_rfind", hyper_rt_str_rfind as *const u8);
+    jit_builder.symbol("hyper_rt_str_index", hyper_rt_str_index as *const u8);
+    jit_builder.symbol("hyper_rt_str_rindex", hyper_rt_str_rindex as *const u8);
+    jit_builder.symbol("hyper_rt_str_count", hyper_rt_str_count as *const u8);
+    jit_builder.symbol("hyper_rt_str_isdigit", hyper_rt_str_isdigit as *const u8);
+    jit_builder.symbol("hyper_rt_str_isalpha", hyper_rt_str_isalpha as *const u8);
+    jit_builder.symbol("hyper_rt_str_isalnum", hyper_rt_str_isalnum as *const u8);
+    jit_builder.symbol("hyper_rt_str_isspace", hyper_rt_str_isspace as *const u8);
+    jit_builder.symbol("hyper_rt_str_islower", hyper_rt_str_islower as *const u8);
+    jit_builder.symbol("hyper_rt_str_isupper", hyper_rt_str_isupper as *const u8);
+    jit_builder.symbol("hyper_rt_str_istitle", hyper_rt_str_istitle as *const u8);
+    jit_builder.symbol("hyper_rt_str_isascii", hyper_rt_str_isascii as *const u8);
+    jit_builder.symbol("hyper_rt_str_center", hyper_rt_str_center as *const u8);
+    jit_builder.symbol("hyper_rt_str_ljust", hyper_rt_str_ljust as *const u8);
+    jit_builder.symbol("hyper_rt_str_rjust", hyper_rt_str_rjust as *const u8);
+    jit_builder.symbol("hyper_rt_str_zfill", hyper_rt_str_zfill as *const u8);
+    jit_builder.symbol("hyper_rt_str_removeprefix", hyper_rt_str_removeprefix as *const u8);
+    jit_builder.symbol("hyper_rt_str_removesuffix", hyper_rt_str_removesuffix as *const u8);
+    jit_builder.symbol("hyper_rt_str_partition", hyper_rt_str_partition as *const u8);
+    jit_builder.symbol("hyper_rt_str_rpartition", hyper_rt_str_rpartition as *const u8);
     jit_builder.symbol("hyper_rt_json_loads", hyper_rt_json_loads as *const u8);
     jit_builder.symbol("hyper_rt_json_dumps", hyper_rt_json_dumps as *const u8);
     jit_builder.symbol("hyper_rt_json_load", hyper_rt_json_load as *const u8);
@@ -992,29 +1102,41 @@ fn coll_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueK
 
 fn str_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
     match func {
-        "hyper_rt_str_upper" | "hyper_rt_str_lower" | "hyper_rt_str_strip"
-        | "hyper_rt_str_lstrip" | "hyper_rt_str_rstrip" | "hyper_rt_str_replace" => Some((
-            match func {
-                "hyper_rt_str_upper" => runtime.str_upper,
-                "hyper_rt_str_lower" => runtime.str_lower,
-                "hyper_rt_str_strip" => runtime.str_strip,
-                "hyper_rt_str_lstrip" => runtime.str_lstrip,
-                "hyper_rt_str_rstrip" => runtime.str_rstrip,
-                _ => runtime.str_replace,
-            },
-            ValueKind::Str,
-            false,
-        )),
-        "hyper_rt_str_startswith" | "hyper_rt_str_endswith" => Some((
-            if func == "hyper_rt_str_startswith" {
-                runtime.str_startswith
-            } else {
-                runtime.str_endswith
-            },
-            ValueKind::Bool,
-            false,
-        )),
+        "hyper_rt_str_upper" => Some((runtime.str_upper, ValueKind::Str, false)),
+        "hyper_rt_str_lower" => Some((runtime.str_lower, ValueKind::Str, false)),
+        "hyper_rt_str_capitalize" => Some((runtime.str_capitalize, ValueKind::Str, false)),
+        "hyper_rt_str_title" => Some((runtime.str_title, ValueKind::Str, false)),
+        "hyper_rt_str_swapcase" => Some((runtime.str_swapcase, ValueKind::Str, false)),
+        "hyper_rt_str_strip" => Some((runtime.str_strip, ValueKind::Str, false)),
+        "hyper_rt_str_lstrip" => Some((runtime.str_lstrip, ValueKind::Str, false)),
+        "hyper_rt_str_rstrip" => Some((runtime.str_rstrip, ValueKind::Str, false)),
+        "hyper_rt_str_replace" => Some((runtime.str_replace, ValueKind::Str, false)),
+        "hyper_rt_str_join" => Some((runtime.str_join, ValueKind::Str, false)),
+        "hyper_rt_str_center" => Some((runtime.str_center, ValueKind::Str, false)),
+        "hyper_rt_str_ljust" => Some((runtime.str_ljust, ValueKind::Str, false)),
+        "hyper_rt_str_rjust" => Some((runtime.str_rjust, ValueKind::Str, false)),
+        "hyper_rt_str_zfill" => Some((runtime.str_zfill, ValueKind::Str, false)),
+        "hyper_rt_str_removeprefix" => Some((runtime.str_removeprefix, ValueKind::Str, false)),
+        "hyper_rt_str_removesuffix" => Some((runtime.str_removesuffix, ValueKind::Str, false)),
+        "hyper_rt_str_startswith" => Some((runtime.str_startswith, ValueKind::Bool, false)),
+        "hyper_rt_str_endswith" => Some((runtime.str_endswith, ValueKind::Bool, false)),
+        "hyper_rt_str_isdigit" => Some((runtime.str_isdigit, ValueKind::Bool, false)),
+        "hyper_rt_str_isalpha" => Some((runtime.str_isalpha, ValueKind::Bool, false)),
+        "hyper_rt_str_isalnum" => Some((runtime.str_isalnum, ValueKind::Bool, false)),
+        "hyper_rt_str_isspace" => Some((runtime.str_isspace, ValueKind::Bool, false)),
+        "hyper_rt_str_islower" => Some((runtime.str_islower, ValueKind::Bool, false)),
+        "hyper_rt_str_isupper" => Some((runtime.str_isupper, ValueKind::Bool, false)),
+        "hyper_rt_str_istitle" => Some((runtime.str_istitle, ValueKind::Bool, false)),
+        "hyper_rt_str_isascii" => Some((runtime.str_isascii, ValueKind::Bool, false)),
+        "hyper_rt_str_find" => Some((runtime.str_find, ValueKind::I64, false)),
+        "hyper_rt_str_rfind" => Some((runtime.str_rfind, ValueKind::I64, false)),
+        "hyper_rt_str_index" => Some((runtime.str_index, ValueKind::I64, false)),
+        "hyper_rt_str_rindex" => Some((runtime.str_rindex, ValueKind::I64, false)),
+        "hyper_rt_str_count" => Some((runtime.str_count, ValueKind::I64, false)),
         "hyper_rt_str_split" => Some((runtime.str_split, ValueKind::List, false)),
+        "hyper_rt_str_rsplit" => Some((runtime.str_rsplit, ValueKind::List, false)),
+        "hyper_rt_str_partition" => Some((runtime.str_partition, ValueKind::List, false)),
+        "hyper_rt_str_rpartition" => Some((runtime.str_rpartition, ValueKind::List, false)),
         _ => None,
     }
 }
