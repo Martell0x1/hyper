@@ -271,6 +271,15 @@ impl Parser {
     }
 
     fn unary(&mut self) -> Result<Expr, ()> {
+        if self.match_types(&[TokenType::Handle]) {
+            let attempt = self.unary()?;
+            self.consume(TokenType::Else, "Expect 'else' after handle expression.")?;
+            let fallback = self.unary()?;
+            return Ok(Expr::Handle {
+                attempt: Box::new(attempt),
+                fallback: Box::new(fallback),
+            });
+        }
         if self.match_types(&[TokenType::Bang, TokenType::Minus, TokenType::Not]) {
             let op = match self.previous().token_type {
                 TokenType::Not | TokenType::Bang => UnaryOp::Not,
@@ -919,14 +928,27 @@ impl Parser {
                 if self.check(&TokenType::Newline) {
                     self.advance();
                 }
-            } else if self.match_types(&[TokenType::Fn]) {
+            } else if self.check(&TokenType::Pub)
+                || self.check(&TokenType::Fn)
+                || self.check(&TokenType::Def)
+            {
+                // `pub` precedes the `fn` / `def` keyword it applies to.
                 let is_pub = self.match_types(&[TokenType::Pub]);
-                let function = self.function_declaration(true)?;
-                methods.push(MethodDecl { is_pub, function });
-            } else if self.match_types(&[TokenType::Def]) {
-                let is_pub = self.match_types(&[TokenType::Pub]);
-                let function = self.function_declaration(false)?;
-                methods.push(MethodDecl { is_pub, function });
+                if self.match_types(&[TokenType::Fn]) {
+                    let function = self.function_declaration(true)?;
+                    methods.push(MethodDecl { is_pub, function });
+                } else if self.match_types(&[TokenType::Def]) {
+                    let function = self.function_declaration(false)?;
+                    methods.push(MethodDecl { is_pub, function });
+                } else {
+                    let token = self.peek().clone();
+                    error::syntax_at_token(
+                        token.line as u32,
+                        &token.lexeme,
+                        "expected 'fn' or 'def' after 'pub'",
+                    );
+                    return Err(());
+                }
             } else if self.check(&TokenType::Newline) {
                 self.advance();
             } else {
@@ -1010,11 +1032,19 @@ impl Parser {
         }
         self.consume(TokenType::RightParen, "Expect ')' after parameters.")?;
 
+        // Accept `raises` before or after the return type:
+        //   fn f() raises:
+        //   fn f() -> i64 raises:
+        //   fn f() raises -> i64:
+        let mut raises = self.match_types(&[TokenType::Raises]);
         let return_type = if self.match_types(&[TokenType::Arrow]) {
             Some(Self::type_ann_to_string(&self.parse_type_ann()?))
         } else {
             None
         };
+        if !raises {
+            raises = self.match_types(&[TokenType::Raises]);
+        }
 
         let body = if self.match_types(&[TokenType::Colon]) {
             self.skip_newlines();
@@ -1036,6 +1066,7 @@ impl Parser {
             is_strict,
             params,
             return_type,
+            raises,
             body: Box::new(body),
         })
     }
@@ -1094,6 +1125,31 @@ impl Parser {
 
         if self.match_types(&[TokenType::Return]) {
             return self.return_statement();
+        }
+
+        if self.match_types(&[TokenType::Break]) {
+            let line = self.previous().line as u32;
+            if self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            return Ok(Stmt::Break { line });
+        }
+
+        if self.match_types(&[TokenType::Continue]) {
+            let line = self.previous().line as u32;
+            if self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            return Ok(Stmt::Continue { line });
+        }
+
+        if self.match_types(&[TokenType::Raise]) {
+            let line = self.previous().line as u32;
+            let value = self.expression()?;
+            if self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            return Ok(Stmt::Raise { line, value });
         }
 
         if self.match_types(&[TokenType::Print]) {
@@ -1496,6 +1552,28 @@ mod tests {
              \x20   \"physics\": 95\n\
              }\n",
         );
+    }
+
+    #[test]
+    fn break_and_continue_are_statements() {
+        let stmts = parse_program(
+            "for n in range(3):\n\
+             \x20   if n == 1:\n\
+             \x20       continue\n\
+             \x20   break\n",
+        );
+        let Stmt::For { body, .. } = &stmts[0] else {
+            panic!("expected a for statement");
+        };
+        let Stmt::Block(inner) = body.as_ref() else {
+            panic!("expected a block body");
+        };
+        assert!(matches!(
+            &inner[0],
+            Stmt::If { then_branch, .. }
+                if matches!(then_branch.as_ref(), Stmt::Block(b) if matches!(b[0], Stmt::Continue { .. }))
+        ));
+        assert!(matches!(&inner[1], Stmt::Break { .. }));
     }
 }
 
