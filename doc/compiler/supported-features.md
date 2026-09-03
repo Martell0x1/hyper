@@ -5,13 +5,14 @@ This list reflects what **`hyper compile`** can lower today (JIT and `--emit-exe
 ## Language constructs
 
 - Variables: `let`, `let mut`, typed bindings (`name: Type = …`, `Array[T]`, `Dict[K, V]`)
-- Functions: `fn` / `def`, parameters including `ref` (passed by value today)
-- Control flow: `if` / `elif` / `else`, `while`, `for` / `for-in`, ternary `a if cond else b`
+- Functions: `fn` / `def`, parameters including `ref` (mutable binding; struct instances share field storage)
+- Control flow: `if` / `elif` / `else`, `while`, `for` / `for-in`, `break` / `continue`, ternary `a if cond else b`
+- Error flow: `raise`, `raises` on functions, `handle attempt else fallback` (no `try` / `except`)
 - Operators: arithmetic (`+`, `-`, `*`, `/`, `//`, `%`, `**`), comparisons, `and` / `or`, compound assignment
 - Literals: integers, floats, strings, f-strings, lists, dicts, `None`, booleans
-- Structs: fields, methods, `__init__`, field get/set
+- Structs: fields with `pub` / `mut`, methods, `__init__`, field get/set; traits (method name + arity)
 - Modules: `import m`, `import m as alias`, `from m import name`
-- Decorators: `@parallel`, `@vectorize` on `for` (emitted as sequential loops today)
+- Decorators: `@parallel`, `@vectorize` on `for` (compile path: sequential loops with the same per-index results; interpreter runs `@parallel` on threads)
 
 ## Builtins and standard library (compile path)
 
@@ -49,7 +50,17 @@ Integer `/`, `%`, `//` guard division by zero at runtime.
 | `ci/clock_compile.hyp` | `clock()` on compile path |
 | `ci/collections_compile.hyp` | list/array/dict `len`, `append`, `keys` on compile path |
 | `ci/strings_compile.hyp` | string methods on compile path (JIT and `--emit-exe`) |
+| `ci/break_continue.hyp` | `break` / `continue` in `while`, `for` and `for-in`; run / JIT / `--emit-exe` output parity |
+| `ci/raise_handle.hyp` | `raise` / `raises` / `handle` on run and compile |
+| `ci/traits_compile.hyp` | Trait conformance on compile path |
+| `ci/pub_mut.hyp` | `pub` / `mut` field rules on compile path |
+| `ci/ref_compile.hyp` | `ref` + shared struct fields on compile path |
+| `ci/vectorize_compile.hyp` | `@vectorize` / `@parallel` compile |
+
+## Loop control flow
+
+`break` and `continue` lower on the compile path for every loop form. `while` sends `continue` back to the condition header; `for` and `for-in` route it through a dedicated increment block so the induction variable still advances. Both are rejected outside a loop and inside a `@parallel` `for` body — see [Known limitations](known-limitations.md).
 
 ## Not compiled (see limitations)
 
-Generics, full trait enforcement, `break` / `continue`, real `@parallel` thread/GPU codegen, Python library interop — [Known limitations](known-limitations.md).
+Generics, list/dict shared `ref` payloads, production GPU/SIMD for `@vectorize`, Python library interop — [Known limitations](known-limitations.md).

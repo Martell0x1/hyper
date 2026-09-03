@@ -4,26 +4,35 @@ Hyper v0.1 targets a **working compiler for core programs**, not full language p
 
 ## Interpreter-only today
 
-_None for the string / collection / I/O surface covered by v0.1 smokes._
+_None for the string / collection / I/O / error-flow surface covered by v0.1 smokes._
 
 ## Supported on compile path (JIT and `--emit-exe`)
 
-`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, collection methods (`len`, `append`, `keys`), **full string methods** (see [Supported features](supported-features.md)), and `import json` (`loads`, `dumps`, `load`, `dump`).
+`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, collection methods (`len`, `append`, `keys`), **full string methods** (see [Supported features](supported-features.md)), `import json` (`loads`, `dumps`, `load`, `dump`), **`break` / `continue`**, **`pub` / `mut` enforcement**, **trait method conformance** (name + arity), **`raise` / `raises` / `handle`**, and `@parallel` / `@vectorize` `for` (see below).
 
 ## Lowered differently than interpreted
 
 | Construct | Compiler behavior |
 |-----------|-------------------|
-| `@parallel` / `@vectorize` on `for` | Emitted as **sequential** loops (same semantics for pure numeric loops; no thread pool yet) |
+| `@parallel` on `for` | Emitted as a **sequential** loop (same per-index semantics). The interpreter schedules real worker threads. |
+| `@vectorize` on `for` | SIMD-oriented hint; compile path still runs every index sequentially (interpreter uses lane-friendly chunking with identical results). |
 | Type errors | **Fatal** under `compile`; **warnings** under `run` |
+
+## Loop control flow
+
+`break` and `continue` bind to the innermost enclosing `while` / `for` / `for-in` loop on **both backends**. Two cases are rejected:
+
+- Outside any loop — `SyntaxError: line N: break outside loop` from the type checker (fatal under `compile`, a warning followed by a `RuntimeError` under `run`).
+- Inside a `@parallel` / `@parallel @vectorize` `for` body, where iterations are split across threads and an early exit has no single meaning.
+
+A function body does not inherit the loop around its declaration, so a `break` inside a nested `fn` is an error.
 
 ## Language features not implemented (any backend)
 
 - Generics (`make_it_speak[T: Speaker]` in docs is aspirational)
-- `break` / `continue`
-- Enforced `pub` / `mut` on struct members (parsed, not enforced)
-- Real `ref` semantics (zero-copy references)
-- `try` / `except` (structured exception handling)
+- Shared `ref` for list / dict / array payloads (structs already share; `ref` makes the parameter binding mutable)
+- `try` / `except` — Hyper uses explicit `raise` / `raises` / `handle` instead (see [Errors](../errors/overview.md))
+- Production GPU / SIMD codegen for `@vectorize`
 
 ## String methods
 
