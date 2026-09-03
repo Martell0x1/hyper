@@ -494,7 +494,7 @@ impl Lowerer {
 
     fn lower_collection_method(
         &mut self,
-        object: &str,
+        object: ValueId,
         method: &str,
         args: &[Expr],
     ) -> Option<ValueId> {
@@ -511,12 +511,7 @@ impl Lowerer {
             ));
             return Some(self.error_value());
         }
-        let obj = self.fresh_value();
-        self.emit(IrInstr::Load {
-            dest: obj,
-            name: object.to_string(),
-        });
-        let mut call_args = vec![obj];
+        let mut call_args = vec![object];
         for arg in args {
             call_args.push(self.lower_expr(arg));
         }
@@ -532,20 +527,46 @@ impl Lowerer {
 
     fn lower_string_method(
         &mut self,
-        object: &str,
+        object: ValueId,
         method: &str,
         args: &[Expr],
     ) -> Option<ValueId> {
         let (func, min_args, max_args) = match method {
             "upper" => ("hyper_rt_str_upper", 0, 0),
             "lower" => ("hyper_rt_str_lower", 0, 0),
+            "capitalize" => ("hyper_rt_str_capitalize", 0, 0),
+            "title" => ("hyper_rt_str_title", 0, 0),
+            "swapcase" => ("hyper_rt_str_swapcase", 0, 0),
             "strip" => ("hyper_rt_str_strip", 0, 0),
             "lstrip" => ("hyper_rt_str_lstrip", 0, 0),
             "rstrip" => ("hyper_rt_str_rstrip", 0, 0),
             "startswith" => ("hyper_rt_str_startswith", 1, 1),
             "endswith" => ("hyper_rt_str_endswith", 1, 1),
             "split" => ("hyper_rt_str_split", 0, 1),
+            "rsplit" => ("hyper_rt_str_rsplit", 0, 1),
             "replace" => ("hyper_rt_str_replace", 2, 2),
+            "join" => ("hyper_rt_str_join", 1, 1),
+            "find" => ("hyper_rt_str_find", 1, 1),
+            "rfind" => ("hyper_rt_str_rfind", 1, 1),
+            "index" => ("hyper_rt_str_index", 1, 1),
+            "rindex" => ("hyper_rt_str_rindex", 1, 1),
+            "count" => ("hyper_rt_str_count", 1, 1),
+            "isdigit" => ("hyper_rt_str_isdigit", 0, 0),
+            "isalpha" => ("hyper_rt_str_isalpha", 0, 0),
+            "isalnum" => ("hyper_rt_str_isalnum", 0, 0),
+            "isspace" => ("hyper_rt_str_isspace", 0, 0),
+            "islower" => ("hyper_rt_str_islower", 0, 0),
+            "isupper" => ("hyper_rt_str_isupper", 0, 0),
+            "istitle" => ("hyper_rt_str_istitle", 0, 0),
+            "isascii" => ("hyper_rt_str_isascii", 0, 0),
+            "center" => ("hyper_rt_str_center", 1, 2),
+            "ljust" => ("hyper_rt_str_ljust", 1, 2),
+            "rjust" => ("hyper_rt_str_rjust", 1, 2),
+            "zfill" => ("hyper_rt_str_zfill", 1, 1),
+            "removeprefix" => ("hyper_rt_str_removeprefix", 1, 1),
+            "removesuffix" => ("hyper_rt_str_removesuffix", 1, 1),
+            "partition" => ("hyper_rt_str_partition", 1, 1),
+            "rpartition" => ("hyper_rt_str_rpartition", 1, 1),
             _ => return None,
         };
         if args.len() < min_args || args.len() > max_args {
@@ -560,20 +581,19 @@ impl Lowerer {
             ));
             return Some(self.error_value());
         }
-        let obj = self.fresh_value();
-        self.emit(IrInstr::Load {
-            dest: obj,
-            name: object.to_string(),
-        });
-        let mut call_args = vec![obj];
-        if method == "split" && args.is_empty() {
+        let mut call_args = vec![object];
+        for arg in args {
+            call_args.push(self.lower_expr(arg));
+        }
+        let pad_none = match method {
+            "split" | "rsplit" if args.is_empty() => 1,
+            "center" | "ljust" | "rjust" if args.len() == 1 => 1,
+            _ => 0,
+        };
+        for _ in 0..pad_none {
             let none = self.fresh_value();
             self.emit(IrInstr::ConstNone { dest: none });
             call_args.push(none);
-        } else {
-            for arg in args {
-                call_args.push(self.lower_expr(arg));
-            }
         }
         call_args.push(self.line_arg());
         let dest = self.fresh_value();
@@ -710,6 +730,9 @@ impl Lowerer {
             Expr::CallMethod {
                 object, method, ..
             } => {
+                let Expr::Variable { name: object, .. } = object.as_ref() else {
+                    return;
+                };
                 if let Some(mod_name) = self.module_aliases.get(object) {
                     let key = module::mangle_module_fn(mod_name, method);
                     if self.structs.contains_key(&key) {
@@ -1426,73 +1449,92 @@ impl Lowerer {
                 method,
                 args,
             } => {
-                if let Some(mod_name) = self.module_aliases.get(object).cloned() {
-                    if mod_name == "json" {
-                        return self.lower_json_call(method, args);
+                if let Expr::Variable { name: object, .. } = object.as_ref() {
+                    if let Some(mod_name) = self.module_aliases.get(object).cloned() {
+                        if mod_name == "json" {
+                            return self.lower_json_call(method, args);
+                        }
+                        let struct_key = module::mangle_module_fn(&mod_name, method);
+                        if self.structs.contains_key(&struct_key) {
+                            let call_args: Vec<CallArg> = args
+                                .iter()
+                                .cloned()
+                                .map(CallArg::Positional)
+                                .collect();
+                            return self.lower_struct_ctor(&struct_key, &call_args);
+                        }
+                        let mut arg_ids = Vec::new();
+                        for a in args {
+                            arg_ids.push(self.lower_expr(a));
+                        }
+                        let dest = self.fresh_value();
+                        self.emit(IrInstr::Call {
+                            dest,
+                            func: module::mangle_module_fn(&mod_name, method),
+                            args: arg_ids,
+                        });
+                        return dest;
                     }
-                    let struct_key = module::mangle_module_fn(&mod_name, method);
-                    if self.structs.contains_key(&struct_key) {
-                        let call_args: Vec<CallArg> = args
-                            .iter()
-                            .cloned()
-                            .map(CallArg::Positional)
-                            .collect();
-                        return self.lower_struct_ctor(&struct_key, &call_args);
+                    if self.var_files.contains(object) {
+                        return self.lower_file_method(object, method, args);
                     }
-                    let mut arg_ids = Vec::new();
-                    for a in args {
-                        arg_ids.push(self.lower_expr(a));
+                    if self.var_mmaps.contains(object) {
+                        return self.lower_mmap_method(object, method, args);
                     }
-                    let dest = self.fresh_value();
-                    self.emit(IrInstr::Call {
-                        dest,
-                        func: module::mangle_module_fn(&mod_name, method),
-                        args: arg_ids,
-                    });
-                    return dest;
-                }
-                if self.var_files.contains(object) {
-                    return self.lower_file_method(object, method, args);
-                }
-                if self.var_mmaps.contains(object) {
-                    return self.lower_mmap_method(object, method, args);
-                }
-                if let Some(stype) = self.var_structs.get(object).cloned() {
-                    let layout = self.structs.get(&stype);
-                    let ir_name = layout
-                        .map(|l| l.ir_name.clone())
-                        .unwrap_or_else(|| stype.clone());
-                    let known = layout.map(|l| l.methods.contains(method)).unwrap_or(false);
-                    if !known {
-                        let message = self.method_error(object, method);
-                        self.error(message);
-                        return self.error_value();
+                    if let Some(stype) = self.var_structs.get(object).cloned() {
+                        let layout = self.structs.get(&stype);
+                        let ir_name = layout
+                            .map(|l| l.ir_name.clone())
+                            .unwrap_or_else(|| stype.clone());
+                        let known = layout.map(|l| l.methods.contains(method)).unwrap_or(false);
+                        if !known {
+                            let message = self.method_error(object, method);
+                            self.error(message);
+                            return self.error_value();
+                        }
+                        let obj = self.fresh_value();
+                        self.emit(IrInstr::Load {
+                            dest: obj,
+                            name: object.clone(),
+                        });
+                        let mut arg_ids = vec![obj];
+                        for a in args {
+                            arg_ids.push(self.lower_expr(a));
+                        }
+                        let dest = self.fresh_value();
+                        self.emit(IrInstr::Call {
+                            dest,
+                            func: Self::mangle_method(&ir_name, method),
+                            args: arg_ids,
+                        });
+                        return dest;
                     }
                     let obj = self.fresh_value();
                     self.emit(IrInstr::Load {
                         dest: obj,
                         name: object.clone(),
                     });
-                    let mut arg_ids = vec![obj];
-                    for a in args {
-                        arg_ids.push(self.lower_expr(a));
+                    if let Some(dest) = self.lower_collection_method(obj, method, args) {
+                        return dest;
                     }
-                    let dest = self.fresh_value();
-                    self.emit(IrInstr::Call {
-                        dest,
-                        func: Self::mangle_method(&ir_name, method),
-                        args: arg_ids,
-                    });
+                    if let Some(dest) = self.lower_string_method(obj, method, args) {
+                        return dest;
+                    }
+                    let message = self.method_error(object, method);
+                    self.error(message);
+                    return self.error_value();
+                }
+
+                let obj = self.lower_expr(object);
+                if let Some(dest) = self.lower_collection_method(obj, method, args) {
                     return dest;
                 }
-                if let Some(dest) = self.lower_collection_method(object, method, args) {
+                if let Some(dest) = self.lower_string_method(obj, method, args) {
                     return dest;
                 }
-                if let Some(dest) = self.lower_string_method(object, method, args) {
-                    return dest;
-                }
-                let message = self.method_error(object, method);
-                self.error(message);
+                self.error(format!(
+                    "cannot resolve method '{method}' on expression; use a named variable for struct/file methods"
+                ));
                 self.error_value()
             }
             Expr::List(items) => {
@@ -2177,9 +2219,12 @@ mod tests {
             "let mut text = \"  hi  \"\n\
              print(text.strip())\n\
              print(text.upper())\n\
-             print(text.startswith(\" \"))\n\
-             print(text.split())\n\
-             print(text.replace(\"hi\", \"yo\"))\n",
+             print(text.capitalize())\n\
+             print(text.join([\"a\"]))\n\
+             print(text.find(\"hi\"))\n\
+             print(text.isdigit())\n\
+             print(text.center(8))\n\
+             print(text.partition(\" \"))\n",
         )
         .expect("string methods should lower");
         let calls: Vec<&str> = module
@@ -2192,9 +2237,12 @@ mod tests {
             .collect();
         assert!(calls.contains(&"hyper_rt_str_strip"));
         assert!(calls.contains(&"hyper_rt_str_upper"));
-        assert!(calls.contains(&"hyper_rt_str_startswith"));
-        assert!(calls.contains(&"hyper_rt_str_split"));
-        assert!(calls.contains(&"hyper_rt_str_replace"));
+        assert!(calls.contains(&"hyper_rt_str_capitalize"));
+        assert!(calls.contains(&"hyper_rt_str_join"));
+        assert!(calls.contains(&"hyper_rt_str_find"));
+        assert!(calls.contains(&"hyper_rt_str_isdigit"));
+        assert!(calls.contains(&"hyper_rt_str_center"));
+        assert!(calls.contains(&"hyper_rt_str_partition"));
     }
 
     #[test]
