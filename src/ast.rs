@@ -72,7 +72,7 @@ pub enum Expr {
         args: Vec<CallArg>,
     },
     CallMethod {
-        object: String,
+        object: Box<Expr>,
         method: String,
         args: Vec<Expr>,
     },
