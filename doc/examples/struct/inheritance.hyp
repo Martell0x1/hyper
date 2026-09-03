@@ -1,9 +1,9 @@
 struct Animal:
-    let name: string
+    let pub name: string
 
 struct Dog:
-    let animal: Animal
-    let breed: string
+    let pub animal: Animal
+    let pub breed: string
 
 let base_animal = Animal(name: "Rex")
 let my_dog = Dog(animal: base_animal, breed: "Bulldog")

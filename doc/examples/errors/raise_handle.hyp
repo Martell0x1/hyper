@@ -1,0 +1,8 @@
+# Recover from raise with handle … else … (no try/except).
+fn parse_score(n: i64) raises -> i64:
+    if n < 0:
+        raise "score must be non-negative"
+    return n
+
+print(handle parse_score(10) else 0)
+print(handle parse_score(-3) else 0)

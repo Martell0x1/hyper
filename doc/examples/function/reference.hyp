@@ -1,5 +1,13 @@
-# Ref - zero-copy reference to avoid memory duplication and boost speed.
-fn process_array(ref arr: Array[int32]) -> int32:
-    return arr[0]
+# `ref` keeps a mutable binding; struct instances share field storage.
+struct Box:
+    let pub mut n: i64
 
-# syntax
+    pub fn __init__(ref self, n: i64):
+        self.n = n
+
+fn bump(ref b: Box):
+    b.n = b.n + 1
+
+let mut x = Box(1)
+bump(x)
+print(x.n)

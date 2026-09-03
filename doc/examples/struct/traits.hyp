@@ -2,21 +2,19 @@ trait Speaker:
     fn speak(ref self) -> string
 
 struct Dog(Speaker):
-    let name: string
+    let pub name: string
 
-    fn speak(ref self) -> string:
+    pub fn speak(ref self) -> string:
         return "Woof!"
 
 struct Cat(Speaker):
-    let name: string
+    let pub name: string
 
-    fn speak(ref self) -> string:
+    pub fn speak(ref self) -> string:
         return "Meow!"
 
-fn make_it_speak[T: Speaker](ref item: T):
-    print(item.speak())
-
 let my_dog = Dog(name: "Tuzlon")
-make_it_speak(my_dog)
+print(my_dog.speak())
 
-# syntax
+let my_cat = Cat(name: "Mosh")
+print(my_cat.speak())
