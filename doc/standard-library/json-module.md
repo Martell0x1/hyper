@@ -2,7 +2,7 @@
 
 `json` is a **builtin module** implemented in the Rust runtime — no `.hyp` file to install.
 
-**Compiler status:** JSON calls compile only after the module is lowered; today use `hyper run`. See [Known limitations](../compiler/known-limitations.md).
+**Compiler status:** `import json` and `loads` / `dumps` / `load` / `dump` lower on the compile path. See [Compiler supported features](../compiler/supported-features.md).
 
 ## Import
 
