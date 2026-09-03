@@ -41,6 +41,7 @@ use super::runtime::{
     hyper_rt_clock,
     hyper_rt_index_get, hyper_rt_index_set,
     hyper_rt_input,
+    hyper_rt_handle_enter, hyper_rt_handle_leave, hyper_rt_raise,
     hyper_rt_value_eq, hyper_rt_value_to_str,
 };
 
@@ -196,6 +197,9 @@ struct RuntimeIds {
     json_dumps: FuncId,
     json_load: FuncId,
     json_dump: FuncId,
+    handle_enter: FuncId,
+    handle_leave: FuncId,
+    raise_fn: FuncId,
 }
 
 fn make_flags(is_pic: bool) -> Result<settings::Flags, String> {
@@ -548,6 +552,9 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     let json_dumps = declare_file("hyper_rt_json_dumps", 6, 1)?;
     let json_load = declare_file("hyper_rt_json_load", 5, 1)?;
     let json_dump = declare_file("hyper_rt_json_dump", 8, 1)?;
+    let handle_enter = declare_file("hyper_rt_handle_enter", 0, 1)?;
+    let handle_leave = declare_file("hyper_rt_handle_leave", 0, 1)?;
+    let raise_fn = declare_file("hyper_rt_raise", 4, 1)?;
     Ok(RuntimeIds {
         print_i64,
         print_f64,
@@ -642,6 +649,9 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         json_dumps,
         json_load,
         json_dump,
+        handle_enter,
+        handle_leave,
+        raise_fn,
     })
 }
 
@@ -818,6 +828,9 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_json_dumps", hyper_rt_json_dumps as *const u8);
     jit_builder.symbol("hyper_rt_json_load", hyper_rt_json_load as *const u8);
     jit_builder.symbol("hyper_rt_json_dump", hyper_rt_json_dump as *const u8);
+    jit_builder.symbol("hyper_rt_handle_enter", hyper_rt_handle_enter as *const u8);
+    jit_builder.symbol("hyper_rt_handle_leave", hyper_rt_handle_leave as *const u8);
+    jit_builder.symbol("hyper_rt_raise", hyper_rt_raise as *const u8);
 }
 
 pub fn jit_execute(module: &IrModule) -> Result<(), String> {
@@ -1161,6 +1174,15 @@ fn json_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueK
         )),
         "hyper_rt_json_dumps" => Some((runtime.json_dumps, ValueKind::Str, false)),
         "hyper_rt_json_dump" => Some((runtime.json_dump, ValueKind::I64, false)),
+        _ => None,
+    }
+}
+
+fn error_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
+    match func {
+        "hyper_rt_handle_enter" => Some((runtime.handle_enter, ValueKind::I64, false)),
+        "hyper_rt_handle_leave" => Some((runtime.handle_leave, ValueKind::Bool, false)),
+        "hyper_rt_raise" => Some((runtime.raise_fn, ValueKind::I64, false)),
         _ => None,
     }
 }
@@ -1855,6 +1877,17 @@ fn define_function<M: Module>(
                         value_kinds.insert(*dest, out_kind);
                     } else if let Some((rt_id, out_kind, uses_out_kind)) =
                         clock_runtime_call(func, runtime)
+                    {
+                        if uses_out_kind {
+                            return Err(format!("codegen: {func} uses out_kind but should not"));
+                        }
+                        let fref = module.declare_func_in_func(rt_id, &mut builder.func);
+                        let call = builder.ins().call(fref, &arg_vals);
+                        let payload = builder.inst_results(call)[0];
+                        builder.def_var(value_vars[dest], payload);
+                        value_kinds.insert(*dest, out_kind);
+                    } else if let Some((rt_id, out_kind, uses_out_kind)) =
+                        error_runtime_call(func, runtime)
                     {
                         if uses_out_kind {
                             return Err(format!("codegen: {func} uses out_kind but should not"));
