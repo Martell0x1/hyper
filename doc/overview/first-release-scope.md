@@ -21,7 +21,7 @@ Release packaging (CHANGELOG, git tag, GitHub Release) happens **after** the cri
 | `compile` JIT matches `run` on `ci/smoke.hyp` | Required |
 | `--emit-exe` smoke passes | Required |
 | Division-by-zero parity (`ci/divzero.hyp`) | Required |
-| I/O, JSON, mmap, `input`, `clock` compile smokes (`ci/*_compile.hyp`) | Required |
+| I/O, JSON, mmap, `input`, `clock`, collection-method compile smokes (`ci/*_compile.hyp`) | Required |
 
 ### Compiler coverage (core language)
 
@@ -35,6 +35,7 @@ Release packaging (CHANGELOG, git tag, GitHub Release) happens **after** the cri
 | Strings, lists, dicts, equality | Yes |
 | F-strings, `print` | Yes |
 | `open`, `with`, file methods, `open_mmap`, `import json`, `input()`, `clock()` | Yes (compile path) |
+| Collection methods (`len`, `append`, `keys`) | Yes (compile path) |
 
 ### Compiler gaps acceptable in v0.1 (must be documented)
 
@@ -42,7 +43,7 @@ Release packaging (CHANGELOG, git tag, GitHub Release) happens **after** the cri
 |---------|------------------|
 | `@parallel` / `@vectorize` | Sequential codegen OK; real multithreading/GPU post v0.1 |
 | Generics / full trait system | Documented as not implemented |
-| `break` / `continue`, collection methods | Post v0.1 or contributor issues |
+| `break` / `continue` | Post v0.1 or contributor issues |
 | NumPy / CPython extension interop | Vision in [Why Hyper](why-hyper.md); not required for v0.1 tag |
 
 ### Documentation

@@ -63,7 +63,7 @@ The goal is **safe concurrency** plus **predictable performance**, not “fast b
 ## Where Hyper is headed
 
 1. **v0.1** — Credible compiler for core programs; honest documentation; CI smoke for run and compile.
-2. **Post v0.1** — Deeper Python/library interop, real `@parallel` codegen, GPU backends, collection methods, stricter `pub` / `mut` / `ref`.
+2. **Post v0.1** — Deeper Python/library interop, real `@parallel` codegen, GPU backends, stricter `pub` / `mut` / `ref`.
 3. **Long term** — Hyper as the default runtime for **Python-compatible, AI-scale, native-speed** code: compile-by-default, interpreter retired.
 
 See [First release scope](first-release-scope.md) for the v0.1 checklist.

@@ -1,0 +1,15 @@
+# Collection methods on the compile path (len / append / keys).
+let mut items = [1, 2]
+print(items.len())
+items.append(3)
+print(items)
+print(items.len())
+
+let mut arr: Array[int32] = [10, 20]
+print(arr.len())
+arr.append(30)
+print(arr)
+
+let mut scores = {"math": 100, "physics": 95}
+print(scores.len())
+print(scores.keys())

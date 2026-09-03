@@ -46,6 +46,7 @@ typedef struct {
 } RtStruct;
 
 extern int64_t __main__(void);
+void hyper_rt_div_by_zero(int64_t line);
 
 void hyper_rt_print_i64(int64_t v) {
     printf("%lld", (long long)v);
@@ -533,6 +534,87 @@ int64_t hyper_rt_list_len(int64_t list_h) {
     }
     const RtList *list = (const RtList *)(intptr_t)list_h;
     return (int64_t)list->len;
+}
+
+static void rt_fatal(int64_t line, const char *msg) {
+    fflush(stdout);
+    fprintf(stderr, "RuntimeError: line %lld: %s\n", (long long)line, msg);
+    exit(70);
+}
+
+static int64_t utf8_char_len(int64_t payload) {
+    const char *s = payload ? (const char *)(intptr_t)payload : "";
+    int64_t n = 0;
+    while (*s) {
+        unsigned char c = (unsigned char)*s;
+        if ((c & 0xC0) != 0x80) {
+            n++;
+        }
+        s++;
+    }
+    return n;
+}
+
+int64_t hyper_rt_coll_len(int64_t payload, int64_t kind, int64_t line, int64_t line_kind) {
+    (void)line_kind;
+    if (kind == KIND_LIST) {
+        return hyper_rt_list_len(payload);
+    }
+    if (kind == KIND_DICT) {
+        if (!payload) {
+            return 0;
+        }
+        return (int64_t)((const RtDict *)(intptr_t)payload)->len;
+    }
+    if (kind == KIND_STR) {
+        return utf8_char_len(payload);
+    }
+    rt_fatal(line, "this type has no method 'len'");
+    return 0;
+}
+
+void hyper_rt_coll_append(
+    int64_t payload,
+    int64_t kind,
+    int64_t value,
+    int64_t val_kind,
+    int64_t line,
+    int64_t line_kind
+) {
+    (void)line_kind;
+    if (kind == KIND_LIST) {
+        hyper_rt_list_push(payload, value, val_kind);
+        return;
+    }
+    if (kind == KIND_DICT) {
+        rt_fatal(line, "dict has no method 'append'");
+    }
+    rt_fatal(line, "this type has no method 'append'");
+}
+
+int64_t hyper_rt_coll_keys(int64_t payload, int64_t kind, int64_t line, int64_t line_kind) {
+    (void)line_kind;
+    if (kind != KIND_DICT) {
+        if (kind == KIND_LIST) {
+            rt_fatal(line, "list has no method 'keys'");
+        }
+        rt_fatal(line, "this type has no method 'keys'");
+    }
+    int64_t list = hyper_rt_list_new();
+    if (!payload) {
+        return list;
+    }
+    const RtDict *dict = (const RtDict *)(intptr_t)payload;
+    for (size_t i = 0; i < dict->len; i++) {
+        const char *key = dict->entries[i].key ? dict->entries[i].key : "";
+        size_t n = strlen(key);
+        char *copy = (char *)malloc(n + 1);
+        if (copy) {
+            memcpy(copy, key, n + 1);
+        }
+        hyper_rt_list_push(list, (int64_t)(intptr_t)copy, KIND_STR);
+    }
+    return list;
 }
 
 int64_t hyper_rt_value_to_str(int64_t payload, int64_t kind) {

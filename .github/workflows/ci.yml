@@ -62,6 +62,9 @@ jobs:
       - name: Compiler clock smoke
         run: cargo run --quiet -- compile ci/clock_compile.hyp
 
+      - name: Compiler collection methods smoke
+        run: cargo run --quiet -- compile ci/collections_compile.hyp
+
       - name: Compiler emit-exe smoke
         run: |
           cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
