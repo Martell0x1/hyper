@@ -37,14 +37,19 @@ Release packaging (CHANGELOG, git tag, GitHub Release) happens **after** the cri
 | `open`, `with`, file methods, `open_mmap`, `import json`, `input()`, `clock()` | Yes (compile path) |
 | Collection methods (`len`, `append`, `keys`) | Yes (compile path) |
 | Common / full string methods | Yes (compile path; Python-compatible) |
+| `break` / `continue` | Yes (compile path; rejected in `@parallel` loop bodies) |
+| `pub` / `mut` on struct members | Yes (enforced on both backends) |
+| Traits (method name + arity) | Yes (no generics) |
+| `raise` / `raises` / `handle` | Yes (compile path; no `try` / `except`) |
+| `ref` (mutable binding; shared structs) | Yes |
 
 ### Compiler gaps acceptable in v0.1 (must be documented)
 
 | Feature | v0.1 expectation |
 |---------|------------------|
-| `@parallel` / `@vectorize` | Sequential codegen OK; real multithreading/GPU post v0.1 |
+| `@parallel` / `@vectorize` | Sequential compile codegen OK; interpreter has real `@parallel` threads; GPU/SIMD post v0.1 |
 | Generics / full trait system | Documented as not implemented |
-| `break` / `continue` | Post v0.1 or contributor issues |
+| Shared `ref` for list/dict/array | Structs share; collections still copy — documented |
 | NumPy / CPython extension interop | Vision in [Why Hyper](why-hyper.md); not required for v0.1 tag |
 
 ### Documentation
@@ -63,8 +68,9 @@ Release packaging (CHANGELOG, git tag, GitHub Release) happens **after** the cri
 - **Full** Python language and stdlib parity
 - Guaranteed NumPy wheel compatibility without integration work
 - Production GPU kernel codegen
-- Full trait / generic system
+- Full trait / generic system (basic trait method checks ship in v0.1)
 - Interpreter removal (post v0.1 roadmap)
+- `try` / `except` (Hyper uses `raise` / `handle` instead)
 
 ## When we announce “v0.1 ready”
 

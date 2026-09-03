@@ -50,7 +50,7 @@ The goal is **safe concurrency** plus **predictable performance**, not “fast b
 | **Execution** | `hyper run` (interpreter) and `hyper compile` (JIT / native binary) |
 | **I/O & JSON** | `open`, `with`, file methods, `open_mmap`, `import json`, `input()` on the compile path |
 | **Parallelism** | `@parallel` / `@vectorize` parse and run; compiler emits sequential loops until thread/GPU backends land |
-| **Gaps** | Generics, traits, `break`/`continue`, full Python/stdlib parity — see [Known limitations](../compiler/known-limitations.md) |
+| **Gaps** | Generics, shared list/dict `ref`, full Python/stdlib parity — see [Known limitations](../compiler/known-limitations.md) |
 
 ## Why pick Hyper over …
 
@@ -58,7 +58,7 @@ The goal is **safe concurrency** plus **predictable performance**, not “fast b
 
 **Rust / C++** — Less ceremony for data and ML scripts; Hyper prioritizes approachability first, then performance, with safety built into the runtime rather than manual ownership everywhere.
 
-**Julia / Mojo / others** — Hyper bets on **Python familiarity** as the on-ramp, plus a **single compile-first binary** (interpreter as a transitional dev path).
+**Other compiled Python-family languages** — Hyper bets on **Python familiarity** as the on-ramp, plus a **single compile-first binary** (interpreter as a transitional dev path).
 
 ## Where Hyper is headed
 
