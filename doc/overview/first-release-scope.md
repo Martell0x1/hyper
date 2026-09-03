@@ -36,6 +36,7 @@ Release packaging (CHANGELOG, git tag, GitHub Release) happens **after** the cri
 | F-strings, `print` | Yes |
 | `open`, `with`, file methods, `open_mmap`, `import json`, `input()`, `clock()` | Yes (compile path) |
 | Collection methods (`len`, `append`, `keys`) | Yes (compile path) |
+| Common string methods (`upper`, `strip`, `split`, …) | Yes (compile path) |
 
 ### Compiler gaps acceptable in v0.1 (must be documented)
 
