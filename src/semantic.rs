@@ -495,12 +495,7 @@ impl TypeChecker {
             }
             Expr::Call { callee, args } => self.check_call(callee, args),
             Expr::CallMethod { object, args, .. } => {
-                if self.lookup(object).is_none() {
-                    self.error(format!(
-                        "Error: Undefined variable '{}'.",
-                        object
-                    ));
-                }
+                let _ = self.check_expr(object);
                 for a in args {
                     let _ = self.check_expr(a);
                 }
