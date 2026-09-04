@@ -27,7 +27,7 @@ You should receive an acknowledgment within a few days. We will work with you on
 Please use [regular issues](https://github.com/muhammadyusufpov/hyper/issues) for:
 
 - Language design questions and feature requests
-- Compiler / interpreter bugs that do not have a security impact
+- Compiler bugs that do not have a security impact
 - Documented gaps in [known limitations](doc/compiler/known-limitations.md)
 - Documentation typos and CI failures
 
