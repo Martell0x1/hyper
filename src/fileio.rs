@@ -20,7 +20,8 @@ use crate::error;
 const BUFFER_CAPACITY: usize = 64 * 1024;
 
 pub struct HyperFile {
-    file: File,
+    /// `None` after `close()` so the OS handle is released immediately.
+    file: Option<File>,
     path: String,
     mode: String,
     readable: bool,
@@ -48,7 +49,7 @@ impl HyperFile {
         let (readable, writable, mut options) = options_for_mode(mode)?;
         let file = options.read(readable).open(path)?;
         Ok(HyperFile {
-            file,
+            file: Some(file),
             path: path.to_string(),
             mode: mode.to_string(),
             readable,
@@ -73,8 +74,14 @@ impl HyperFile {
         self.closed
     }
 
+    fn os_file(&mut self) -> io::Result<&mut File> {
+        self.file
+            .as_mut()
+            .ok_or_else(|| io::Error::other("I/O operation on closed file"))
+    }
+
     fn check_open(&self) -> io::Result<()> {
-        if self.closed {
+        if self.closed || self.file.is_none() {
             return Err(io::Error::other("I/O operation on closed file"));
         }
         Ok(())
@@ -107,18 +114,22 @@ impl HyperFile {
     }
 
     fn flush_writes(&mut self) -> io::Result<()> {
-        if !self.write_buf.is_empty() {
-            self.file.write_all(&self.write_buf)?;
-            self.write_buf.clear();
+        if self.write_buf.is_empty() {
+            return Ok(());
         }
-        Ok(())
+        let data = std::mem::take(&mut self.write_buf);
+        let result = self.os_file()?.write_all(&data);
+        if result.is_err() {
+            self.write_buf = data;
+        }
+        result
     }
 
     /// Give back the bytes we read ahead but never handed to the script.
     fn release_read_ahead(&mut self) -> io::Result<()> {
         let pending = self.unread();
         if pending > 0 {
-            self.file.seek(SeekFrom::Current(-(pending as i64)))?;
+            self.os_file()?.seek(SeekFrom::Current(-(pending as i64)))?;
         }
         self.read_pos = 0;
         self.read_len = 0;
@@ -134,7 +145,15 @@ impl HyperFile {
         if self.read_buf.is_empty() {
             self.read_buf = vec![0u8; BUFFER_CAPACITY];
         }
-        let n = self.file.read(&mut self.read_buf)?;
+        let mut buf = std::mem::take(&mut self.read_buf);
+        let n = match self.os_file()?.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) => {
+                self.read_buf = buf;
+                return Err(e);
+            }
+        };
+        self.read_buf = buf;
         self.read_pos = 0;
         self.read_len = n;
         Ok(n)
@@ -142,11 +161,15 @@ impl HyperFile {
 
     /// Remaining bytes from the OS cursor to end of file, for capacity hints.
     fn remaining_hint(&mut self) -> usize {
-        let len = match self.file.metadata() {
+        let file = match self.os_file() {
+            Ok(f) => f,
+            Err(_) => return 0,
+        };
+        let len = match file.metadata() {
             Ok(m) => m.len(),
             Err(_) => return 0,
         };
-        let pos = self.file.stream_position().unwrap_or(len);
+        let pos = file.stream_position().unwrap_or(len);
         len.saturating_sub(pos) as usize
     }
 
@@ -157,7 +180,7 @@ impl HyperFile {
         out.reserve(self.unread() + self.remaining_hint());
         out.extend_from_slice(&self.read_buf[self.read_pos..self.read_len]);
         self.read_pos = self.read_len;
-        self.file.read_to_end(&mut out)?;
+        self.os_file()?.read_to_end(&mut out)?;
         Ok(into_string(out))
     }
 
@@ -226,7 +249,7 @@ impl HyperFile {
         let bytes = text.as_bytes();
         if bytes.len() >= BUFFER_CAPACITY {
             self.flush_writes()?;
-            self.file.write_all(bytes)?;
+            self.os_file()?.write_all(bytes)?;
         } else {
             if self.write_buf.len() + bytes.len() > BUFFER_CAPACITY {
                 self.flush_writes()?;
@@ -242,7 +265,7 @@ impl HyperFile {
     pub fn flush(&mut self) -> io::Result<()> {
         self.check_open()?;
         self.flush_writes()?;
-        self.file.flush()
+        self.os_file()?.flush()
     }
 
     pub fn seek(&mut self, offset: i64, whence: i64) -> io::Result<u64> {
@@ -254,28 +277,37 @@ impl HyperFile {
             2 => SeekFrom::End(offset),
             _ => SeekFrom::Start(offset.max(0) as u64),
         };
-        self.file.seek(target)
+        self.os_file()?.seek(target)
     }
 
     pub fn tell(&mut self) -> io::Result<u64> {
         self.check_open()?;
-        let pos = self.file.stream_position()?;
+        let pos = self.os_file()?.stream_position()?;
         Ok(pos.saturating_add(self.write_buf.len() as u64) - self.unread() as u64)
     }
 
     pub fn size(&mut self) -> io::Result<u64> {
         self.check_open()?;
         self.flush_writes()?;
-        Ok(self.file.metadata()?.len())
+        Ok(self.os_file()?.metadata()?.len())
     }
 
     pub fn close(&mut self) -> io::Result<()> {
         if self.closed {
             return Ok(());
         }
-        self.flush_writes()?;
-        self.file.flush()?;
+        // Flush while the OS handle is still present.
+        if self.file.is_some() {
+            self.flush_writes()?;
+            if let Some(mut file) = self.file.take() {
+                file.flush()?;
+            }
+        }
         self.closed = true;
+        self.read_buf.clear();
+        self.write_buf.clear();
+        self.read_pos = 0;
+        self.read_len = 0;
         Ok(())
     }
 }
@@ -471,7 +503,9 @@ pub fn call_file_method(
         "readlines" => {
             expect_args(0);
             file.read_lines().map(|lines| {
-                HyperValue::List(lines.into_iter().map(HyperValue::String).collect())
+                HyperValue::List(Rc::new(RefCell::new(
+                    lines.into_iter().map(HyperValue::String).collect(),
+                )))
             })
         }
         "write" => {
@@ -485,7 +519,7 @@ pub fn call_file_method(
                 HyperValue::List(items) | HyperValue::Array { elements: items, .. } => {
                     let mut total = 0usize;
                     let mut error = None;
-                    for item in items {
+                    for item in items.borrow().iter() {
                         match file.write_str(&item.to_string()) {
                             Ok(n) => total += n,
                             Err(e) => {

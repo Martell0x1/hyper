@@ -1,4 +1,6 @@
 use indexmap::IndexMap;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::environment::HyperValue;
 use crate::error;
@@ -54,7 +56,7 @@ pub fn call_dict_method(
                 .keys()
                 .map(|k| HyperValue::String(k.clone()))
                 .collect();
-            Some(HyperValue::List(keys))
+            Some(HyperValue::List(Rc::new(RefCell::new(keys))))
         }
         other => error::runtime(line, format!("dict has no method '{}'", other)),
     }

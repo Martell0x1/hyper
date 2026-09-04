@@ -324,13 +324,15 @@ fn coerce_to_type(value: HyperValue, type_ann: &TypeAnn, line: u32) -> HyperValu
         TypeAnn::Named(name) => coerce_named(value, name, line),
         TypeAnn::Array { inner } => match value {
             HyperValue::List(elements) | HyperValue::Array { elements, .. } => {
-                let elements = elements
-                    .into_iter()
+                let coerced: Vec<HyperValue> = elements
+                    .borrow()
+                    .iter()
+                    .cloned()
                     .map(|el| coerce_named(el, inner, line))
                     .collect();
                 HyperValue::Array {
                     element_type: inner.clone(),
-                    elements,
+                    elements: Rc::new(RefCell::new(coerced)),
                 }
             }
             other => {
@@ -343,14 +345,15 @@ fn coerce_to_type(value: HyperValue, type_ann: &TypeAnn, line: u32) -> HyperValu
         },
         TypeAnn::Dict { key, value: val_ty } => match value {
             HyperValue::Dict { entries, .. } => {
-                let entries = entries
-                    .into_iter()
-                    .map(|(k, v)| (k, coerce_named(v, val_ty, line)))
+                let coerced: IndexMap<String, HyperValue> = entries
+                    .borrow()
+                    .iter()
+                    .map(|(k, v)| (k.clone(), coerce_named(v.clone(), val_ty, line)))
                     .collect();
                 HyperValue::Dict {
                     key_type: key.clone(),
                     val_type: val_ty.clone(),
-                    entries,
+                    entries: Rc::new(RefCell::new(coerced)),
                 }
             }
             other => {
@@ -424,6 +427,7 @@ fn to_i64(value: &HyperValue) -> i64 {
 fn index_get(object: &HyperValue, index: &HyperValue, line: u32) -> HyperValue {
     match object {
         HyperValue::List(items) | HyperValue::Array { elements: items, .. } => {
+            let items = items.borrow();
             let i = to_i64(index);
             if i < 0 || i as usize >= items.len() {
                 error::runtime(
@@ -439,7 +443,11 @@ fn index_get(object: &HyperValue, index: &HyperValue, line: u32) -> HyperValue {
         }
         HyperValue::Dict { entries, .. } => {
             let key = index.to_string();
-            entries.get(&key).cloned().unwrap_or(HyperValue::None)
+            entries
+                .borrow()
+                .get(&key)
+                .cloned()
+                .unwrap_or(HyperValue::None)
         }
         HyperValue::String(s) => {
             let i = to_i64(index);
@@ -465,6 +473,7 @@ fn index_get(object: &HyperValue, index: &HyperValue, line: u32) -> HyperValue {
 fn index_set(object: &mut HyperValue, index: &HyperValue, value: HyperValue, line: u32) {
     match object {
         HyperValue::List(items) | HyperValue::Array { elements: items, .. } => {
+            let mut items = items.borrow_mut();
             let i = to_i64(index);
             if i < 0 || i as usize >= items.len() {
                 error::runtime(
@@ -479,7 +488,7 @@ fn index_set(object: &mut HyperValue, index: &HyperValue, value: HyperValue, lin
             items[i as usize] = value;
         }
         HyperValue::Dict { entries, .. } => {
-            entries.insert(index.to_string(), value);
+            entries.borrow_mut().insert(index.to_string(), value);
         }
         _ => {
             error::runtime(line, "indexed assignment requires a list or dict");
@@ -762,7 +771,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             for item in items {
                 elements.push(evaluate(item, line, Rc::clone(&env))?);
             }
-            Some(HyperValue::List(elements))
+            Some(HyperValue::List(Rc::new(RefCell::new(elements))))
         }
         Expr::Dict(entries) => {
             let mut map = IndexMap::new();
@@ -774,7 +783,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             Some(HyperValue::Dict {
                 key_type: "string".to_string(),
                 val_type: "any".to_string(),
-                entries: map,
+                entries: Rc::new(RefCell::new(map)),
             })
         }
         Expr::Index { object, index } => {
@@ -1415,8 +1424,8 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                     let collection = evaluate(iterable, *line, Rc::clone(&env))
                         .unwrap_or(HyperValue::None);
                     let items: Vec<HyperValue> = match collection {
-                        HyperValue::List(items) => items,
-                        HyperValue::Array { elements, .. } => elements,
+                        HyperValue::List(items) => items.borrow().clone(),
+                        HyperValue::Array { elements, .. } => elements.borrow().clone(),
                         other => {
                             error::runtime(
                                 *line,

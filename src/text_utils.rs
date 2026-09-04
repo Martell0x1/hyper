@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::environment::HyperValue;
 use crate::error;
 
@@ -241,7 +244,11 @@ pub fn call_string_method(
         "join" => {
             expect_args("join", args, 1, 1, line);
             if let HyperValue::List(items) = &args[0] {
-                let strs: Vec<String> = items.iter().map(|item| item.to_string()).collect();
+                let strs: Vec<String> = items
+                    .borrow()
+                    .iter()
+                    .map(|item| item.to_string())
+                    .collect();
                 Some(HyperValue::String(strs.join(s)))
             } else {
                 error::runtime(line, "'join' expects a list argument");
@@ -279,7 +286,7 @@ pub fn call_string_method(
                     .map(|p| HyperValue::String(p.to_string()))
                     .collect()
             };
-            Some(HyperValue::List(parts))
+            Some(HyperValue::List(Rc::new(RefCell::new(parts))))
         }
         "rsplit" => {
             expect_args("rsplit", args, 0, 1, line);
@@ -296,7 +303,7 @@ pub fn call_string_method(
                 parts.reverse();
                 parts
             };
-            Some(HyperValue::List(parts))
+            Some(HyperValue::List(Rc::new(RefCell::new(parts))))
         }
         "replace" => {
             expect_args("replace", args, 2, 2, line);
@@ -432,11 +439,11 @@ pub fn call_string_method(
                 ),
                 None => (s.to_string(), String::new(), String::new()),
             };
-            Some(HyperValue::List(vec![
+            Some(HyperValue::List(Rc::new(RefCell::new(vec![
                 HyperValue::String(a),
                 HyperValue::String(b),
                 HyperValue::String(c),
-            ]))
+            ]))))
         }
         "rpartition" => {
             expect_args("rpartition", args, 1, 1, line);
@@ -449,11 +456,11 @@ pub fn call_string_method(
                 ),
                 None => (String::new(), String::new(), s.to_string()),
             };
-            Some(HyperValue::List(vec![
+            Some(HyperValue::List(Rc::new(RefCell::new(vec![
                 HyperValue::String(a),
                 HyperValue::String(b),
                 HyperValue::String(c),
-            ]))
+            ]))))
         }
         _ => {
             error::runtime(line, format!("string has no method '{}'", method_name));

@@ -5,6 +5,8 @@
 //! inserted in, so a document survives a load/dump round trip unchanged.
 
 use indexmap::IndexMap;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::environment::HyperValue;
 
@@ -121,7 +123,7 @@ impl<'a> Parser<'a> {
         self.skip_whitespace();
         if self.peek() == Some(b']') {
             self.pos += 1;
-            return Ok(HyperValue::List(items));
+            return Ok(HyperValue::List(Rc::new(RefCell::new(items))));
         }
         loop {
             self.skip_whitespace();
@@ -131,7 +133,7 @@ impl<'a> Parser<'a> {
                 Some(b',') => self.pos += 1,
                 Some(b']') => {
                     self.pos += 1;
-                    return Ok(HyperValue::List(items));
+                    return Ok(HyperValue::List(Rc::new(RefCell::new(items))));
                 }
                 _ => return Err(format!("expected ',' or ']' at byte {}", self.pos)),
             }
@@ -268,7 +270,7 @@ fn new_dict(entries: IndexMap<String, HyperValue>) -> HyperValue {
     HyperValue::Dict {
         key_type: "string".to_string(),
         val_type: "any".to_string(),
-        entries,
+        entries: Rc::new(RefCell::new(entries)),
     }
 }
 
@@ -291,10 +293,11 @@ fn write_value(
         HyperValue::String(s) => write_string(s, out),
         HyperValue::F32(n) => write_float(*n as f64, out)?,
         HyperValue::F64(n) => write_float(*n, out)?,
-        HyperValue::List(items) => write_array(items, indent, depth, out)?,
-        HyperValue::Array { elements, .. } => write_array(elements, indent, depth, out)?,
+        HyperValue::List(items) => write_array(&items.borrow(), indent, depth, out)?,
+        HyperValue::Array { elements, .. } => write_array(&elements.borrow(), indent, depth, out)?,
         HyperValue::Dict { entries, .. } => {
-            let pairs: Vec<(&str, &HyperValue)> = entries
+            let borrowed = entries.borrow();
+            let pairs: Vec<(&str, &HyperValue)> = borrowed
                 .iter()
                 .map(|(k, v)| (k.as_str(), v))
                 .collect();
@@ -432,9 +435,9 @@ fn type_label(value: &HyperValue) -> &'static str {
 mod tests {
     use super::*;
 
-    fn dict_of(value: &HyperValue) -> &IndexMap<String, HyperValue> {
+    fn dict_of(value: &HyperValue) -> std::cell::Ref<'_, IndexMap<String, HyperValue>> {
         match value {
-            HyperValue::Dict { entries, .. } => entries,
+            HyperValue::Dict { entries, .. } => entries.borrow(),
             other => panic!("expected a dict, got {:?}", other),
         }
     }
@@ -459,7 +462,10 @@ mod tests {
         assert_eq!(entries["ok"], HyperValue::Boolean(true));
         assert_eq!(
             entries["tags"],
-            HyperValue::List(vec![HyperValue::I64(1), HyperValue::I64(2)])
+            HyperValue::List(Rc::new(RefCell::new(vec![
+                HyperValue::I64(1),
+                HyperValue::I64(2)
+            ])))
         );
     }
 

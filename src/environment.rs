@@ -50,16 +50,16 @@ pub enum HyperValue {
     },
     
 
-    List(Vec<HyperValue>),
+    List(Rc<RefCell<Vec<HyperValue>>>),
     Array {
         element_type: String,
-        elements: Vec<HyperValue>,
+        elements: Rc<RefCell<Vec<HyperValue>>>,
     },
     Dict {
         key_type: String,
         val_type: String,
         /// Insertion-ordered so printing and iteration are reproducible.
-        entries: IndexMap<String, HyperValue>,
+        entries: Rc<RefCell<IndexMap<String, HyperValue>>>,
     },
     /// Loaded Hyper module namespace (`import math` → exports).
     Module {
@@ -105,12 +105,12 @@ impl PartialEq for HyperValue {
             (HyperValue::String(a), HyperValue::String(b)) => a == b,
             (HyperValue::Boolean(a), HyperValue::Boolean(b)) => a == b,
             (HyperValue::None, HyperValue::None) => true,
-            (HyperValue::List(a), HyperValue::List(b)) => a == b,
+            (HyperValue::List(a), HyperValue::List(b)) => *a.borrow() == *b.borrow(),
             (HyperValue::Array { element_type: et1, elements: el1 }, HyperValue::Array { element_type: et2, elements: el2 }) => {
-                et1 == et2 && el1 == el2
+                et1 == et2 && *el1.borrow() == *el2.borrow()
             }
             (HyperValue::Dict { key_type: kt1, val_type: vt1, entries: e1 }, HyperValue::Dict { key_type: kt2, val_type: vt2, entries: e2 }) => {
-                kt1 == kt2 && vt1 == vt2 && e1 == e2
+                kt1 == kt2 && vt1 == vt2 && *e1.borrow() == *e2.borrow()
             }
             (HyperValue::Module { name: n1, .. }, HyperValue::Module { name: n2, .. }) => n1 == n2,
             (HyperValue::MmapFile { path: a, .. }, HyperValue::MmapFile { path: b, .. }) => a == b,
@@ -168,9 +168,15 @@ impl HyperValue {
             HyperValue::String(s) => call_string_method(s, method_name, args, line),
             HyperValue::File { file, .. } => call_file_method(file, method_name, args, line),
             HyperValue::MmapFile { map, .. } => call_mmap_method(map, method_name, args, line),
-            HyperValue::List(items) => call_list_method(items, method_name, args, line),
-            HyperValue::Array { elements, .. } => call_list_method(elements, method_name, args, line),
-            HyperValue::Dict { entries, .. } => call_dict_method(entries, method_name, args, line),
+            HyperValue::List(items) => {
+                call_list_method(&mut items.borrow_mut(), method_name, args, line)
+            }
+            HyperValue::Array { elements, .. } => {
+                call_list_method(&mut elements.borrow_mut(), method_name, args, line)
+            }
+            HyperValue::Dict { entries, .. } => {
+                call_dict_method(&mut entries.borrow_mut(), method_name, args, line)
+            }
             HyperValue::Instance { struct_name: _, fields: _, methods, .. } => {
                 if methods.contains_key(method_name) {
                     Some(HyperValue::None)
@@ -509,15 +515,24 @@ impl std::fmt::Display for HyperValue {
             HyperValue::Instance { struct_name, .. } => write!(f, "instance of {}", struct_name),
 
             HyperValue::List(items) => {
-                let items_str: Vec<String> = items.iter().map(|item| item.to_string()).collect();
+                let items_str: Vec<String> =
+                    items.borrow().iter().map(|item| item.to_string()).collect();
                 write!(f, "[{}]", items_str.join(", "))
             }
             HyperValue::Array { elements, .. } => {
-                let items_str: Vec<String> = elements.iter().map(|item| item.to_string()).collect();
+                let items_str: Vec<String> = elements
+                    .borrow()
+                    .iter()
+                    .map(|item| item.to_string())
+                    .collect();
                 write!(f, "[{}]", items_str.join(", "))
             }
             HyperValue::Dict { entries, .. } => {
-                let entries_str: Vec<String> = entries.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                let entries_str: Vec<String> = entries
+                    .borrow()
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k, v))
+                    .collect();
                 write!(f, "{{{}}}", entries_str.join(", "))
             }
             HyperValue::Module { name, .. } => write!(f, "<module {}>", name),
