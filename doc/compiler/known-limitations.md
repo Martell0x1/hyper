@@ -30,9 +30,9 @@ A function body does not inherit the loop around its declaration, so a `break` i
 ## Language features not implemented (any backend)
 
 - Generics (`make_it_speak[T: Speaker]` in docs is aspirational)
-- Shared `ref` for list / dict / array payloads (structs already share; `ref` makes the parameter binding mutable)
-- `try` / `except` — Hyper uses explicit `raise` / `raises` / `handle` instead (see [Errors](../errors/overview.md))
 - Production GPU / SIMD codegen for `@vectorize`
+- Full reclaim of every temporary string on the compile path (containers free overwritten elements; file/mmap handles free on close)
+- `try` / `except` — Hyper uses explicit `raise` / `raises` / `handle` instead (see [Errors](../errors/overview.md))
 
 ## String methods
 
