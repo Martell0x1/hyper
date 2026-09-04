@@ -18,7 +18,7 @@ Release packaging (CHANGELOG, git tag `v0.1.0`, GitHub Release) is part of shipp
 | Criterion | Status |
 |-----------|--------|
 | `cargo build` / `cargo test` pass on CI | Required |
-| `compile` JIT matches `run` on `ci/smoke.hyp` | Required |
+| `compile` / `run` JIT parity on `ci/smoke.hyp` | Required |
 | `--emit-exe` smoke passes | Required |
 | Division-by-zero parity (`ci/divzero.hyp`) | Required |
 | I/O, JSON, mmap, `input`, `clock`, collection-method compile smokes (`ci/*_compile.hyp`) | Required |
@@ -47,7 +47,7 @@ Release packaging (CHANGELOG, git tag `v0.1.0`, GitHub Release) is part of shipp
 
 | Feature | v0.1 expectation |
 |---------|------------------|
-| `@parallel` / `@vectorize` | Sequential compile codegen OK; interpreter has real `@parallel` threads; GPU/SIMD post v0.1 |
+| `@parallel` / `@vectorize` | Sequential codegen OK; threaded/SIMD/GPU backends post v0.1 |
 | Generics / full trait system | Documented as not implemented |
 | Shared `ref` for list/dict/array | Shared on `run` (Rc); compile path uses handles |
 | NumPy / CPython extension interop | Vision in [Why Hyper](why-hyper.md); not required for v0.1 tag |
