@@ -26,7 +26,7 @@ For guidelines on commit messages and history management, see [doc/COMMIT_CONVEN
 ## Code Guidelines
 
 * **Commit Messages:** Contributors must create commit messages with a [prefix](doc/COMMIT_CONVENTION.md) (e.g., `feat:`, `fix:`, `docs:`, `ci:`).
-* **Readability First:** Keep the core interpreter code clean, well-commented, and maintainable.
-* **Testing:** Ensure your changes do not break existing interpreter behaviors.
+* **Readability First:** Prefer clear code in the compiler pipeline (`lowering` / `codegen` / runtime).
+* **Testing:** Add or extend compile-path CI smokes (`run` / `compile` / `--emit-exe`) for behavior changes.
 
 > **Note:** Large architectural changes or major syntax modifications should be discussed in an [issue](https://github.com/Yusupov-Muhammadyusuf/hyperlang/issues) before submitting a PR. 
