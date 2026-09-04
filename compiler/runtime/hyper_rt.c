@@ -45,6 +45,63 @@ typedef struct {
     size_t len;
 } RtStruct;
 
+static void free_rt_value(RtValue v);
+
+static void free_rt_list(RtList *list) {
+    if (!list) {
+        return;
+    }
+    for (size_t i = 0; i < list->len; i++) {
+        free_rt_value(list->items[i]);
+    }
+    free(list->items);
+    free(list);
+}
+
+static void free_rt_dict(RtDict *dict) {
+    if (!dict) {
+        return;
+    }
+    for (size_t i = 0; i < dict->len; i++) {
+        free(dict->entries[i].key);
+        free_rt_value(dict->entries[i].value);
+    }
+    free(dict->entries);
+    free(dict);
+}
+
+static void free_rt_struct(RtStruct *st) {
+    if (!st) {
+        return;
+    }
+    for (size_t i = 0; i < st->len; i++) {
+        free_rt_value(st->fields[i]);
+    }
+    free(st->fields);
+    free(st);
+}
+
+static void free_rt_value(RtValue v) {
+    switch (v.kind) {
+    case KIND_STR:
+        if (v.payload) {
+            free((void *)(intptr_t)v.payload);
+        }
+        break;
+    case KIND_LIST:
+        free_rt_list((RtList *)(intptr_t)v.payload);
+        break;
+    case KIND_DICT:
+        free_rt_dict((RtDict *)(intptr_t)v.payload);
+        break;
+    case KIND_STRUCT:
+        free_rt_struct((RtStruct *)(intptr_t)v.payload);
+        break;
+    default:
+        break;
+    }
+}
+
 extern int64_t __main__(void);
 void hyper_rt_div_by_zero(int64_t line);
 
@@ -424,6 +481,7 @@ void hyper_rt_list_set(int64_t list_h, int64_t index, int64_t value, int64_t kin
     if (index < 0 || (size_t)index >= list->len) {
         return;
     }
+    free_rt_value(list->items[index]);
     list->items[index].kind = kind;
     list->items[index].payload = value;
 }
@@ -473,6 +531,7 @@ void hyper_rt_dict_set(
     for (size_t i = 0; i < dict->len; i++) {
         if (dict->entries[i].key && strcmp(dict->entries[i].key, k) == 0) {
             free(k);
+            free_rt_value(dict->entries[i].value);
             dict->entries[i].value.kind = val_kind;
             dict->entries[i].value.payload = value;
             return;
@@ -882,6 +941,7 @@ void hyper_rt_struct_set(int64_t obj, int64_t field, int64_t value, int64_t kind
     if (field < 0 || (size_t)field >= st->len) {
         return;
     }
+    free_rt_value(st->fields[field]);
     st->fields[field].kind = kind;
     st->fields[field].payload = value;
 }

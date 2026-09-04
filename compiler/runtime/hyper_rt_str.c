@@ -678,6 +678,9 @@ int64_t hyper_rt_str_join(
     }
     char *out = (char *)malloc(total + 1);
     if (!out) {
+        for (int64_t i = 0; i < n; i++) {
+            free(parts[i]);
+        }
         free(parts);
         return 0;
     }

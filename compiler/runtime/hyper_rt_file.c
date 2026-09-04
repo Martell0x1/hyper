@@ -218,11 +218,19 @@ void hyper_rt_file_close(int64_t handle, int64_t _handle_kind, int64_t line, int
     RtFile *f = (RtFile *)(intptr_t)handle;
     if (!f->closed) {
         rt_flush_writes(f);
-        fflush(f->fp);
+        if (f->fp) {
+            fflush(f->fp);
+            fclose(f->fp);
+            f->fp = NULL;
+        }
         f->closed = 1;
-        fclose(f->fp);
-        f->fp = NULL;
     }
+    free(f->path);
+    free(f->mode);
+    free(f->read_buf);
+    free(f->write_buf);
+    free(f);
+    (void)line;
 }
 
 int64_t hyper_rt_file_read_all(int64_t handle, int64_t _handle_kind, int64_t line,
@@ -239,6 +247,9 @@ int64_t hyper_rt_file_read_all(int64_t handle, int64_t _handle_kind, int64_t lin
     size_t out_len = 0;
     size_t out_cap = rt_unread(f) + 4096;
     out = (unsigned char *)malloc(out_cap > 0 ? out_cap : 1);
+    if (!out) {
+        hyper_rt_runtime_error(line, "out of memory");
+    }
     if (rt_unread(f) > 0) {
         memcpy(out, f->read_buf + f->read_pos, rt_unread(f));
         out_len = rt_unread(f);
@@ -248,14 +259,23 @@ int64_t hyper_rt_file_read_all(int64_t handle, int64_t _handle_kind, int64_t lin
     size_t n;
     while ((n = fread(chunk, 1, sizeof(chunk), f->fp)) > 0) {
         if (out_len + n > out_cap) {
-            out_cap = (out_len + n) * 2;
-            out = (unsigned char *)realloc(out, out_cap);
+            size_t ncap = (out_len + n) * 2;
+            unsigned char *tmp = (unsigned char *)realloc(out, ncap);
+            if (!tmp) {
+                free(out);
+                hyper_rt_runtime_error(line, "out of memory");
+            }
+            out = tmp;
+            out_cap = ncap;
         }
         memcpy(out + out_len, chunk, n);
         out_len += n;
     }
     char *text = rt_strndup(out, out_len);
     free(out);
+    if (!text) {
+        hyper_rt_runtime_error(line, "out of memory");
+    }
     return (int64_t)(intptr_t)text;
 }
 
@@ -270,6 +290,9 @@ int64_t hyper_rt_file_read_n(int64_t handle, int64_t _handle_kind, int64_t count
     }
     size_t want = count_kind == KIND_I64 && count > 0 ? (size_t)count : 0;
     unsigned char *out = (unsigned char *)malloc(want + 1);
+    if (!out) {
+        hyper_rt_runtime_error(line, "out of memory");
+    }
     size_t out_len = 0;
     while (out_len < want) {
         size_t avail = rt_fill(f);
@@ -286,6 +309,9 @@ int64_t hyper_rt_file_read_n(int64_t handle, int64_t _handle_kind, int64_t count
     }
     char *text = rt_strndup(out, out_len);
     free(out);
+    if (!text) {
+        hyper_rt_runtime_error(line, "out of memory");
+    }
     return (int64_t)(intptr_t)text;
 }
 
