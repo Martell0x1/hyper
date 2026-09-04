@@ -1,0 +1,6 @@
+fn bump(ref xs):
+    xs.append(9)
+
+let mut a = [1]
+bump(a)
+print(a)
