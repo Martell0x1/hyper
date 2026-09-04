@@ -98,22 +98,42 @@ pub(crate) fn format_value(v: &RtValue) -> String {
 }
 
 fn format_list(list: &RtList) -> String {
-    let parts: Vec<String> = list.items.iter().map(format_value).collect();
-    format!("[{}]", parts.join(", "))
+    use std::fmt::Write;
+    let mut out = String::from("[");
+    for (i, item) in list.items.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        let _ = write!(out, "{}", format_value(item));
+    }
+    out.push(']');
+    out
 }
 
 fn format_dict(dict: &RtDict) -> String {
-    let parts: Vec<String> = dict
-        .entries
-        .iter()
-        .map(|(k, v)| format!("{}: {}", k, format_value(v)))
-        .collect();
-    format!("{{{}}}", parts.join(", "))
+    use std::fmt::Write;
+    let mut out = String::from("{");
+    for (i, (k, v)) in dict.entries.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        let _ = write!(out, "{}: {}", k, format_value(v));
+    }
+    out.push('}');
+    out
 }
 
 fn format_struct(st: &RtStruct) -> String {
-    let parts: Vec<String> = st.fields.iter().map(format_value).collect();
-    format!("{{{}}}", parts.join(", "))
+    use std::fmt::Write;
+    let mut out = String::from("{");
+    for (i, item) in st.fields.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        let _ = write!(out, "{}", format_value(item));
+    }
+    out.push('}');
+    out
 }
 
 /// Drop an owned runtime value. Does not free FILE/MMAP handles (those have close).
@@ -167,6 +187,24 @@ fn key_to_string(key: i64, key_kind: i64) -> String {
         }
         KIND_I64 => format!("{}", key),
         _ => format!("{}", key),
+    }
+}
+
+/// Borrow key text for lookup without allocating when the key is already a C string.
+fn key_as_str<'a>(key: i64, key_kind: i64, owned: &'a mut String) -> &'a str {
+    match key_kind {
+        KIND_STR => {
+            if key == 0 {
+                ""
+            } else {
+                let cstr = unsafe { CStr::from_ptr(key as *const c_char) };
+                cstr.to_str().unwrap_or("<?>")
+            }
+        }
+        _ => {
+            *owned = key_to_string(key, key_kind);
+            owned.as_str()
+        }
     }
 }
 
@@ -367,9 +405,10 @@ pub extern "C" fn hyper_rt_dict_get(
         return 0;
     }
     let dict = unsafe { &*(dict as *const RtDict) };
-    let k = key_to_string(key, key_kind);
+    let mut owned = String::new();
+    let k = key_as_str(key, key_kind, &mut owned);
     for (ek, ev) in &dict.entries {
-        if ek == &k {
+        if ek == k {
             unsafe {
                 *out_kind = ev.kind;
             }
@@ -394,9 +433,10 @@ pub extern "C" fn hyper_rt_dict_set(
         return;
     }
     let dict = unsafe { &mut *(dict as *mut RtDict) };
-    let k = key_to_string(key, key_kind);
+    let mut owned = String::new();
+    let k = key_as_str(key, key_kind, &mut owned);
     for (ek, ev) in &mut dict.entries {
-        if ek == &k {
+        if ek == k {
             let old = std::mem::replace(
                 ev,
                 RtValue {
@@ -408,8 +448,15 @@ pub extern "C" fn hyper_rt_dict_set(
             return;
         }
     }
+    let key_owned = if owned.is_empty() && key_kind == KIND_STR {
+        key_to_string(key, key_kind)
+    } else if !owned.is_empty() {
+        std::mem::take(&mut owned)
+    } else {
+        key_to_string(key, key_kind)
+    };
     dict.entries.push((
-        k,
+        key_owned,
         RtValue {
             kind: val_kind,
             payload: value,

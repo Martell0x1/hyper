@@ -496,19 +496,27 @@ int64_t hyper_rt_dict_get(
         return 0;
     }
     const RtDict *dict = (const RtDict *)(intptr_t)dict_h;
-    char *k = key_to_string(key, key_kind);
-    if (!k) {
-        *out_kind = KIND_NONE;
-        return 0;
+    /* String keys are already C strings — compare without malloc. */
+    char *owned = NULL;
+    const char *k;
+    if (key_kind == KIND_STR) {
+        k = key ? (const char *)(intptr_t)key : "";
+    } else {
+        owned = key_to_string(key, key_kind);
+        if (!owned) {
+            *out_kind = KIND_NONE;
+            return 0;
+        }
+        k = owned;
     }
     for (size_t i = 0; i < dict->len; i++) {
         if (dict->entries[i].key && strcmp(dict->entries[i].key, k) == 0) {
-            free(k);
+            free(owned);
             *out_kind = dict->entries[i].value.kind;
             return dict->entries[i].value.payload;
         }
     }
-    free(k);
+    free(owned);
     *out_kind = KIND_NONE;
     return 0;
 }
@@ -524,13 +532,20 @@ void hyper_rt_dict_set(
         return;
     }
     RtDict *dict = (RtDict *)(intptr_t)dict_h;
-    char *k = key_to_string(key, key_kind);
-    if (!k) {
-        return;
+    char *owned = NULL;
+    const char *k;
+    if (key_kind == KIND_STR) {
+        k = key ? (const char *)(intptr_t)key : "";
+    } else {
+        owned = key_to_string(key, key_kind);
+        if (!owned) {
+            return;
+        }
+        k = owned;
     }
     for (size_t i = 0; i < dict->len; i++) {
         if (dict->entries[i].key && strcmp(dict->entries[i].key, k) == 0) {
-            free(k);
+            free(owned);
             free_rt_value(dict->entries[i].value);
             dict->entries[i].value.kind = val_kind;
             dict->entries[i].value.payload = value;
@@ -541,16 +556,23 @@ void hyper_rt_dict_set(
         size_t ncap = dict->cap ? dict->cap * 2 : 4;
         RtDictEntry *ne = (RtDictEntry *)realloc(dict->entries, ncap * sizeof(RtDictEntry));
         if (!ne) {
-            free(k);
+            free(owned);
             return;
         }
         dict->entries = ne;
         dict->cap = ncap;
     }
-    dict->entries[dict->len].key = k;
+    /* Insert path still needs an owned key copy. */
+    if (key_kind == KIND_STR) {
+        owned = key_to_string(key, key_kind);
+        if (!owned) {
+            return;
+        }
+    }
+    dict->entries[dict->len].key = owned;
     dict->entries[dict->len].value.kind = val_kind;
     dict->entries[dict->len].value.payload = value;
-    dict->len++;
+    dict->len += 1;
 }
 
 int64_t hyper_rt_index_get(
