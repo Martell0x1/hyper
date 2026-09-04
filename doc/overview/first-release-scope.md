@@ -2,7 +2,7 @@
 
 Hyper v0.1 is the first public snapshot where developers can **clone, build, compile real programs, and evaluate Hyper** as a **Python-compatible, compile-first language for performance and AI workloads**. It is not a claim of full Python/stdlib/GPU parity — see [Why Hyper](why-hyper.md) for the long-term vision and [Known limitations](../compiler/known-limitations.md) for today’s gaps.
 
-Release packaging (CHANGELOG, git tag, GitHub Release) happens **after** the criteria below are met — not before.
+Release packaging (CHANGELOG, git tag `v0.1.0`, GitHub Release) is part of shipping this snapshot.
 
 ## Goals
 
@@ -74,4 +74,4 @@ Release packaging (CHANGELOG, git tag, GitHub Release) happens **after** the cri
 
 ## When we announce “v0.1 ready”
 
-You will get a direct message when **all Required rows above are green** and the remaining gaps are listed in [Known limitations](../compiler/known-limitations.md) with no surprises.
+**v0.1.0** is the first public tag. Remaining gaps stay listed in [Known limitations](../compiler/known-limitations.md) with no surprises.
