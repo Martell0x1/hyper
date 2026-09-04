@@ -10,7 +10,7 @@
 # Toolchain
 
 - [Building from source](building.md)
-- [Interpreter and compiler today](toolchain/dual-backend.md)
+- [Compiler-only toolchain](toolchain/dual-backend.md)
 
 # Compiler
 
