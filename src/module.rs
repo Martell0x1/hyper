@@ -5,6 +5,16 @@ use std::path::{Path, PathBuf};
 use crate::ast::Stmt;
 use crate::driver;
 
+/// User-facing path for module search errors (`./foo.hyp` when relative).
+fn format_search_path(path: &Path) -> String {
+    let s = path.display().to_string();
+    if path.is_absolute() || s.starts_with("./") {
+        s
+    } else {
+        format!("./{s}")
+    }
+}
+
 /// Resolve `math` → `<base>/math.hyp` or `<base>/math/mod.hyp`.
 pub fn resolve_module_path(base_dir: &Path, module: &str) -> Result<PathBuf, String> {
     let direct = base_dir.join(format!("{}.hyp", module));
@@ -16,10 +26,9 @@ pub fn resolve_module_path(base_dir: &Path, module: &str) -> Result<PathBuf, Str
         return Ok(nested);
     }
     Err(format!(
-        "module '{}' not found (looked for {} and {})",
+        "module '{}' not found (searched {})",
         module,
-        direct.display(),
-        nested.display()
+        format_search_path(&direct)
     ))
 }
 
@@ -85,5 +94,23 @@ impl ModuleLoadState {
         self.loading.remove(&key);
         self.parsed.insert(key, stmts.clone());
         Ok((path, stmts))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn missing_module_names_searched_file() {
+        let err = resolve_module_path(Path::new("."), "foo").unwrap_err();
+        assert_eq!(err, "module 'foo' not found (searched ./foo.hyp)");
+    }
+
+    #[test]
+    fn missing_module_from_file_parent_uses_dot_slash() {
+        let err = resolve_module_path(Path::new("test.hyp").parent().unwrap(), "foo").unwrap_err();
+        assert_eq!(err, "module 'foo' not found (searched ./foo.hyp)");
     }
 }

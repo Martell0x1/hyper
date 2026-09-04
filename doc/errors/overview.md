@@ -34,6 +34,7 @@ Module-level `raise` is allowed and exits the process. Prefer `handle` at call s
 
 ```text
 SyntaxError: line 5: at ':': expected expression
+SyntaxError: line 1: module 'foo' not found (searched ./foo.hyp)
 IndentationError: line 2: unexpected indent
 RuntimeError: line 10: division by zero
 ```
@@ -52,6 +53,7 @@ Run a sample:
 ```bash
 hyper run doc/examples/errors/runtime_error.hyp
 hyper run doc/examples/errors/raise_handle.hyp
+hyper run doc/examples/errors/module_not_found.hyp
 ```
 
 ## `run` vs `compile`

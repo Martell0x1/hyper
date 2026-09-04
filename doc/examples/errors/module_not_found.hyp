@@ -1,0 +1,4 @@
+# Running this file reports SyntaxError (module 'foo' not found)
+import foo
+
+# syntax

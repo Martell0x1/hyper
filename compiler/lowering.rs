@@ -999,7 +999,9 @@ impl Lowerer {
         let stmts = match self.load_state.load_stmts(module_name) {
             Ok((_path, stmts)) => stmts,
             Err(msg) => {
-                error::runtime(line, msg);
+                self.errors
+                    .push(error::format_error(ErrorKind::Syntax, line, &msg));
+                return;
             }
         };
 
@@ -2721,5 +2723,25 @@ mod tests {
         assert!(module.main.iter().any(|i| {
             matches!(i, IrInstr::Call { func, .. } if func == "hyper_rt_json_dumps")
         }));
+    }
+
+    #[test]
+    fn missing_import_is_syntax_error_with_searched_path() {
+        let errors = errors_of("import foo\n");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0],
+            "SyntaxError: line 1: module 'foo' not found (searched ./foo.hyp)"
+        );
+    }
+
+    #[test]
+    fn missing_from_import_is_syntax_error_with_searched_path() {
+        let errors = errors_of("from foo import bar\n");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0],
+            "SyntaxError: line 1: module 'foo' not found (searched ./foo.hyp)"
+        );
     }
 }
