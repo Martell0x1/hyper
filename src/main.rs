@@ -19,6 +19,11 @@ mod compiler;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+
+    if args.get(1).map(String::as_str) == Some("--version") {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        return;
+    }
     if args.len() < 3 {
         let _ = writeln!(
             io::stderr(),
