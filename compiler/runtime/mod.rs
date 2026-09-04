@@ -116,6 +116,45 @@ fn format_struct(st: &RtStruct) -> String {
     format!("{{{}}}", parts.join(", "))
 }
 
+/// Drop an owned runtime value. Does not free FILE/MMAP handles (those have close).
+/// Safe for overwrite paths (`list_set` / `dict_set` / `struct_set`).
+pub(crate) fn free_rt_value(v: RtValue) {
+    match v.kind {
+        KIND_STR => {
+            if v.payload != 0 {
+                unsafe {
+                    drop(CString::from_raw(v.payload as *mut c_char));
+                }
+            }
+        }
+        KIND_LIST => {
+            if v.payload != 0 {
+                let list = unsafe { Box::from_raw(v.payload as *mut RtList) };
+                for item in list.items {
+                    free_rt_value(item);
+                }
+            }
+        }
+        KIND_DICT => {
+            if v.payload != 0 {
+                let dict = unsafe { Box::from_raw(v.payload as *mut RtDict) };
+                for (_k, item) in dict.entries {
+                    free_rt_value(item);
+                }
+            }
+        }
+        KIND_STRUCT => {
+            if v.payload != 0 {
+                let st = unsafe { Box::from_raw(v.payload as *mut RtStruct) };
+                for item in st.fields {
+                    free_rt_value(item);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn key_to_string(key: i64, key_kind: i64) -> String {
     match key_kind {
         KIND_STR => {
@@ -307,10 +346,14 @@ pub extern "C" fn hyper_rt_list_set(list: i64, index: i64, value: i64, kind: i64
     if index < 0 || index as usize >= list.items.len() {
         return;
     }
-    list.items[index as usize] = RtValue {
-        kind,
-        payload: value,
-    };
+    let old = std::mem::replace(
+        &mut list.items[index as usize],
+        RtValue {
+            kind,
+            payload: value,
+        },
+    );
+    free_rt_value(old);
 }
 
 #[unsafe(no_mangle)]
@@ -354,10 +397,14 @@ pub extern "C" fn hyper_rt_dict_set(
     let k = key_to_string(key, key_kind);
     for (ek, ev) in &mut dict.entries {
         if ek == &k {
-            *ev = RtValue {
-                kind: val_kind,
-                payload: value,
-            };
+            let old = std::mem::replace(
+                ev,
+                RtValue {
+                    kind: val_kind,
+                    payload: value,
+                },
+            );
+            free_rt_value(old);
             return;
         }
     }
@@ -673,10 +720,14 @@ pub extern "C" fn hyper_rt_struct_set(obj: i64, field: i64, value: i64, kind: i6
     if field < 0 || field as usize >= st.fields.len() {
         return;
     }
-    st.fields[field as usize] = RtValue {
-        kind,
-        payload: value,
-    };
+    let old = std::mem::replace(
+        &mut st.fields[field as usize],
+        RtValue {
+            kind,
+            payload: value,
+        },
+    );
+    free_rt_value(old);
 }
 
 #[unsafe(no_mangle)]

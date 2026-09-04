@@ -4,8 +4,10 @@ use crate::environment::HyperValue;
 use crate::error;
 use crate::fileio::HyperFile;
 use crate::json;
+use std::cell::RefCell;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::rc::Rc;
 
 use super::{
     hyper_rt_dict_new, hyper_rt_dict_push, hyper_rt_list_new, hyper_rt_list_push, RtDict, RtList,
@@ -100,7 +102,7 @@ fn hyper_to_rt(value: &HyperValue) -> RtValue {
         },
         HyperValue::List(items) | HyperValue::Array { elements: items, .. } => {
             let list = hyper_rt_list_new();
-            for item in items {
+            for item in items.borrow().iter() {
                 let rt = hyper_to_rt(item);
                 hyper_rt_list_push(list, rt.payload, rt.kind);
             }
@@ -111,7 +113,7 @@ fn hyper_to_rt(value: &HyperValue) -> RtValue {
         }
         HyperValue::Dict { entries, .. } => {
             let dict = hyper_rt_dict_new();
-            for (key, val) in entries {
+            for (key, val) in entries.borrow().iter() {
                 let rt = hyper_to_rt(val);
                 hyper_rt_dict_push(dict, cstr_payload(key), KIND_STR, rt.payload, rt.kind);
             }
@@ -164,21 +166,21 @@ fn rt_to_hyper(payload: i64, kind: i64, line: i64) -> HyperValue {
         KIND_F64 => HyperValue::F64(f64::from_bits(payload as u64)),
         KIND_LIST => {
             if payload == 0 {
-                return HyperValue::List(Vec::new());
+                return HyperValue::List(Rc::new(RefCell::new(Vec::new())));
             }
             let list = unsafe { &*(payload as *const RtList) };
             let mut items = Vec::with_capacity(list.items.len());
             for item in &list.items {
                 items.push(rt_to_hyper(item.payload, item.kind, line));
             }
-            HyperValue::List(items)
+            HyperValue::List(Rc::new(RefCell::new(items)))
         }
         KIND_DICT => {
             if payload == 0 {
                 return HyperValue::Dict {
                     key_type: "str".to_string(),
                     val_type: "Any".to_string(),
-                    entries: Default::default(),
+                    entries: Rc::new(RefCell::new(Default::default())),
                 };
             }
             let dict = unsafe { &*(payload as *const RtDict) };
@@ -189,7 +191,7 @@ fn rt_to_hyper(payload: i64, kind: i64, line: i64) -> HyperValue {
             HyperValue::Dict {
                 key_type: "str".to_string(),
                 val_type: "Any".to_string(),
-                entries,
+                entries: Rc::new(RefCell::new(entries)),
             }
         }
         _ => fatal(line, "invalid JSON value kind"),
