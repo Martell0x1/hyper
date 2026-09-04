@@ -36,13 +36,13 @@ pub enum HyperValue {
     },
     Instance {
         struct_name: String,
-        fields: Rc<RefCell<Vec<HyperValue>>>, 
-        field_indices: HashMap<String, usize>,
+        fields: Rc<RefCell<Vec<HyperValue>>>,
+        field_indices: Rc<HashMap<String, usize>>,
         /// Field name → declared `pub`.
-        field_visibility: HashMap<String, bool>,
+        field_visibility: Rc<HashMap<String, bool>>,
         /// Field name → declared `mut`.
-        field_mutability: HashMap<String, bool>,
-        methods: HashMap<String, (bool, HyperValue)>,
+        field_mutability: Rc<HashMap<String, bool>>,
+        methods: Rc<HashMap<String, (bool, HyperValue)>>,
     },
     TraitDef {
         name: String,
@@ -192,7 +192,10 @@ impl HyperValue {
 
     pub fn add(&self, other: &Self) -> Option<HyperValue> {
         if let (HyperValue::String(a), HyperValue::String(b)) = (self, other) {
-            return Some(HyperValue::String(format!("{}{}", a, b)));
+            let mut out = String::with_capacity(a.len() + b.len());
+            out.push_str(a);
+            out.push_str(b);
+            return Some(HyperValue::String(out));
         }
         if let Some(v) = { impl_binary_op!(self, other, +, wrapping_add) } {
             return Some(v);

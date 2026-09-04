@@ -160,7 +160,7 @@ fn load_module(module_name: &str, line: u32) -> HyperValue {
 
     let mod_env = Rc::new(RefCell::new(Environment::new()));
     for stmt in &stmts {
-        let result = execute(stmt, Rc::clone(&mod_env));
+        let result = execute(stmt, &mod_env);
         reject_loop_jump(&result);
     }
     let exports = mod_env.borrow().snapshot_bindings();
@@ -496,7 +496,7 @@ fn index_set(object: &mut HyperValue, index: &HyperValue, value: HyperValue, lin
     }
 }
 
-fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<HyperValue> {
+fn evaluate(expr: &Expr, line: u32, env: &Rc<RefCell<Environment>>) -> Option<HyperValue> {
     match expr {
         Expr::Literal(lit) => Some(literal_to_value(lit)),
         Expr::Variable { name, line: var_line } => {
@@ -504,7 +504,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
         }
         Expr::Group(inner) => evaluate(inner, line, env),
         Expr::Unary { op, right } => {
-            let val = evaluate(right, line, Rc::clone(&env))?;
+            let val = evaluate(right, line, env)?;
             match op {
                 UnaryOp::Neg => {
                     if let Some(res) = val.negate() {
@@ -519,32 +519,32 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
         Expr::Binary { op, left, right } => {
             match op {
                 BinOp::And => {
-                    let left_val = evaluate(left, line, Rc::clone(&env))?;
+                    let left_val = evaluate(left, line, env)?;
                     if !is_truthy(&left_val) {
                         return Some(left_val);
                     }
                     evaluate(right, line, env)
                 }
                 BinOp::Or => {
-                    let left_val = evaluate(left, line, Rc::clone(&env))?;
+                    let left_val = evaluate(left, line, env)?;
                     if is_truthy(&left_val) {
                         return Some(left_val);
                     }
                     evaluate(right, line, env)
                 }
                 BinOp::Eq => {
-                    let l = evaluate(left, line, Rc::clone(&env))?;
-                    let r = evaluate(right, line, Rc::clone(&env))?;
+                    let l = evaluate(left, line, env)?;
+                    let r = evaluate(right, line, env)?;
                     Some(HyperValue::Boolean(l == r))
                 }
                 BinOp::Ne => {
-                    let l = evaluate(left, line, Rc::clone(&env))?;
-                    let r = evaluate(right, line, Rc::clone(&env))?;
+                    let l = evaluate(left, line, env)?;
+                    let r = evaluate(right, line, env)?;
                     Some(HyperValue::Boolean(l != r))
                 }
                 other => {
-                    let left_val = evaluate(left, line, Rc::clone(&env))?;
-                    let right_val = evaluate(right, line, Rc::clone(&env))?;
+                    let left_val = evaluate(left, line, env)?;
+                    let right_val = evaluate(right, line, env)?;
                     if matches!(other, BinOp::Div | BinOp::FloorDiv | BinOp::Rem)
                         && divides_by_integer_zero(&left_val, &right_val)
                     {
@@ -573,7 +573,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             }
         }
         Expr::Assign { name, value } => {
-            let val = evaluate(value, line, Rc::clone(&env))?;
+            let val = evaluate(value, line, env)?;
             env.borrow_mut().assign(name, val.clone(), line);
             Some(val)
         }
@@ -615,7 +615,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             field,
             value,
         } => {
-            let val = evaluate(value, line, Rc::clone(&env))?;
+            let val = evaluate(value, line, env)?;
             let target = env.borrow().get(object, line);
             if let HyperValue::Instance {
                 fields,
@@ -654,7 +654,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
         } => {
             let mut evaluated_args = Vec::new();
             for arg in args {
-                evaluated_args.push(evaluate(arg, line, Rc::clone(&env))?);
+                evaluated_args.push(evaluate(arg, line, env)?);
             }
 
             if let Expr::Variable { name: object_name, .. } = object.as_ref() {
@@ -689,7 +689,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                                 .define(param_name.clone(), arg_value.clone(), true);
                         }
 
-                        return finish_call_result(execute(body, method_env), line);
+                        return finish_call_result(execute(body, &method_env), line);
                     } else if methods.contains_key(method) {
                         error::runtime(line, format!("method '{}' not found", method));
                     }
@@ -722,7 +722,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                                     .borrow_mut()
                                     .define(param_name.clone(), arg_value.clone(), true);
                             }
-                            return finish_call_result(execute(body, call_env), line);
+                            return finish_call_result(execute(body, &call_env), line);
                         }
                         Some(HyperValue::StructDef {
                             name: sname,
@@ -763,21 +763,21 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                 });
             }
 
-            let mut target_val = evaluate(object, line, Rc::clone(&env))?;
+            let mut target_val = evaluate(object, line, env)?;
             target_val.call_method(method, &evaluated_args, line)
         }
         Expr::List(items) => {
             let mut elements = Vec::new();
             for item in items {
-                elements.push(evaluate(item, line, Rc::clone(&env))?);
+                elements.push(evaluate(item, line, env)?);
             }
             Some(HyperValue::List(Rc::new(RefCell::new(elements))))
         }
         Expr::Dict(entries) => {
             let mut map = IndexMap::new();
             for (key_expr, val_expr) in entries {
-                let key_val = evaluate(key_expr, line, Rc::clone(&env))?;
-                let value = evaluate(val_expr, line, Rc::clone(&env))?;
+                let key_val = evaluate(key_expr, line, env)?;
+                let value = evaluate(val_expr, line, env)?;
                 map.insert(key_val.to_string(), value);
             }
             Some(HyperValue::Dict {
@@ -787,8 +787,8 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             })
         }
         Expr::Index { object, index } => {
-            let obj = evaluate(object, line, Rc::clone(&env))?;
-            let idx = evaluate(index, line, Rc::clone(&env))?;
+            let obj = evaluate(object, line, env)?;
+            let idx = evaluate(index, line, env)?;
             Some(index_get(&obj, &idx, line))
         }
         Expr::IndexSet {
@@ -796,8 +796,8 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             index,
             value,
         } => {
-            let idx = evaluate(index, line, Rc::clone(&env))?;
-            let val = evaluate(value, line, Rc::clone(&env))?;
+            let idx = evaluate(index, line, env)?;
+            let val = evaluate(value, line, env)?;
             match object.as_ref() {
                 Expr::Variable { name, line: var_line } => {
                     let idx_c = idx.clone();
@@ -808,7 +808,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                     Some(val)
                 }
                 _ => {
-                    let mut obj = evaluate(object, line, Rc::clone(&env))?;
+                    let mut obj = evaluate(object, line, env)?;
                     index_set(&mut obj, &idx, val.clone(), line);
                     Some(val)
                 }
@@ -820,7 +820,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
                 match part {
                     FStringPart::Literal(s) => evaluated_string.push_str(s),
                     FStringPart::Expr(e) => {
-                        if let Some(val) = evaluate(e, *f_line, Rc::clone(&env)) {
+                        if let Some(val) = evaluate(e, *f_line, env) {
                             evaluated_string.push_str(&val.to_string());
                         }
                     }
@@ -833,7 +833,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
             then_branch,
             else_branch,
         } => {
-            let cond_val = evaluate(condition, line, Rc::clone(&env))?;
+            let cond_val = evaluate(condition, line, env)?;
             if is_truthy(&cond_val) {
                 evaluate(then_branch, line, env)
             } else {
@@ -843,7 +843,7 @@ fn evaluate(expr: &Expr, line: u32, env: Rc<RefCell<Environment>>) -> Option<Hyp
         Expr::Handle { attempt, fallback } => {
             HANDLE_DEPTH.set(HANDLE_DEPTH.get() + 1);
             take_pending_raise();
-            let value = evaluate(attempt, line, Rc::clone(&env));
+            let value = evaluate(attempt, line, env);
             let pending = take_pending_raise();
             HANDLE_DEPTH.set(HANDLE_DEPTH.get().saturating_sub(1));
             if pending.is_some() || value.is_none() {
@@ -880,10 +880,10 @@ fn instantiate_struct(
     let instance = HyperValue::Instance {
         struct_name: name.to_string(),
         fields: Rc::new(RefCell::new(instance_fields_vec)),
-        field_indices,
-        field_visibility,
-        field_mutability,
-        methods: methods.clone(),
+        field_indices: Rc::new(field_indices),
+        field_visibility: Rc::new(field_visibility),
+        field_mutability: Rc::new(field_mutability),
+        methods: Rc::new(methods.clone()),
     };
 
     if let Some((
@@ -917,7 +917,7 @@ fn instantiate_struct(
                 .define(param_name.clone(), arg_value, true);
         }
 
-        let result = execute(body, init_env);
+        let result = execute(body, &init_env);
         reject_loop_jump(&result);
     }
     instance
@@ -1014,19 +1014,19 @@ fn evaluate_call(
     callee: &Expr,
     args: &[CallArg],
     line: u32,
-    env: Rc<RefCell<Environment>>,
+    env: &Rc<RefCell<Environment>>,
 ) -> Option<HyperValue> {
-    let call_val = evaluate(callee, line, Rc::clone(&env))?;
+    let call_val = evaluate(callee, line, env)?;
 
     match call_val {
         HyperValue::NativeFunction(name) if name == "input" => {
             if let Some(CallArg::Positional(prompt_expr)) = args.first() {
-                if let Some(prompt_val) = evaluate(prompt_expr, line, Rc::clone(&env)) {
+                if let Some(prompt_val) = evaluate(prompt_expr, line, env) {
                     println!("{}", prompt_val);
                     let _ = io::stdout().flush();
                 }
             } else if let Some(CallArg::Named { value, .. }) = args.first() {
-                if let Some(prompt_val) = evaluate(value, line, Rc::clone(&env)) {
+                if let Some(prompt_val) = evaluate(value, line, env) {
                     println!("{}", prompt_val);
                     let _ = io::stdout().flush();
                 }
@@ -1054,7 +1054,7 @@ fn evaluate_call(
             for arg in args {
                 match arg {
                     CallArg::Positional(e) | CallArg::Named { value: e, .. } => {
-                        evaluated_args.push(evaluate(e, line, Rc::clone(&env))?);
+                        evaluated_args.push(evaluate(e, line, env)?);
                     }
                 }
             }
@@ -1071,7 +1071,7 @@ fn evaluate_call(
             for arg in args {
                 match arg {
                     CallArg::Positional(e) | CallArg::Named { value: e, .. } => {
-                        evaluated_args.push(evaluate(e, line, Rc::clone(&env))?);
+                        evaluated_args.push(evaluate(e, line, env)?);
                     }
                 }
             }
@@ -1099,7 +1099,7 @@ fn evaluate_call(
                     .define(param_name.clone(), arg_value, *is_ref);
             }
 
-            finish_call_result(execute(&body, closure_env), line)
+            finish_call_result(execute(&body, &closure_env), line)
         }
         HyperValue::StructDef {
             name,
@@ -1113,12 +1113,12 @@ fn evaluate_call(
             for arg in args {
                 match arg {
                     CallArg::Named { name, value } => {
-                        if let Some(val) = evaluate(value, line, Rc::clone(&env)) {
+                        if let Some(val) = evaluate(value, line, env) {
                             named_args.insert(name.clone(), val);
                         }
                     }
                     CallArg::Positional(e) => {
-                        if let Some(val) = evaluate(e, line, Rc::clone(&env)) {
+                        if let Some(val) = evaluate(e, line, env) {
                             positional_args.push(val);
                         }
                     }
@@ -1141,7 +1141,7 @@ fn evaluate_call(
     }
 }
 
-fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
+fn execute(stmt: &Stmt, env: &Rc<RefCell<Environment>>) -> ExecResult {
     match stmt {
         Stmt::Let {
             line,
@@ -1150,7 +1150,7 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             type_ann,
             initializer,
         } => {
-            let raw = evaluate(initializer, *line, Rc::clone(&env)).unwrap_or(HyperValue::None);
+            let raw = evaluate(initializer, *line, env).unwrap_or(HyperValue::None);
             let value = coerce_to_type(raw, type_ann, *line);
             env.borrow_mut()
                 .define(name.clone(), value, *is_mutable);
@@ -1161,20 +1161,24 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             ExecResult::Ok
         }
         Stmt::Print { line, values } => {
-            let mut evaluated_results = Vec::new();
+            let mut first = true;
             for value in values {
-                if let Some(val) = evaluate(value, *line, Rc::clone(&env)) {
-                    evaluated_results.push(val.to_string());
+                if let Some(val) = evaluate(value, *line, env) {
+                    if !first {
+                        print!(" ");
+                    }
+                    first = false;
+                    print!("{}", val);
                 }
             }
-            println!("{}", evaluated_results.join(" "));
+            println!();
             ExecResult::Ok
         }
         Stmt::Block(statements) => {
             let block_env =
                 Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
             for sub_stmt in statements {
-                match execute(sub_stmt, Rc::clone(&block_env)) {
+                match execute(sub_stmt, &block_env) {
                     ExecResult::Ok => {}
                     unwind => return unwind,
                 }
@@ -1243,7 +1247,7 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             then_branch,
             else_branch,
         } => {
-            if let Some(cond_val) = evaluate(condition, 1, Rc::clone(&env)) {
+            if let Some(cond_val) = evaluate(condition, 1, env) {
                 if is_truthy(&cond_val) {
                     let res = execute(then_branch, env);
                     if !matches!(res, ExecResult::Ok) {
@@ -1263,9 +1267,9 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             condition,
             body,
         } => {
-            while let Some(cond_val) = evaluate(condition, *line, Rc::clone(&env)) {
+            while let Some(cond_val) = evaluate(condition, *line, env) {
                 if is_truthy(&cond_val) {
-                    match execute(body, Rc::clone(&env)) {
+                    match execute(body, env) {
                         ExecResult::Return(val) => return ExecResult::Return(val),
                         ExecResult::Raise(val) => return ExecResult::Raise(val),
                         ExecResult::Break { .. } => break,
@@ -1286,11 +1290,11 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
         } => {
             match iter {
                 ForIter::Range { start, end } => {
-                    let start_val = evaluate(start, *line, Rc::clone(&env))
+                    let start_val = evaluate(start, *line, env)
                         .as_ref()
                         .map(to_i64)
                         .unwrap_or(0);
-                    let end_val = evaluate(end, *line, Rc::clone(&env))
+                    let end_val = evaluate(end, *line, env)
                         .as_ref()
                         .map(to_i64)
                         .unwrap_or(0);
@@ -1356,7 +1360,7 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                                                     HyperValue::I64(i),
                                                     true,
                                                 );
-                                                match execute(&b_stmt, Rc::clone(&loop_env)) {
+                                                match execute(&b_stmt, &loop_env) {
                                                     ExecResult::Return(_) => {}
                                                     ExecResult::Raise(val) => {
                                                         error::runtime(
@@ -1383,17 +1387,18 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                             });
                         }
                     } else if is_vectorized {
+                        // One child env for the whole loop — redefine the index each iteration.
+                        let loop_env = Rc::new(RefCell::new(
+                            Environment::new_with_enclosing(Rc::clone(&env)),
+                        ));
                         let mut i = start_val;
                         'lanes: while i < end_val {
                             let lane_end = (i + 4).min(end_val);
                             while i < lane_end {
-                                let loop_env = Rc::new(RefCell::new(
-                                    Environment::new_with_enclosing(Rc::clone(&env)),
-                                ));
                                 loop_env
                                     .borrow_mut()
                                     .define(var.clone(), HyperValue::I64(i), true);
-                                let res = execute(body, loop_env);
+                                let res = execute(body, &loop_env);
                                 i += 1;
                                 match res {
                                     ExecResult::Return(val) => return ExecResult::Return(val),
@@ -1404,14 +1409,14 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                             }
                         }
                     } else {
+                        let loop_env = Rc::new(RefCell::new(
+                            Environment::new_with_enclosing(Rc::clone(&env)),
+                        ));
                         for i in start_val..end_val {
-                            let loop_env = Rc::new(RefCell::new(
-                                Environment::new_with_enclosing(Rc::clone(&env)),
-                            ));
                             loop_env
                                 .borrow_mut()
                                 .define(var.clone(), HyperValue::I64(i), true);
-                            match execute(body, loop_env) {
+                            match execute(body, &loop_env) {
                                 ExecResult::Return(val) => return ExecResult::Return(val),
                                 ExecResult::Raise(val) => return ExecResult::Raise(val),
                                 ExecResult::Break { .. } => break,
@@ -1421,8 +1426,9 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                     }
                 }
                 ForIter::Iterable(iterable) => {
-                    let collection = evaluate(iterable, *line, Rc::clone(&env))
+                    let collection = evaluate(iterable, *line, env)
                         .unwrap_or(HyperValue::None);
+                    // Snapshot length + clone elements once; avoid holding a borrow across body.
                     let items: Vec<HyperValue> = match collection {
                         HyperValue::List(items) => items.borrow().clone(),
                         HyperValue::Array { elements, .. } => elements.borrow().clone(),
@@ -1433,12 +1439,12 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                             );
                         }
                     };
+                    let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(
+                        Rc::clone(&env),
+                    )));
                     for item in items {
-                        let loop_env = Rc::new(RefCell::new(Environment::new_with_enclosing(
-                            Rc::clone(&env),
-                        )));
                         loop_env.borrow_mut().define(var.clone(), item, true);
-                        match execute(body, Rc::clone(&loop_env)) {
+                        match execute(body, &loop_env) {
                             ExecResult::Return(val) => return ExecResult::Return(val),
                             ExecResult::Raise(val) => return ExecResult::Raise(val),
                             ExecResult::Break { .. } => break,
@@ -1462,7 +1468,7 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
         Stmt::Break { line } => ExecResult::Break { line: *line },
         Stmt::Continue { line } => ExecResult::Continue { line: *line },
         Stmt::Raise { line, value } => {
-            let raised = evaluate(value, *line, Rc::clone(&env)).unwrap_or(HyperValue::None);
+            let raised = evaluate(value, *line, env).unwrap_or(HyperValue::None);
             if HANDLE_DEPTH.get() > 0 {
                 ExecResult::Raise(raised)
             } else {
@@ -1475,7 +1481,7 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             var,
             body,
         } => {
-            let path_val = evaluate(path, *line, Rc::clone(&env)).unwrap_or(HyperValue::None);
+            let path_val = evaluate(path, *line, env).unwrap_or(HyperValue::None);
             let file_path = match path_val {
                 HyperValue::String(s) => s,
                 _ => "".to_string(),
@@ -1490,7 +1496,7 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                     let block_env =
                         Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
                     block_env.borrow_mut().define(var.clone(), mmap_val, false);
-                    execute(body, block_env)
+                    execute(body, &block_env)
                 }
                 Err(e) => {
                     error::runtime(
@@ -1506,12 +1512,12 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             var,
             body,
         } => {
-            let resource = evaluate(value, *line, Rc::clone(&env)).unwrap_or(HyperValue::None);
+            let resource = evaluate(value, *line, env).unwrap_or(HyperValue::None);
             let block_env = Rc::new(RefCell::new(Environment::new_with_enclosing(Rc::clone(&env))));
             block_env
                 .borrow_mut()
                 .define(var.clone(), resource.clone(), false);
-            let result = execute(body, block_env);
+            let result = execute(body, &block_env);
             if let HyperValue::File { file, path } = &resource {
                 if let Err(e) = file.borrow_mut().close() {
                     error::runtime(
@@ -1571,7 +1577,7 @@ pub fn run_evaluate(file_contents: String) {
 
     match parser.parse() {
         Ok(ast) => {
-            if let Some(result) = evaluate(&ast, 1, Rc::clone(&env)) {
+            if let Some(result) = evaluate(&ast, 1, &env) {
                 println!("{}", result);
             } else {
                 std::process::exit(65);
@@ -1601,7 +1607,7 @@ pub fn run_program(file_contents: String, entry_path: &str) {
 
     let env = Rc::new(RefCell::new(Environment::new()));
     for stmt in statements {
-        let result = execute(&stmt, Rc::clone(&env));
+        let result = execute(&stmt, &env);
         reject_loop_jump(&result);
     }
 
