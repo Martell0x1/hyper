@@ -2,12 +2,7 @@
 
 ## Supported versions
 
-| Version | Supported |
-|---------|-----------|
-| 0.1.x   | Yes       |
-| < 0.1   | No        |
-
-Hyper is an early public release (`0.1.x`). Security fixes target the latest `0.1.x` line on `main`.
+We support the latest `0.1.x` release line on `main`. Older pre-release snapshots before `0.1.0` are not supported for security fixes.
 
 ## Reporting a vulnerability
 
