@@ -12,4 +12,4 @@ pub mod codegen;
 #[path = "../../compiler/lowering.rs"]
 pub mod lowering;
 
-pub use lowering::{run_compile, CompileMode};
+pub use lowering::{run_compile, try_jit, CompileMode};
