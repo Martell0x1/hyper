@@ -29,21 +29,16 @@ jobs:
       - name: Unit tests
         run: cargo test
 
-      - name: Interpreter smoke
+      - name: Run (JIT) smoke
         run: cargo run --quiet -- run ci/smoke.hyp
 
-      - name: File I/O and JSON smoke
-        run: |
-          cargo run --quiet -- run ci/io_smoke.hyp
-          rm -f ci_smoke_io.txt ci_smoke_io.json
-
-      - name: Compiler JIT smoke
-        run: cargo run --quiet -- compile ci/smoke.hyp
-
-      - name: Compiler file I/O smoke
+      - name: File I/O smoke
         run: |
           cargo run --quiet -- compile ci/io_compile.hyp
           rm -f ci_compile_io.txt
+
+      - name: Compiler JIT smoke
+        run: cargo run --quiet -- compile ci/smoke.hyp
 
       - name: Compiler JSON smoke
         run: |
@@ -73,8 +68,8 @@ jobs:
 
       - name: Raise and handle smoke
         run: |
-          cargo run --quiet -- run ci/raise_handle.hyp > /tmp/rh_run.txt
           cargo run --quiet -- compile ci/raise_handle.hyp > /tmp/rh_jit.txt
+          cargo run --quiet -- run ci/raise_handle.hyp > /tmp/rh_run.txt
           diff /tmp/rh_run.txt /tmp/rh_jit.txt
 
       - name: Traits smoke
@@ -113,9 +108,9 @@ jobs:
         run: |
           cargo run --quiet -- compile ci/raise_handle.hyp --emit-exe /tmp/hyper_rh
           /tmp/hyper_rh > /tmp/rh_exe.txt
-          diff /tmp/rh_run.txt /tmp/rh_exe.txt
+          diff /tmp/rh_jit.txt /tmp/rh_exe.txt
 
-      - name: Division by zero parity
+      - name: Division by zero
         run: |
           set +e
           cargo run --quiet -- run ci/divzero.hyp > /tmp/dz_run.txt 2>&1
@@ -127,7 +122,7 @@ jobs:
           test "$jit_code" -eq 70
           diff /tmp/dz_run.txt /tmp/dz_jit.txt
 
-      - name: Interpreter and compiler output parity
+      - name: Run and compile output parity
         run: |
           cargo run --quiet -- run ci/smoke.hyp > /tmp/out_run.txt
           cargo run --quiet -- compile ci/smoke.hyp > /tmp/out_jit.txt
