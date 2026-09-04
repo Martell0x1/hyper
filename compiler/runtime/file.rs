@@ -86,9 +86,11 @@ pub extern "C" fn hyper_rt_file_close(
         return;
     }
     let line = line_no(line, _line_kind);
-    let file = unsafe { &mut *(handle as *mut HyperFile) };
+    // Take ownership so the Box and OS handle are released (mirrors mmap_close).
+    let mut file = unsafe { Box::from_raw(handle as *mut HyperFile) };
     let path = file.path().to_string();
     if let Err(e) = file.close() {
+        // Still drop the box; surface the close error.
         fatal(line, format!("could not close '{path}': {e}"));
     }
 }
