@@ -1,4 +1,4 @@
-# File handling and JSON smoke for CI (interpreter path).
+# File handling and JSON smoke for CI (compile / run JIT path).
 # Writes into the current directory and cleans nothing up; CI runs in a temp checkout.
 import json
 
