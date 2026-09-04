@@ -1370,10 +1370,21 @@ impl Parser {
 
         let body = self.statement()?;
 
+        let else_branch = if self.match_types(&[TokenType::Else]) {
+            if self.check(&TokenType::Colon) {
+                self.advance();
+            }
+            self.skip_newlines();
+            Some(Box::new(self.statement()?))
+        } else {
+            None
+        };
+
         Ok(Stmt::While {
             line,
             condition,
             body: Box::new(body),
+            else_branch: else_branch,
         })
     }
 
@@ -1422,12 +1433,24 @@ impl Parser {
             (false, false) => ForKind::Seq,
         };
 
+        let else_branch = if self.match_types(&[TokenType::Else]) {
+            if self.check(&TokenType::Colon) {
+                self.advance();
+            }
+            self.skip_newlines();
+            Some(Box::new(self.statement()?))
+        } else {
+            None
+        };
+        
+
         Ok(Stmt::For {
             kind,
             line,
             var: var_name,
             iter,
             body: Box::new(body),
+            else_branch: else_branch,
         })
     }
 
@@ -1574,6 +1597,55 @@ mod tests {
                 if matches!(then_branch.as_ref(), Stmt::Block(b) if matches!(b[0], Stmt::Continue { .. }))
         ));
         assert!(matches!(&inner[1], Stmt::Break { .. }));
+    }
+    
+    #[test]
+    fn for_else_attaches_to_the_loop() {
+        let stmts = parse_program(
+            "for i in range(5):\n\
+            \x20   break\n\
+            else:\n\
+            \x20   print(1)\n",
+        );
+        assert!(matches!(
+            &stmts[0],
+            Stmt::For {
+                else_branch: Some(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn while_else_attaches_to_the_loop() {
+        let stmts = parse_program(
+            "while true:\n\
+            \x20   break\n\
+            else:\n\
+            \x20   print(1)\n",
+        );
+        assert!(matches!(
+            &stmts[0],
+            Stmt::While {
+                else_branch: Some(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn for_without_else_has_no_else_branch() {
+        let stmts = parse_program(
+            "for i in range(5):\n\
+            \x20   print(i)\n",
+        );
+        assert!(matches!(
+            &stmts[0],
+            Stmt::For {
+                else_branch: None,
+                ..
+            }
+        ));
     }
 }
 

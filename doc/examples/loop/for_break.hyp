@@ -1,0 +1,18 @@
+for i in range(5):
+    if i == 10:
+        break
+else:
+    print("no break happened")
+
+for i in range(10):
+    if i == 9:
+        print("break reached this will break and else will not work")
+        break
+else:
+    print("this should not be printed")
+
+for i in range(5):
+    if i == 3:
+        print("three reached")
+else:
+    print("eles branch is working")

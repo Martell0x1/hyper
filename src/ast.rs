@@ -173,6 +173,7 @@ pub enum Stmt {
         line: u32,
         condition: Expr,
         body: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
     },
     For {
         kind: ForKind,
@@ -180,6 +181,7 @@ pub enum Stmt {
         var: String,
         iter: ForIter,
         body: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
     },
     Function(FunctionDecl),
     Return { line: u32, value: Expr },
@@ -526,18 +528,21 @@ impl fmt::Display for Stmt {
                 line,
                 condition,
                 body,
-            } => write!(f, "(while line:{} {} {})", line, condition, body),
-            Stmt::For {
-                kind,
-                line,
-                var,
-                iter,
-                body,
-            } => write!(
-                f,
-                "({} line:{} {} in {} {})",
-                kind, line, var, iter, body
-            ),
+                else_branch,
+            } => {
+                if let Some(else_b) = else_branch {
+                    write!(f, "(while {} {} {})", condition, body, else_b)
+                } else {
+                    write!(f, "(while {} {})", condition, body)
+                }
+            }
+            Stmt::For { kind, line, var, iter, body, else_branch } => {
+                if let Some(else_b) = else_branch {
+                    write!(f, "({} line:{} {} in {} {} {})", kind, line, var, iter, body, else_b)
+                } else {
+                    write!(f, "({} line:{} {} in {} {})", kind, line, var, iter, body)
+                }
+            }
             Stmt::Function(decl) => write!(f, "{}", decl),
             Stmt::Return { line, value } => write!(f, "(return line:{} {})", line, value),
             Stmt::Break { line } => write!(f, "(break line:{})", line),
