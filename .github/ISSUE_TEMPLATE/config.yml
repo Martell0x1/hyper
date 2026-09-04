@@ -5,4 +5,4 @@ contact_links:
     about: Read the Hyper docs (overview, compiler, standard library, errors).
   - name: Known compiler limitations
     url: https://github.com/muhammadyusufpov/hyper/blob/main/doc/compiler/known-limitations.md
-    about: Check whether the behavior is already documented as unsupported or interpreter-only.
+    about: Check whether the behavior is already documented as unsupported.
