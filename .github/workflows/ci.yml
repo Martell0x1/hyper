@@ -142,3 +142,13 @@ jobs:
           /tmp/hyper_bc > /tmp/bc_exe.txt
           diff /tmp/bc_run.txt /tmp/bc_jit.txt
           diff /tmp/bc_run.txt /tmp/bc_exe.txt
+      
+      - name: For and while else smoke
+        run: |
+          cargo run --quiet -- compile ci/for_while_else.hyp
+          /tmp/hyper_for_while_else
+
+      - name: For and while else smoke
+        run: |
+          cargo run --quiet -- compile ci/for_while_else.hyp
+          /tmp/hyper_for_while_else

@@ -1253,17 +1253,30 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             line,
             condition,
             body,
+            else_branch,
         } => {
+            let mut did_break: bool = false;
             while let Some(cond_val) = evaluate(condition, *line, Rc::clone(&env)) {
                 if is_truthy(&cond_val) {
                     match execute(body, Rc::clone(&env)) {
                         ExecResult::Return(val) => return ExecResult::Return(val),
                         ExecResult::Raise(val) => return ExecResult::Raise(val),
-                        ExecResult::Break { .. } => break,
+                        ExecResult::Break { .. } => {
+                            did_break = true;
+                            break;
+                        }
                         ExecResult::Ok | ExecResult::Continue { .. } => {}
                     }
                 } else {
                     break;
+                }
+            }
+            if !did_break {
+                if let Some(else_b) = else_branch {
+                    match execute(else_b, Rc::clone(&env)) {
+                        ExecResult::Ok => {}
+                        result => return result,
+                    }
                 }
             }
             ExecResult::Ok
@@ -1274,7 +1287,9 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
             var,
             iter,
             body,
+            else_branch,
         } => {
+            let mut did_break: bool = false;
             match iter {
                 ForIter::Range { start, end } => {
                     let start_val = evaluate(start, *line, Rc::clone(&env))
@@ -1389,7 +1404,10 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                                 match res {
                                     ExecResult::Return(val) => return ExecResult::Return(val),
                                     ExecResult::Raise(val) => return ExecResult::Raise(val),
-                                    ExecResult::Break { .. } => break 'lanes,
+                                    ExecResult::Break { line } => {
+                                        did_break = true;
+                                        break 'lanes;
+                                    }
                                     ExecResult::Ok | ExecResult::Continue { .. } => {}
                                 }
                             }
@@ -1405,7 +1423,10 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                             match execute(body, loop_env) {
                                 ExecResult::Return(val) => return ExecResult::Return(val),
                                 ExecResult::Raise(val) => return ExecResult::Raise(val),
-                                ExecResult::Break { .. } => break,
+                                ExecResult::Break { line } => {
+                                    did_break = true;
+                                    break;
+                                }
                                 ExecResult::Ok | ExecResult::Continue { .. } => {}
                             }
                         }
@@ -1432,9 +1453,20 @@ fn execute(stmt: &Stmt, env: Rc<RefCell<Environment>>) -> ExecResult {
                         match execute(body, Rc::clone(&loop_env)) {
                             ExecResult::Return(val) => return ExecResult::Return(val),
                             ExecResult::Raise(val) => return ExecResult::Raise(val),
-                            ExecResult::Break { .. } => break,
+                            ExecResult::Break { line } => {
+                                did_break = true;
+                                break;
+                            }
                             ExecResult::Ok | ExecResult::Continue { .. } => {}
                         }
+                    }
+                }
+            }
+            if !did_break {
+                if let Some(else_b) = else_branch {
+                    match execute(else_b, Rc::clone(&env)) {
+                        ExecResult::Ok => {}
+                        result => return result,
                     }
                 }
             }

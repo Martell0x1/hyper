@@ -1,0 +1,15 @@
+let mut n = 0
+while n < 3:
+    n = n + 1
+else:
+    print("loop completed normally")
+
+
+let mut n = 0
+while n < 10 :
+    n = n +1
+    if n == 6:
+        print("break happended , else should not work")
+        break
+else:
+    break

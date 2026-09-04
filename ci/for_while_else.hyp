@@ -1,0 +1,56 @@
+# for / while else: else runs only when the loop does not break.
+# Interpreter-only for now (do not compile this file until lowering exists).
+
+# for range: no break → else runs
+for i in range(5):
+    if i == 10:
+        break
+else:
+    print("for else")
+
+# for range: break → else skipped
+for i in range(5):
+    if i == 3:
+        print("for broke")
+        break
+else:
+    print("for else should not print")
+
+# continue is not break → else still runs
+for i in range(3):
+    if i == 1:
+        continue
+    print(i)
+else:
+    print("for continue else")
+
+# for-in list
+for x in [1, 2]:
+    print(x)
+else:
+    print("for-in else")
+
+for x in [1, 2, 3]:
+    if x == 2:
+        break
+else:
+    print("for-in else should not print")
+
+# while: no break → else runs
+let mut n = 0
+while n < 3:
+    n = n + 1
+else:
+    print("while else")
+
+# while: break → else skipped
+let mut n = 0
+while n < 10:
+    n = n + 1
+    if n == 2:
+        print("while broke")
+        break
+else:
+    print("while else should not print")
+
+print("done")
