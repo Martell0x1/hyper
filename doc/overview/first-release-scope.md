@@ -49,7 +49,7 @@ Release packaging (CHANGELOG, git tag `v0.1.0`, GitHub Release) is part of shipp
 |---------|------------------|
 | `@parallel` / `@vectorize` | Sequential compile codegen OK; interpreter has real `@parallel` threads; GPU/SIMD post v0.1 |
 | Generics / full trait system | Documented as not implemented |
-| Shared `ref` for list/dict/array | Structs share; collections still copy — documented |
+| Shared `ref` for list/dict/array | Shared on `run` (Rc); compile path uses handles |
 | NumPy / CPython extension interop | Vision in [Why Hyper](why-hyper.md); not required for v0.1 tag |
 
 ### Documentation

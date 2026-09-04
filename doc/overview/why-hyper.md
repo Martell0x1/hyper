@@ -50,7 +50,7 @@ The goal is **safe concurrency** plus **predictable performance**, not “fast b
 | **Execution** | `hyper run` (interpreter) and `hyper compile` (JIT / native binary) |
 | **I/O & JSON** | `open`, `with`, file methods, `open_mmap`, `import json`, `input()` on the compile path |
 | **Parallelism** | `@parallel` / `@vectorize` parse and run; compiler emits sequential loops until thread/GPU backends land |
-| **Gaps** | Generics, shared list/dict `ref`, full Python/stdlib parity — see [Known limitations](../compiler/known-limitations.md) |
+| **Gaps** | Generics, full Python/stdlib parity — see [Known limitations](../compiler/known-limitations.md) |
 
 ## Why pick Hyper over …
 
