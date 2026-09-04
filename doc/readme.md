@@ -1,20 +1,14 @@
 # Hyper
 
 
-The repository ships a Cranelift-based **compiler** (`hyper compile`), a transitional **interpreter** (`hyper run`), and this mdBook. v0.1 targets real small programs on the compile path; the [full vision](overview/why-hyper.md) describes where Hyper is going.
+The repository ships a Cranelift-based **compiler** (`hyper run` / `hyper compile`) and this mdBook. Hyper is **compiler-only** — there is no interpreter. v0.1 targets real small programs on the compile path; the [full vision](overview/why-hyper.md) describes where Hyper is going.
 
 ## Quick start
 
-Compile (preferred path):
-
-```bash
-cargo run -- compile your_file.hyp
-```
-
-Interpret (while compiler gaps remain):
-
 ```bash
 cargo run -- run your_file.hyp
+# same Cranelift JIT engine:
+cargo run -- compile your_file.hyp
 ```
 
 Build instructions, flags, and mdBook setup: [Building from source](building.md).
