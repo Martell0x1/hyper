@@ -146,9 +146,3 @@ jobs:
       - name: For and while else smoke
         run: |
           cargo run --quiet -- compile ci/for_while_else.hyp
-          /tmp/hyper_for_while_else
-
-      - name: For and while else smoke
-        run: |
-          cargo run --quiet -- compile ci/for_while_else.hyp
-          /tmp/hyper_for_while_else
