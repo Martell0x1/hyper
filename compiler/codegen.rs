@@ -2024,20 +2024,11 @@ fn define_function<M: Module>(
                         }
                     } else {
                         let id = func_ids.get(func).copied().ok_or_else(|| {
-                            match func.as_str() {
-                                "open" => crate::error::format_error(
-                                    crate::error::ErrorKind::Runtime,
-                                    0,
-                                    &format!(
-                                        "'{func}' is only available on the interpreter path; run with 'run'"
-                                    ),
-                                ),
-                                _ => crate::error::format_error(
-                                    crate::error::ErrorKind::Runtime,
-                                    0,
-                                    &format!("undefined function '{func}'"),
-                                ),
-                            }
+                            crate::error::format_error(
+                                crate::error::ErrorKind::Runtime,
+                                0,
+                                &format!("undefined function '{func}'"),
+                            )
                         })?;
                         let fref = module.declare_func_in_func(id, &mut builder.func);
                         let call = builder.ins().call(fref, &arg_vals);
