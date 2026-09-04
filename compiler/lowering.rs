@@ -1945,7 +1945,7 @@ impl Lowerer {
                 match iter {
                     ForIter::Range { start, end } => {
                         // Sequential label/branch loop. `@parallel` still compiles
-                        // sequentially (interpreter has real threads). `@vectorize` is a
+                        // sequentially until threaded codegen lands. `@vectorize` is a
                         // SIMD-oriented hint with the same per-index semantics today.
                         let start_v = self.lower_expr(start);
                         let end_v = self.lower_expr(end);
@@ -2309,6 +2309,21 @@ pub enum CompileMode {
     EmitIr,
     EmitObj { path: String },
     EmitExe { path: String },
+}
+
+/// Compile and JIT-execute without calling `process::exit`.
+/// Used by `hyper run` (compiler-first) and tests that need fallible compile.
+pub fn try_jit(file_contents: &str, entry_path: &str) -> Result<(), Vec<String>> {
+    let stmts = driver::parse_program(file_contents).map_err(|()| {
+        vec!["parse error".to_string()]
+    })?;
+
+    if let Err(errors) = semantic::typecheck(&stmts) {
+        return Err(errors);
+    }
+
+    let module = lower(&stmts, Path::new(entry_path))?;
+    super::codegen::jit_execute(&module).map_err(|msg| vec![msg])
 }
 
 pub fn run_compile(file_contents: String, entry_path: &str, mode: CompileMode) {
