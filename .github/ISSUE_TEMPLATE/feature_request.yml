@@ -7,8 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Hyper v0.1 focuses on a **working compile path for core programs**, not full parity with the interpreter.
-        Say whether you need this for **run**, **compile**, or **both**.
+        Hyper is **compiler-only**. Say whether you need this for **JIT (`run`/`compile`)**, **`--emit-exe`**, or tooling/docs.
 
   - type: textarea
     id: problem
@@ -31,8 +30,8 @@ body:
     attributes:
       label: Needed on
       options:
-        - interpreter (`hyper run`)
-        - compiler (`hyper compile` / `--emit-exe`)
+        - JIT (`hyper run` / `hyper compile`)
+        - native binary (`hyper compile --emit-exe`)
         - both
         - tooling / docs / CI only
     validations:
