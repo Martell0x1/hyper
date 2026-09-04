@@ -716,6 +716,110 @@ fn named_kind(map: &HashMap<String, ValueKind>, name: &str) -> ValueKind {
     map.get(name).copied().unwrap_or(ValueKind::I64)
 }
 
+/// Names that may hold more than one runtime kind (or are function params).
+/// Only these need a Cranelift kind SSA variable — monomorphic locals (e.g. range
+/// induction `i`) skip the per-iteration kind `iconst`/`def_var` tax.
+fn names_needing_kind_vars(body: &[IrInstr], params: &[String]) -> HashSet<String> {
+    let mut value_kinds: HashMap<ValueId, ValueKind> = HashMap::new();
+    let mut named_kinds: HashMap<String, ValueKind> = HashMap::new();
+    let mut need: HashSet<String> = params.iter().cloned().collect();
+
+    let set_val = |map: &mut HashMap<ValueId, ValueKind>, id: ValueId, k: ValueKind| {
+        map.insert(id, k);
+    };
+    let vk = |map: &HashMap<ValueId, ValueKind>, id: ValueId| {
+        map.get(&id).copied().unwrap_or(ValueKind::Dynamic)
+    };
+
+    for instr in body {
+        match instr {
+            IrInstr::ConstI64 { dest, .. } => set_val(&mut value_kinds, *dest, ValueKind::I64),
+            IrInstr::ConstF64 { dest, .. } => set_val(&mut value_kinds, *dest, ValueKind::F64),
+            IrInstr::ConstBool { dest, .. } => set_val(&mut value_kinds, *dest, ValueKind::Bool),
+            IrInstr::ConstNone { dest } => set_val(&mut value_kinds, *dest, ValueKind::None_),
+            IrInstr::ConstStr { dest, .. } => set_val(&mut value_kinds, *dest, ValueKind::Str),
+            IrInstr::Load { dest, name } => {
+                let k = named_kinds
+                    .get(name)
+                    .copied()
+                    .unwrap_or(if need.contains(name) {
+                        ValueKind::Dynamic
+                    } else {
+                        ValueKind::I64
+                    });
+                set_val(&mut value_kinds, *dest, k);
+            }
+            IrInstr::Store { name, value } => {
+                let incoming = vk(&value_kinds, *value);
+                let merged = match named_kinds.get(name) {
+                    Some(prev) if *prev != incoming => ValueKind::Dynamic,
+                    Some(prev) => *prev,
+                    None => incoming,
+                };
+                named_kinds.insert(name.clone(), merged);
+                if merged == ValueKind::Dynamic || incoming == ValueKind::Dynamic {
+                    need.insert(name.clone());
+                }
+            }
+            IrInstr::Unary { dest, op, src } => {
+                let sk = vk(&value_kinds, *src);
+                let out = match op {
+                    IrOp::Not => ValueKind::Bool,
+                    IrOp::Neg if sk == ValueKind::F64 => ValueKind::F64,
+                    IrOp::Neg => ValueKind::I64,
+                    _ => ValueKind::Dynamic,
+                };
+                set_val(&mut value_kinds, *dest, out);
+            }
+            IrInstr::Binary {
+                dest,
+                op,
+                left,
+                right,
+            } => {
+                let lk = vk(&value_kinds, *left);
+                let rk = vk(&value_kinds, *right);
+                let out = if lk == ValueKind::Str && rk == ValueKind::Str && matches!(op, IrOp::Add)
+                {
+                    ValueKind::Str
+                } else if matches!(
+                    op,
+                    IrOp::Eq | IrOp::Ne | IrOp::Lt | IrOp::Le | IrOp::Gt | IrOp::Ge
+                ) {
+                    ValueKind::Bool
+                } else if lk == ValueKind::F64 || rk == ValueKind::F64 {
+                    ValueKind::F64
+                } else if lk == ValueKind::Dynamic || rk == ValueKind::Dynamic {
+                    ValueKind::Dynamic
+                } else {
+                    ValueKind::I64
+                };
+                set_val(&mut value_kinds, *dest, out);
+            }
+            IrInstr::Call { dest, .. }
+            | IrInstr::MakeList { dest, .. }
+            | IrInstr::MakeDict { dest, .. }
+            | IrInstr::IndexGet { dest, .. }
+            | IrInstr::MakeStruct { dest, .. }
+            | IrInstr::StructGet { dest, .. } => {
+                set_val(&mut value_kinds, *dest, ValueKind::Dynamic);
+            }
+            IrInstr::ListLen { dest, .. } => set_val(&mut value_kinds, *dest, ValueKind::I64),
+            IrInstr::ValueToStr { dest, .. } | IrInstr::StrConcat { dest, .. } => {
+                set_val(&mut value_kinds, *dest, ValueKind::Str);
+            }
+            _ => {}
+        }
+    }
+
+    for (name, kind) in named_kinds {
+        if kind == ValueKind::Dynamic {
+            need.insert(name);
+        }
+    }
+    need
+}
+
 fn i64_to_f64(builder: &mut FunctionBuilder, v: Value) -> Value {
     builder.ins().bitcast(types::F64, MemFlags::new(), v)
 }
@@ -1395,11 +1499,12 @@ fn define_function<M: Module>(
             }
         }
 
-        // Every named slot carries a runtime kind so a name written with
-        // different kinds on different paths stays printable/inspectable.
+        // Only polymorphic (or param) names carry runtime kind SSA. Monomorphic
+        // locals — especially range induction variables — skip the kind tax.
+        let kind_needed = names_needing_kind_vars(body, params);
         let named_names: Vec<String> = named_vars.keys().cloned().collect();
         for name in named_names {
-            if named_kind_vars.contains_key(&name) {
+            if named_kind_vars.contains_key(&name) || !kind_needed.contains(&name) {
                 continue;
             }
             let kv = declare_var(&mut builder, &mut next_var);
@@ -1470,23 +1575,23 @@ fn define_function<M: Module>(
                     builder.def_var(named_vars[name], val);
                     let vk = kind_of(&value_kinds, *value);
 
-                    let runtime_kind = if vk == ValueKind::Dynamic {
-                        match kind_vars.get(value) {
-                            Some(kv) => builder.use_var(*kv),
-                            None => builder.ins().iconst(types::I64, 0),
-                        }
-                    } else {
-                        builder.ins().iconst(types::I64, vk.as_i64())
-                    };
-                    if let Some(kv) = named_kind_vars.get(name) {
-                        builder.def_var(*kv, runtime_kind);
-                    }
-
                     let merged = match named_kinds.get(name) {
                         Some(prev) if *prev != vk => ValueKind::Dynamic,
                         _ => vk,
                     };
                     named_kinds.insert(name.clone(), merged);
+
+                    if let Some(kv) = named_kind_vars.get(name) {
+                        let runtime_kind = if vk == ValueKind::Dynamic {
+                            match kind_vars.get(value) {
+                                Some(src_kv) => builder.use_var(*src_kv),
+                                None => builder.ins().iconst(types::I64, 0),
+                            }
+                        } else {
+                            builder.ins().iconst(types::I64, vk.as_i64())
+                        };
+                        builder.def_var(*kv, runtime_kind);
+                    }
                 }
                 IrInstr::Unary { dest, op, src } => {
                     let s = builder.use_var(value_vars[src]);
@@ -2100,17 +2205,25 @@ fn define_function<M: Module>(
                     value_kinds.insert(*dest, ValueKind::I64);
                 }
                 IrInstr::ValueToStr { dest, src } => {
-                    let v = builder.use_var(value_vars[src]);
-                    let kind = match kind_of(&value_kinds, *src) {
-                        ValueKind::Dynamic => builder.use_var(kind_vars[src]),
-                        other => builder.ins().iconst(types::I64, other.as_i64()),
-                    };
-                    let fref =
-                        module.declare_func_in_func(runtime.value_to_str, &mut builder.func);
-                    let call = builder.ins().call(fref, &[v, kind]);
-                    let ret = builder.inst_results(call)[0];
-                    builder.def_var(value_vars[dest], ret);
-                    value_kinds.insert(*dest, ValueKind::Str);
+                    let src_kind = kind_of(&value_kinds, *src);
+                    if src_kind == ValueKind::Str {
+                        // Already a string pointer — skip malloc via value_to_str.
+                        let v = builder.use_var(value_vars[src]);
+                        builder.def_var(value_vars[dest], v);
+                        value_kinds.insert(*dest, ValueKind::Str);
+                    } else {
+                        let v = builder.use_var(value_vars[src]);
+                        let kind = match src_kind {
+                            ValueKind::Dynamic => builder.use_var(kind_vars[src]),
+                            other => builder.ins().iconst(types::I64, other.as_i64()),
+                        };
+                        let fref =
+                            module.declare_func_in_func(runtime.value_to_str, &mut builder.func);
+                        let call = builder.ins().call(fref, &[v, kind]);
+                        let ret = builder.inst_results(call)[0];
+                        builder.def_var(value_vars[dest], ret);
+                        value_kinds.insert(*dest, ValueKind::Str);
+                    }
                 }
                 IrInstr::StrConcat { dest, left, right } => {
                     let l = builder.use_var(value_vars[left]);

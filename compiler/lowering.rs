@@ -1686,13 +1686,40 @@ impl Lowerer {
                 val
             }
             Expr::FString { parts, .. } => {
-                let empty = self.fresh_value();
-                self.emit(IrInstr::ConstStr {
-                    dest: empty,
-                    value: String::new(),
-                });
-                let mut acc = empty;
+                // Collapse adjacent literals and skip empties so f-strings
+                // allocate fewer intermediate concat results.
+                let mut merged: Vec<FStringPart> = Vec::new();
                 for part in parts {
+                    match part {
+                        FStringPart::Literal(s) if s.is_empty() => {}
+                        FStringPart::Literal(s) => {
+                            if let Some(FStringPart::Literal(prev)) = merged.last_mut() {
+                                prev.push_str(s);
+                            } else {
+                                merged.push(FStringPart::Literal(s.clone()));
+                            }
+                        }
+                        FStringPart::Expr(e) => merged.push(FStringPart::Expr(e.clone())),
+                    }
+                }
+                if merged.is_empty() {
+                    let dest = self.fresh_value();
+                    self.emit(IrInstr::ConstStr {
+                        dest,
+                        value: String::new(),
+                    });
+                    return dest;
+                }
+                if let [FStringPart::Literal(s)] = merged.as_slice() {
+                    let dest = self.fresh_value();
+                    self.emit(IrInstr::ConstStr {
+                        dest,
+                        value: s.clone(),
+                    });
+                    return dest;
+                }
+                let mut acc: Option<ValueId> = None;
+                for part in &merged {
                     let piece = match part {
                         FStringPart::Literal(s) => {
                             let dest = self.fresh_value();
@@ -1709,15 +1736,20 @@ impl Lowerer {
                             dest
                         }
                     };
-                    let dest = self.fresh_value();
-                    self.emit(IrInstr::StrConcat {
-                        dest,
-                        left: acc,
-                        right: piece,
+                    acc = Some(match acc {
+                        None => piece,
+                        Some(left) => {
+                            let dest = self.fresh_value();
+                            self.emit(IrInstr::StrConcat {
+                                dest,
+                                left,
+                                right: piece,
+                            });
+                            dest
+                        }
                     });
-                    acc = dest;
                 }
-                acc
+                acc.unwrap()
             }
             Expr::Ternary {
                 condition,
