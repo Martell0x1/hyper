@@ -7,8 +7,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        For compile-path bugs: include **both** `hyper run` and `hyper compile` results if they differ.
-        Many constructs are still interpreter-only — see [known limitations](doc/compiler/known-limitations.md).
+        For compile-path bugs: include **`hyper run`** and **`hyper compile`** / **`--emit-exe`** results if they differ.
+        See [known limitations](doc/compiler/known-limitations.md).
 
   - type: dropdown
     id: compile_mode
