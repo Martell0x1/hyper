@@ -10,9 +10,6 @@ mod driver;
 mod environment;
 mod fileio;
 mod json;
-mod text_utils;
-mod collection_utils;
-mod interpreter;
 mod semantic;
 mod module;
 mod compiler;
@@ -22,12 +19,14 @@ fn main() {
     if args.len() < 3 {
         let _ = writeln!(
             io::stderr(),
-            "Usage: {} <tokenize|parse|evaluate|run|typecheck|compile> <filename> [options]\n\
+            "Usage: {} <tokenize|parse|run|typecheck|compile> <filename> [options]\n\
              \n\
+             run <file>                        JIT execute (Cranelift)\n\
              compile <file>                    JIT execute\n\
              compile <file> --emit-ir          print IR only\n\
              compile <file> --emit-obj [path]  emit object (default a.o)\n\
-             compile <file> --emit-exe [path]  emit executable (default hyper_out)",
+             compile <file> --emit-exe [path]  emit executable (default hyper_out)\n\
+             typecheck <file>                  typecheck only",
             args[0]
         );
         return;
@@ -48,11 +47,14 @@ fn main() {
         "parse" => {
             parser::run_parse(file_contents);
         }
-        "evaluate" => {
-            interpreter::run_evaluate(file_contents);
-        }
         "run" => {
-            crate::interpreter::run_program(file_contents, filename);
+            // Compiler-only: same Cranelift JIT path as `compile`.
+            if let Err(errors) = compiler::try_jit(&file_contents, filename) {
+                for e in &errors {
+                    error::report_formatted(e);
+                }
+                std::process::exit(65);
+            }
         }
         "typecheck" => {
             semantic::run_typecheck(file_contents);
@@ -60,6 +62,14 @@ fn main() {
         "compile" => {
             let mode = parse_compile_mode(&args[3..]);
             compiler::run_compile(file_contents, filename, mode);
+        }
+        "evaluate" => {
+            let _ = writeln!(
+                io::stderr(),
+                "error: 'evaluate' was removed — Hyper is compiler-only.\n\
+                 Use a small program with print(...) and `hyper run`, or `hyper compile`."
+            );
+            std::process::exit(64);
         }
         _ => {
             println!("Unknown command: {}", command);
