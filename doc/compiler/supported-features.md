@@ -12,7 +12,7 @@ This list reflects what **`hyper compile`** can lower today (JIT and `--emit-exe
 - Literals: integers, floats, strings, f-strings, lists, dicts, `None`, booleans
 - Structs: fields with `pub` / `mut`, methods, `__init__`, field get/set; traits (method name + arity)
 - Modules: `import m`, `import m as alias`, `from m import name`
-- Decorators: `@parallel`, `@vectorize` on `for` (compile path: sequential loops with the same per-index results; interpreter runs `@parallel` on threads)
+- Decorators: `@parallel`, `@vectorize` on `for` (sequential loops today; same per-index results)
 
 ## Builtins and standard library (compile path)
 

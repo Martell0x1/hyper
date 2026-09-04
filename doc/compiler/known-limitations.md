@@ -2,27 +2,19 @@
 
 Hyper v0.1 targets a **working compiler for core programs**, not full language parity. When a construct is unsupported, lowering reports a **`SyntaxError`** with a line number before codegen starts (multiple errors collected in one pass when possible).
 
-## Interpreter-only today
-
-_None for the string / collection / I/O / error-flow surface covered by v0.1 smokes._
-
-## Supported on compile path (JIT and `--emit-exe`)
-
-`open(...)`, `with open(...) as f:`, file methods, `with open_mmap(...) as m:`, `read_chunk`, `input()`, `clock()`, collection methods (`len`, `append`, `keys`), **full string methods** (see [Supported features](supported-features.md)), `import json` (`loads`, `dumps`, `load`, `dump`), **`break` / `continue`**, **`pub` / `mut` enforcement**, **trait method conformance** (name + arity), **`raise` / `raises` / `handle`**, and `@parallel` / `@vectorize` `for` (see below).
-
-## Lowered differently than interpreted
+## Behavioral notes
 
 | Construct | Compiler behavior |
 |-----------|-------------------|
-| `@parallel` on `for` | Emitted as a **sequential** loop (same per-index semantics). The interpreter schedules real worker threads. |
-| `@vectorize` on `for` | SIMD-oriented hint; compile path still runs every index sequentially (interpreter uses lane-friendly chunking with identical results). |
-| Type errors | **Fatal** under `compile`; **warnings** under `run` |
+| `@parallel` on `for` | Emitted as a **sequential** loop (same per-index semantics). Threaded codegen is planned. |
+| `@vectorize` on `for` | SIMD-oriented hint; still runs every index sequentially until SIMD/GPU backends land. |
+| Type errors | **Fatal** under `run` and `compile` before codegen |
 
 ## Loop control flow
 
-`break` and `continue` bind to the innermost enclosing `while` / `for` / `for-in` loop on **both backends**. Two cases are rejected:
+`break` and `continue` bind to the innermost enclosing `while` / `for` / `for-in` loop. Two cases are rejected:
 
-- Outside any loop — `SyntaxError: line N: break outside loop` from the type checker (fatal under `compile`, a warning followed by a `RuntimeError` under `run`).
+- Outside any loop — `SyntaxError: line N: break outside loop` from the type checker (fatal before codegen).
 - Inside a `@parallel` / `@parallel @vectorize` `for` body, where iterations are split across threads and an early exit has no single meaning.
 
 A function body does not inherit the loop around its declaration, so a `break` inside a nested `fn` is an error.
