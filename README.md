@@ -27,7 +27,7 @@ Architecture draws from **Rust-style safety** (memory safety as a first-class go
 
 ## Building from source
 
-Hyper has no official release yet. To clone, build, and run the toolchain, see [Building from source](doc/building.md).
+Hyper **v0.1.0** is the first public release. Clone, build, and run the toolchain from source — see [Building from source](doc/building.md).
 
 ## Contributing
 

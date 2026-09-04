@@ -106,4 +106,4 @@ Full reference: [Error kinds](errors/overview.md).
 
 ## Development status
 
-Hyper has **not** tagged v0.1 yet. CHANGELOG, git tags, and GitHub Releases follow the [first release checklist](overview/first-release-scope.md), not the other way around.
+Hyper **v0.1.0** is tagged and released. See the [CHANGELOG](../CHANGELOG.md) and [GitHub Releases](https://github.com/muhammadyusufpov/hyper/releases). Remaining gaps are listed in [Known limitations](compiler/known-limitations.md). The original [first release checklist](overview/first-release-scope.md) documents what v0.1 aimed to ship.
