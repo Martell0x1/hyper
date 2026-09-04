@@ -42,6 +42,7 @@ pub fn fatal(kind: ErrorKind, line: u32, message: impl AsRef<str>) -> ! {
     process::exit(kind.exit_code());
 }
 
+#[allow(dead_code)]
 pub fn syntax(line: u32, message: impl AsRef<str>) -> ! {
     fatal(ErrorKind::Syntax, line, message);
 }
@@ -62,6 +63,7 @@ pub fn indentation(line: u32, message: impl AsRef<str>) {
     report(ErrorKind::Indentation, line, message.as_ref());
 }
 
+#[allow(dead_code)]
 pub fn warning(message: &str) {
     let _ = writeln!(io::stderr(), "warning: {}", message);
 }
