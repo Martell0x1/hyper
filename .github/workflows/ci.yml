@@ -85,6 +85,11 @@ jobs:
       - name: Run (JIT) smoke
         run: cargo run --quiet -- run ci/smoke.hyp
 
+      - name: Shared list smoke
+        run: |
+          cargo run --quiet -- run ci/ref_list_share.hyp
+          cargo run --quiet -- compile ci/ref_list_share.hyp
+
       - name: File I/O smoke
         run: |
           cargo run --quiet -- compile ci/io_compile.hyp
