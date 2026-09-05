@@ -15,7 +15,8 @@ enum {
     KIND_DICT = 6,
     KIND_STRUCT = 7,
     KIND_FILE = 8,
-    KIND_MMAP = 9
+    KIND_MMAP = 9,
+    KIND_U64 = 10
 };
 
 typedef struct {
@@ -307,6 +308,9 @@ static void format_value(const RtValue *v) {
     switch (v->kind) {
     case KIND_I64:
         printf("%lld", (long long)v->payload);
+        break;
+    case KIND_U64:
+        printf("%llu", (unsigned long long)(uint64_t)v->payload);
         break;
     case KIND_F64: {
         double d;
@@ -707,6 +711,9 @@ int64_t hyper_rt_value_to_str(int64_t payload, int64_t kind) {
     switch (kind) {
     case KIND_I64:
         snprintf(buf, sizeof(buf), "%lld", (long long)payload);
+        break;
+    case KIND_U64:
+        snprintf(buf, sizeof(buf), "%llu", (unsigned long long)(uint64_t)payload);
         break;
     case KIND_F64: {
         double d;
