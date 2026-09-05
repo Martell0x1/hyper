@@ -18,6 +18,7 @@
 - [Supported features](compiler/supported-features.md)
 - [Known limitations](compiler/known-limitations.md)
 - [String concat ownership (change brief)](compiler/str-concat-ownership.md)
+- [Concat leak showcase (before / after RSS)](compiler/str-concat-stress-showcase.md)
 
 # Standard library
 
