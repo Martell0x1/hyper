@@ -8,6 +8,75 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process;
 
+/// Fixed-width integer binding / value tracking for wrap-on-store and wrap-on-op.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IntWidth {
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+}
+
+impl IntWidth {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "i8" | "int8" => Some(IntWidth::I8),
+            "i16" | "int16" => Some(IntWidth::I16),
+            "i32" | "int32" => Some(IntWidth::I32),
+            "i64" | "int64" => Some(IntWidth::I64),
+            "u8" | "uint8" => Some(IntWidth::U8),
+            "u16" | "uint16" => Some(IntWidth::U16),
+            "u32" | "uint32" => Some(IntWidth::U32),
+            "u64" | "uint64" => Some(IntWidth::U64),
+            _ => None,
+        }
+    }
+
+    fn from_type_ann(ann: &TypeAnn) -> Option<Self> {
+        match ann {
+            TypeAnn::Named(n) => Self::from_name(n),
+            _ => None,
+        }
+    }
+
+    fn bits(self) -> u8 {
+        match self {
+            IntWidth::I8 | IntWidth::U8 => 8,
+            IntWidth::I16 | IntWidth::U16 => 16,
+            IntWidth::I32 | IntWidth::U32 => 32,
+            IntWidth::I64 | IntWidth::U64 => 64,
+        }
+    }
+
+    fn signed(self) -> bool {
+        matches!(
+            self,
+            IntWidth::I8 | IntWidth::I16 | IntWidth::I32 | IntWidth::I64
+        )
+    }
+
+    fn rank(self) -> u8 {
+        match self {
+            IntWidth::I8 | IntWidth::U8 => 1,
+            IntWidth::I16 | IntWidth::U16 => 2,
+            IntWidth::I32 | IntWidth::U32 => 3,
+            IntWidth::I64 | IntWidth::U64 => 4,
+        }
+    }
+
+    fn widen(self, other: Self) -> Self {
+        if self.rank() >= other.rank() {
+            self
+        } else {
+            other
+        }
+    }
+}
+
 #[derive(Clone)]
 struct StructLayout {
     fields: HashMap<String, u32>,
@@ -44,6 +113,10 @@ struct Lowerer {
     var_files: HashSet<String>,
     /// local variable → memory-mapped file handle (for mmap method lowering)
     var_mmaps: HashSet<String>,
+    /// local variable → fixed integer width from a type annotation
+    var_int_widths: HashMap<String, IntWidth>,
+    /// SSA value → integer width (when known)
+    value_int_widths: HashMap<ValueId, IntWidth>,
     /// function name → struct type it returns, so `let p = make()` keeps methods
     fn_struct_returns: HashMap<String, String>,
     /// Enclosing loops as `(continue target, break target)` block pairs.
@@ -74,6 +147,8 @@ impl Lowerer {
             var_structs: HashMap::new(),
             var_files: HashSet::new(),
             var_mmaps: HashSet::new(),
+            var_int_widths: HashMap::new(),
+            value_int_widths: HashMap::new(),
             fn_struct_returns: HashMap::new(),
             loop_stack: Vec::new(),
             traits: HashMap::new(),
@@ -95,6 +170,18 @@ impl Lowerer {
     fn error_value(&mut self) -> ValueId {
         let dest = self.fresh_value();
         self.emit(IrInstr::ConstNone { dest });
+        dest
+    }
+
+    fn wrap_int(&mut self, src: ValueId, width: IntWidth) -> ValueId {
+        let dest = self.fresh_value();
+        self.emit(IrInstr::IntWrap {
+            dest,
+            src,
+            bits: width.bits(),
+            signed: width.signed(),
+        });
+        self.value_int_widths.insert(dest, width);
         dest
     }
 
@@ -1273,13 +1360,24 @@ impl Lowerer {
                         value: s.clone(),
                     }),
                     Literal::Number(n) => {
-                        if n.contains('.') || n.contains('e') || n.contains('E') {
-                            let value = n.parse::<f64>().unwrap_or(0.0);
+                        let cleaned = n.replace('_', "");
+                        if cleaned.contains('.')
+                            || cleaned.contains('e')
+                            || cleaned.contains('E')
+                        {
+                            let value = cleaned.parse::<f64>().unwrap_or(0.0);
                             self.emit(IrInstr::ConstF64 { dest, value });
-                        } else if let Ok(value) = n.parse::<i64>() {
+                        } else if let Ok(value) = cleaned.parse::<i64>() {
                             self.emit(IrInstr::ConstI64 { dest, value });
+                        } else if let Ok(value) = cleaned.parse::<u64>() {
+                            // Store the bit pattern; mark as u64 via IntWrap.
+                            self.emit(IrInstr::ConstI64 {
+                                dest,
+                                value: value as i64,
+                            });
+                            return self.wrap_int(dest, IntWidth::U64);
                         } else {
-                            let value = n.parse::<f64>().unwrap_or(0.0);
+                            let value = cleaned.parse::<f64>().unwrap_or(0.0);
                             self.emit(IrInstr::ConstF64 { dest, value });
                         }
                     }
@@ -1292,6 +1390,9 @@ impl Lowerer {
                     dest,
                     name: name.clone(),
                 });
+                if let Some(w) = self.var_int_widths.get(name).copied() {
+                    self.value_int_widths.insert(dest, w);
+                }
                 dest
             }
             Expr::Group(inner) => self.lower_expr(inner),
@@ -1307,6 +1408,11 @@ impl Lowerer {
                     op: ir_op,
                     src,
                 });
+                if matches!(op, UnaryOp::Neg) {
+                    if let Some(w) = self.value_int_widths.get(&src).copied() {
+                        return self.wrap_int(dest, w);
+                    }
+                }
                 dest
             }
             Expr::Binary { op, left, right } => {
@@ -1401,6 +1507,27 @@ impl Lowerer {
                             left: l,
                             right: r,
                         });
+                        let lw = self.value_int_widths.get(&l).copied();
+                        let rw = self.value_int_widths.get(&r).copied();
+                        let out_w = match (lw, rw) {
+                            (Some(a), Some(b)) => Some(a.widen(b)),
+                            (Some(a), None) | (None, Some(a)) => Some(a),
+                            (None, None) => None,
+                        };
+                        if let Some(w) = out_w {
+                            if matches!(
+                                other,
+                                BinOp::Add
+                                    | BinOp::Sub
+                                    | BinOp::Mul
+                                    | BinOp::Div
+                                    | BinOp::FloorDiv
+                                    | BinOp::Rem
+                                    | BinOp::Pow
+                            ) {
+                                return self.wrap_int(dest, w);
+                            }
+                        }
                         dest
                     }
                 }
@@ -1409,6 +1536,11 @@ impl Lowerer {
                 self.note_struct_binding(name, value);
                 self.note_file_binding(name, value);
                 let v = self.lower_expr(value);
+                let v = if let Some(w) = self.var_int_widths.get(name).copied() {
+                    self.wrap_int(v, w)
+                } else {
+                    v
+                };
                 self.emit(IrInstr::Store {
                     name: name.clone(),
                     value: v,
@@ -1851,11 +1983,20 @@ impl Lowerer {
         }
         match stmt {
             Stmt::Let {
-                name, initializer, ..
+                name,
+                type_ann,
+                initializer,
+                ..
             } => {
                 self.note_struct_binding(name, initializer);
                 self.note_file_binding(name, initializer);
                 let v = self.lower_expr(initializer);
+                let v = if let Some(w) = IntWidth::from_type_ann(type_ann) {
+                    self.var_int_widths.insert(name.clone(), w);
+                    self.wrap_int(v, w)
+                } else {
+                    v
+                };
                 self.emit(IrInstr::Store {
                     name: name.clone(),
                     value: v,
