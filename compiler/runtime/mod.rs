@@ -12,6 +12,7 @@ pub const KIND_DICT: i64 = 6;
 pub const KIND_STRUCT: i64 = 7;
 pub const KIND_FILE: i64 = 8;
 pub const KIND_MMAP: i64 = 9;
+pub const KIND_U64: i64 = 10;
 
 mod file;
 mod io;
@@ -62,6 +63,7 @@ struct RtStruct {
 pub(crate) fn format_value(v: &RtValue) -> String {
     match v.kind {
         KIND_I64 => format!("{}", v.payload),
+        KIND_U64 => format!("{}", v.payload as u64),
         KIND_F64 => format!("{}", f64::from_bits(v.payload as u64)),
         KIND_STR => {
             if v.payload == 0 {
@@ -211,6 +213,11 @@ fn key_as_str<'a>(key: i64, key_kind: i64, owned: &'a mut String) -> &'a str {
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_print_i64(v: i64) {
     print!("{}", v);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_print_u64(v: i64) {
+    print!("{}", v as u64);
 }
 
 #[unsafe(no_mangle)]
