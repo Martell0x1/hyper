@@ -34,6 +34,19 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # Git for Windows ships usr\bin\link.exe (POSIX link(1)). Bash puts that
+      # directory first on PATH, so rustc invokes it instead of MSVC link.exe.
+      - name: Unshadow MSVC link.exe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gitLink = 'C:\Program Files\Git\usr\bin\link.exe'
+          if (Test-Path $gitLink) {
+            Rename-Item -Path $gitLink -NewName 'link_unix.exe' -Force
+            Write-Host "Renamed Git link.exe -> link_unix.exe"
+          }
+          Write-Host "link.exe => $((Get-Command link.exe).Source)"
+
       - name: Build
         run: cargo build
 
