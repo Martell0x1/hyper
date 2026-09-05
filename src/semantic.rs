@@ -391,17 +391,55 @@ impl TypeChecker {
             Literal::Bool(_) => HyperType::Bool,
             Literal::String(_) => HyperType::String,
             Literal::Number(n) => {
-                if n.contains('.') || n.contains('e') || n.contains('E') {
+                let cleaned = n.replace('_', "");
+                if cleaned.contains('.') || cleaned.contains('e') || cleaned.contains('E') {
                     HyperType::F64
-                } else if n.parse::<i32>().is_ok() {
+                } else if cleaned.parse::<i32>().is_ok() {
                     HyperType::I32
-                } else if n.parse::<i64>().is_ok() {
+                } else if cleaned.parse::<i64>().is_ok() {
                     HyperType::I64
+                } else if cleaned.parse::<u64>().is_ok() {
+                    // Fits u64 but not i64 (e.g. values above i64::MAX).
+                    HyperType::U64
                 } else {
                     HyperType::F64
                 }
             }
         }
+    }
+
+    /// If one operand is a fixed-width int and the other is an integer literal that
+    /// fits that width, treat the literal as the fixed width (so `x: i8` + `1` stays i8).
+    fn harmonize_int_binary(
+        left_expr: &Expr,
+        right_expr: &Expr,
+        left_ty: HyperType,
+        right_ty: HyperType,
+    ) -> (HyperType, HyperType) {
+        let is_fixed_int = |t: &HyperType| {
+            matches!(
+                t,
+                HyperType::I8
+                    | HyperType::I16
+                    | HyperType::I32
+                    | HyperType::I64
+                    | HyperType::U8
+                    | HyperType::U16
+                    | HyperType::U32
+                    | HyperType::U64
+            )
+        };
+        let literal_fits = |expr: &Expr, ty: &HyperType| -> bool {
+            Self::expr_fits_type(expr, ty)
+        };
+
+        if is_fixed_int(&left_ty) && literal_fits(right_expr, &left_ty) {
+            return (left_ty.clone(), left_ty);
+        }
+        if is_fixed_int(&right_ty) && literal_fits(left_expr, &right_ty) {
+            return (right_ty.clone(), right_ty);
+        }
+        (left_ty, right_ty)
     }
 
     fn check_expr(&mut self, expr: &Expr) -> HyperType {
@@ -440,6 +478,7 @@ impl TypeChecker {
             Expr::Binary { op, left, right } => {
                 let lt = self.check_expr(left);
                 let rt = self.check_expr(right);
+                let (lt, rt) = Self::harmonize_int_binary(left, right, lt, rt);
                 self.check_binary(op, &lt, &rt)
             }
             Expr::Assign { name, value } => {
