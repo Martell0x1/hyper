@@ -17,6 +17,7 @@
 - [Overview](compiler/overview.md)
 - [Supported features](compiler/supported-features.md)
 - [Known limitations](compiler/known-limitations.md)
+- [String concat ownership (change brief)](compiler/str-concat-ownership.md)
 
 # Standard library
 
