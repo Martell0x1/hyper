@@ -5,6 +5,11 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 enum {
     KIND_I64 = 0,
     KIND_F64 = 1,
@@ -15,7 +20,8 @@ enum {
     KIND_DICT = 6,
     KIND_STRUCT = 7,
     KIND_FILE = 8,
-    KIND_MMAP = 9
+    KIND_MMAP = 9,
+    KIND_U64 = 10
 };
 
 typedef struct {
@@ -409,6 +415,9 @@ static void format_value(const RtValue *v) {
     case KIND_I64:
         printf("%lld", (long long)v->payload);
         break;
+    case KIND_U64:
+        printf("%llu", (unsigned long long)(uint64_t)v->payload);
+        break;
     case KIND_F64: {
         double d;
         char buf[512];
@@ -761,6 +770,9 @@ int64_t hyper_rt_value_to_str(int64_t payload, int64_t kind) {
     case KIND_I64:
         snprintf(buf, sizeof(buf), "%lld", (long long)payload);
         break;
+    case KIND_U64:
+        snprintf(buf, sizeof(buf), "%llu", (unsigned long long)(uint64_t)payload);
+        break;
     case KIND_F64: {
         double d;
         memcpy(&d, &payload, sizeof(d));
@@ -1023,6 +1035,11 @@ void hyper_rt_print_struct(int64_t obj) {
 }
 
 int main(void) {
+#ifdef _WIN32
+    /* Match JIT (Rust) and Unix: keep '\n' as LF, not CRLF, on redirected stdout. */
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+#endif
     __main__();
     return 0;
 }

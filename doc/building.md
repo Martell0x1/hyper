@@ -17,9 +17,21 @@ Everything lives in a **single Cargo package** (`hyper`). The `src/` tree holds 
 
 - [Rust](https://www.rust-lang.org/tools/install) (stable) — `cargo` + `rustc`
 - Git
-- **Optional (compile to executable):** a C compiler (`cc`, `clang`, or `gcc`) for linking `--emit-exe`
+- **Optional (`--emit-exe`):** a host C toolchain to link the AOT runtime
 
-On Windows, [WSL](https://learn.microsoft.com/en-us/windows/wsl/) is the smoothest path for building and running; native Windows works for `cargo build`, but AOT linking may need MSVC or MinGW.
+Hyper targets **Linux, macOS, and Windows** equally. WSL is **not** required on Windows.
+
+### C toolchain for `--emit-exe`
+
+| Platform | Typical compilers (first found wins; override with `CC`) |
+|----------|----------------------------------------------------------|
+| Linux | `cc`, `clang`, or `gcc` (usually preinstalled) |
+| macOS | `clang` via Xcode Command Line Tools |
+| Windows | `clang`, `clang-cl`, MinGW `gcc`, or MSVC `cl` (Visual Studio Build Tools) |
+
+On Windows, install any one of: [LLVM](https://releases.llvm.org/) (clang), [MinGW-w64](https://www.mingw-w64.org/), or [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the C++ workload. Then `hyper compile file.hyp --emit-exe app` works natively (Hyper adds `.exe` when needed).
+
+JIT (`hyper run` / `hyper compile` without `--emit-exe`) needs only Rust — no C compiler.
 
 ## Clone and build
 

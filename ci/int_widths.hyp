@@ -1,0 +1,38 @@
+# All integer widths on the compile path.
+let a: i8 = 127
+let b: i16 = 32767
+let c: i32 = 2147483647
+let d: i64 = 9223372036854775807
+let e: u8 = 255
+let f: u16 = 65535
+let g: u32 = 4294967295
+let h: u64 = 18446744073709551615
+
+print(a)
+print(b)
+print(c)
+print(d)
+print(e)
+print(f)
+print(g)
+print(h)
+
+# wrapping arithmetic keeps annotated width
+let mut x: i8 = 100
+x = x + 30
+print(x)
+
+let mut y: u8 = 250
+y = y + 10
+print(y)
+
+# i8 overflow wrap: 127 + 1 -> -128
+let mut z: i8 = 127
+z = z + 1
+print(z)
+
+# aliases
+let p: int8 = -1
+let q: uint8 = 1
+print(p)
+print(q)
