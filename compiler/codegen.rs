@@ -10,7 +10,7 @@ use cranelift_module::{default_libcall_names, DataDescription, DataId, FuncId, L
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::collections::{HashMap, HashSet};
 use std::mem;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::runtime::{
@@ -1113,26 +1113,84 @@ fn runtime_str_c_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn find_cc() -> Result<&'static str, String> {
-    for cand in ["cc", "clang", "gcc"] {
-        if Command::new(cand)
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            return Ok(cand);
+fn find_cc() -> Result<(String, bool), String> {
+    // Returns (program, is_msvc_cl).
+    if let Ok(cc) = std::env::var("CC") {
+        let trimmed = cc.trim();
+        if !trimmed.is_empty() {
+            let is_msvc = is_msvc_driver(trimmed);
+            if linker_works(trimmed, is_msvc) {
+                return Ok((trimmed.to_string(), is_msvc));
+            }
+            return Err(format!(
+                "CC={trimmed} was set but could not be executed"
+            ));
         }
     }
-    Err("no C compiler found (tried cc, clang, gcc)".to_string())
+
+    #[cfg(windows)]
+    let candidates: &[&str] = &["clang", "clang-cl", "gcc", "cl"];
+    #[cfg(not(windows))]
+    let candidates: &[&str] = &["cc", "clang", "gcc"];
+
+    for cand in candidates {
+        let is_msvc = is_msvc_driver(cand);
+        if linker_works(cand, is_msvc) {
+            return Ok(((*cand).to_string(), is_msvc));
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        Err(
+            "no C compiler found (tried clang, clang-cl, gcc, cl). \
+             Install Visual Studio Build Tools, LLVM, or MinGW, \
+             or set the CC environment variable"
+                .to_string(),
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        Err("no C compiler found (tried cc, clang, gcc)".to_string())
+    }
+}
+
+fn is_msvc_driver(prog: &str) -> bool {
+    let name = Path::new(prog)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(prog)
+        .to_ascii_lowercase();
+    name == "cl" || name == "clang-cl"
+}
+
+fn linker_works(prog: &str, is_msvc: bool) -> bool {
+    let mut cmd = Command::new(prog);
+    if is_msvc {
+        cmd.arg("/?");
+    } else {
+        cmd.arg("--version");
+    }
+    cmd.output()
+        .map(|o| o.status.success() || !o.stdout.is_empty() || !o.stderr.is_empty())
+        .unwrap_or(false)
+}
+
+fn normalize_exe_path(out_path: &str) -> String {
+    #[cfg(windows)]
+    {
+        let p = Path::new(out_path);
+        if p.extension().is_none() {
+            return format!("{out_path}.exe");
+        }
+    }
+    out_path.to_string()
 }
 
 pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
     let tmp_dir = std::env::temp_dir();
-    let obj_path = tmp_dir.join(format!(
-        "hyper_{}.o",
-        std::process::id()
-    ));
+    let obj_ext = if cfg!(windows) { "obj" } else { "o" };
+    let obj_path = tmp_dir.join(format!("hyper_{}.{}", std::process::id(), obj_ext));
     let obj_str = obj_path
         .to_str()
         .ok_or_else(|| "temp object path is not valid UTF-8".to_string())?;
@@ -1145,20 +1203,51 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
     let rt_mmap = runtime_mmap_c_path()?;
     let rt_io = runtime_io_c_path()?;
     let rt_str = runtime_str_c_path()?;
-    let cc = find_cc()?;
-    let status = Command::new(cc)
-        .arg(obj_str)
-        .arg(rt.as_os_str())
-        .arg(rt_file.as_os_str())
-        .arg(rt_json.as_os_str())
-        .arg(rt_mmap.as_os_str())
-        .arg(rt_io.as_os_str())
-        .arg(rt_str.as_os_str())
-        .arg("-o")
-        .arg(out_path)
-        .arg("-lm")
-        .status()
-        .map_err(|e| format!("failed to invoke {cc}: {e}"))?;
+    let (cc, is_msvc) = find_cc()?;
+    let out = normalize_exe_path(out_path);
+
+    let status = if is_msvc {
+        // cl / clang-cl: /Fe sets the executable name; /Fo keeps .obj junk out of cwd.
+        let fo_dir = tmp_dir.join(format!("hyper_link_{}", std::process::id()));
+        std::fs::create_dir_all(&fo_dir)
+            .map_err(|e| format!("failed to create temp link dir: {e}"))?;
+        let mut fo = fo_dir.to_string_lossy().into_owned();
+        if !fo.ends_with('\\') && !fo.ends_with('/') {
+            fo.push('\\');
+        }
+        let status = Command::new(&cc)
+            .arg("/nologo")
+            .arg(format!("/Fo{fo}"))
+            .arg(format!("/Fe:{out}"))
+            .arg(obj_str)
+            .arg(rt.as_os_str())
+            .arg(rt_file.as_os_str())
+            .arg(rt_json.as_os_str())
+            .arg(rt_mmap.as_os_str())
+            .arg(rt_io.as_os_str())
+            .arg(rt_str.as_os_str())
+            .status()
+            .map_err(|e| format!("failed to invoke {cc}: {e}"))?;
+        let _ = std::fs::remove_dir_all(&fo_dir);
+        status
+    } else {
+        let mut cmd = Command::new(&cc);
+        cmd.arg(obj_str)
+            .arg(rt.as_os_str())
+            .arg(rt_file.as_os_str())
+            .arg(rt_json.as_os_str())
+            .arg(rt_mmap.as_os_str())
+            .arg(rt_io.as_os_str())
+            .arg(rt_str.as_os_str())
+            .arg("-o")
+            .arg(&out);
+        // libm is separate on many Unix toolchains; not required on Windows.
+        if !cfg!(windows) {
+            cmd.arg("-lm");
+        }
+        cmd.status()
+            .map_err(|e| format!("failed to invoke {cc}: {e}"))?
+    };
 
     let _ = std::fs::remove_file(&obj_path);
 
