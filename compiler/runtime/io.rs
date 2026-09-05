@@ -2,12 +2,11 @@
 
 use super::{format_value, RtValue, KIND_NONE, KIND_STR};
 use crate::error;
-use std::ffi::CString;
 use std::io::{self, Write};
 use std::os::raw::c_char;
 
 fn cstr_payload(text: &str) -> i64 {
-    CString::new(text).unwrap_or_default().into_raw() as i64
+    super::heap_cstr(text)
 }
 
 #[unsafe(no_mangle)]
