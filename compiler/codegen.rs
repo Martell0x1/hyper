@@ -48,6 +48,7 @@ use super::runtime::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ValueKind {
     I64,
+    U64,
     F64,
     Str,
     Bool,
@@ -74,6 +75,7 @@ impl ValueKind {
             ValueKind::Struct => 7,
             ValueKind::File => 8,
             ValueKind::Mmap => 9,
+            ValueKind::U64 => 10,
             ValueKind::Dynamic => 0,
         }
     }
@@ -808,6 +810,19 @@ fn names_needing_kind_vars(body: &[IrInstr], params: &[String]) -> HashSet<Strin
             IrInstr::ValueToStr { dest, .. } | IrInstr::StrConcat { dest, .. } => {
                 set_val(&mut value_kinds, *dest, ValueKind::Str);
             }
+            IrInstr::IntWrap {
+                dest,
+                bits,
+                signed,
+                ..
+            } => {
+                let k = if !*signed && *bits == 64 {
+                    ValueKind::U64
+                } else {
+                    ValueKind::I64
+                };
+                set_val(&mut value_kinds, *dest, k);
+            }
             _ => {}
         }
     }
@@ -1415,6 +1430,10 @@ fn define_function<M: Module>(
                     ensure_val(*left, &mut builder, &mut next_var, &mut value_vars);
                     ensure_val(*right, &mut builder, &mut next_var, &mut value_vars);
                 }
+                IrInstr::IntWrap { dest, src, .. } => {
+                    ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
+                    ensure_val(*src, &mut builder, &mut next_var, &mut value_vars);
+                }
                 IrInstr::Call { dest, args, .. } => {
                     ensure_val(*dest, &mut builder, &mut next_var, &mut value_vars);
                     for a in args {
@@ -1528,6 +1547,36 @@ fn define_function<M: Module>(
                     let v = builder.ins().iconst(types::I64, *value);
                     builder.def_var(value_vars[dest], v);
                     value_kinds.insert(*dest, ValueKind::I64);
+                }
+                IrInstr::IntWrap {
+                    dest,
+                    src,
+                    bits,
+                    signed,
+                } => {
+                    let s = builder.use_var(value_vars[src]);
+                    let v = if *bits >= 64 {
+                        s
+                    } else if *signed {
+                        let shift = builder.ins().iconst(types::I64, (64 - *bits) as i64);
+                        let left = builder.ins().ishl(s, shift);
+                        builder.ins().sshr(left, shift)
+                    } else {
+                        let mask_bits = if *bits == 0 {
+                            0i64
+                        } else {
+                            (1i64 << *bits).wrapping_sub(1)
+                        };
+                        let mask = builder.ins().iconst(types::I64, mask_bits);
+                        builder.ins().band(s, mask)
+                    };
+                    builder.def_var(value_vars[dest], v);
+                    let out_kind = if !*signed && *bits == 64 {
+                        ValueKind::U64
+                    } else {
+                        ValueKind::I64
+                    };
+                    value_kinds.insert(*dest, out_kind);
                 }
                 IrInstr::ConstF64 { dest, value } => {
                     let fv = builder
@@ -2347,6 +2396,16 @@ fn define_function<M: Module>(
                                 let fref = module
                                     .declare_func_in_func(runtime.print_i64, &mut builder.func);
                                 builder.ins().call(fref, &[v]);
+                            }
+                            ValueKind::U64 => {
+                                let k = builder
+                                    .ins()
+                                    .iconst(types::I64, ValueKind::U64.as_i64());
+                                let fref = module.declare_func_in_func(
+                                    runtime.print_value,
+                                    &mut builder.func,
+                                );
+                                builder.ins().call(fref, &[v, k]);
                             }
                         }
                     }
