@@ -38,6 +38,13 @@ pub enum IrInstr {
         left: ValueId,
         right: ValueId,
     },
+    /// Truncate/sign-extend or zero-extend an i64 payload to a fixed integer width.
+    IntWrap {
+        dest: ValueId,
+        src: ValueId,
+        bits: u8,
+        signed: bool,
+    },
     /// Stop with a runtime error when an integer divisor is zero.
     GuardDivisor { value: ValueId, line: u32 },
     Call {
@@ -167,6 +174,19 @@ impl fmt::Display for IrInstr {
                 left,
                 right,
             } => write!(f, "  v{} = {} v{} v{}", dest, op, left, right),
+            IrInstr::IntWrap {
+                dest,
+                src,
+                bits,
+                signed,
+            } => write!(
+                f,
+                "  v{} = int_wrap.{}{} v{}",
+                dest,
+                if *signed { "i" } else { "u" },
+                bits,
+                src
+            ),
             IrInstr::GuardDivisor { value, line } => {
                 write!(f, "  guard.divisor v{} line {}", value, line)
             }
