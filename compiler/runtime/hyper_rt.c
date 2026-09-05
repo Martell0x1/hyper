@@ -5,6 +5,11 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 enum {
     KIND_I64 = 0,
     KIND_F64 = 1,
@@ -984,6 +989,11 @@ void hyper_rt_print_struct(int64_t obj) {
 }
 
 int main(void) {
+#ifdef _WIN32
+    /* Match JIT (Rust) and Unix: keep '\n' as LF, not CRLF, on redirected stdout. */
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+#endif
     __main__();
     return 0;
 }
