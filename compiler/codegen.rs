@@ -1217,6 +1217,7 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
         }
         let status = Command::new(&cc)
             .arg("/nologo")
+            .arg("/D_CRT_SECURE_NO_WARNINGS")
             .arg(format!("/Fo{fo}"))
             .arg(format!("/Fe:{out}"))
             .arg(obj_str)
