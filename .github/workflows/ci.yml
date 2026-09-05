@@ -11,8 +11,15 @@ env:
 
 jobs:
   build-and-smoke:
-    name: Build + smoke
-    runs-on: ubuntu-latest
+    name: Build + smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,11 +30,34 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Setup MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Build
         run: cargo build
 
       - name: Unit tests
         run: cargo test
+
+      - name: Prepare temp dir
+        run: |
+          echo "HYPER_TMP=${RUNNER_TEMP}/hyper_ci" >> "$GITHUB_ENV"
+          mkdir -p "${RUNNER_TEMP}/hyper_ci"
+
+      - name: Resolve exe helper
+        run: |
+          cat > "$HYPER_TMP/run_exe.sh" << 'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          bin="$1"
+          shift || true
+          if [[ -f "${bin}.exe" ]]; then
+            exec "${bin}.exe" "$@"
+          fi
+          exec "$bin" "$@"
+          EOF
+          chmod +x "$HYPER_TMP/run_exe.sh"
 
       - name: Run (JIT) smoke
         run: cargo run --quiet -- run ci/smoke.hyp
@@ -68,9 +98,9 @@ jobs:
 
       - name: Raise and handle smoke
         run: |
-          cargo run --quiet -- compile ci/raise_handle.hyp > /tmp/rh_jit.txt
-          cargo run --quiet -- run ci/raise_handle.hyp > /tmp/rh_run.txt
-          diff /tmp/rh_run.txt /tmp/rh_jit.txt
+          cargo run --quiet -- compile ci/raise_handle.hyp > "$HYPER_TMP/rh_jit.txt"
+          cargo run --quiet -- run ci/raise_handle.hyp > "$HYPER_TMP/rh_run.txt"
+          diff "$HYPER_TMP/rh_run.txt" "$HYPER_TMP/rh_jit.txt"
 
       - name: Traits smoke
         run: cargo run --quiet -- compile ci/traits_compile.hyp
@@ -86,54 +116,54 @@ jobs:
 
       - name: Compiler emit-exe smoke
         run: |
-          cargo run --quiet -- compile ci/smoke.hyp --emit-exe /tmp/hyper_smoke
-          /tmp/hyper_smoke
+          cargo run --quiet -- compile ci/smoke.hyp --emit-exe "$HYPER_TMP/hyper_smoke"
+          "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_smoke"
 
       - name: Compiler emit-exe collections smoke
         run: |
-          cargo run --quiet -- compile ci/collections_compile.hyp --emit-exe /tmp/hyper_coll
-          /tmp/hyper_coll
+          cargo run --quiet -- compile ci/collections_compile.hyp --emit-exe "$HYPER_TMP/hyper_coll"
+          "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_coll"
 
       - name: Compiler emit-exe strings smoke
         run: |
-          cargo run --quiet -- compile ci/strings_compile.hyp --emit-exe /tmp/hyper_str
-          /tmp/hyper_str
+          cargo run --quiet -- compile ci/strings_compile.hyp --emit-exe "$HYPER_TMP/hyper_str"
+          "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_str"
 
       - name: Compiler emit-exe break and continue smoke
         run: |
-          cargo run --quiet -- compile ci/break_continue.hyp --emit-exe /tmp/hyper_bc
-          /tmp/hyper_bc
+          cargo run --quiet -- compile ci/break_continue.hyp --emit-exe "$HYPER_TMP/hyper_bc"
+          "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_bc"
 
       - name: Compiler emit-exe raise and handle smoke
         run: |
-          cargo run --quiet -- compile ci/raise_handle.hyp --emit-exe /tmp/hyper_rh
-          /tmp/hyper_rh > /tmp/rh_exe.txt
-          diff /tmp/rh_jit.txt /tmp/rh_exe.txt
+          cargo run --quiet -- compile ci/raise_handle.hyp --emit-exe "$HYPER_TMP/hyper_rh"
+          "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_rh" > "$HYPER_TMP/rh_exe.txt"
+          diff "$HYPER_TMP/rh_jit.txt" "$HYPER_TMP/rh_exe.txt"
 
       - name: Division by zero
         run: |
           set +e
-          cargo run --quiet -- run ci/divzero.hyp > /tmp/dz_run.txt 2>&1
+          cargo run --quiet -- run ci/divzero.hyp > "$HYPER_TMP/dz_run.txt" 2>&1
           run_code=$?
-          cargo run --quiet -- compile ci/divzero.hyp > /tmp/dz_jit.txt 2>&1
+          cargo run --quiet -- compile ci/divzero.hyp > "$HYPER_TMP/dz_jit.txt" 2>&1
           jit_code=$?
           set -e
           test "$run_code" -eq 70
           test "$jit_code" -eq 70
-          diff /tmp/dz_run.txt /tmp/dz_jit.txt
+          diff "$HYPER_TMP/dz_run.txt" "$HYPER_TMP/dz_jit.txt"
 
       - name: Run and compile output parity
         run: |
-          cargo run --quiet -- run ci/smoke.hyp > /tmp/out_run.txt
-          cargo run --quiet -- compile ci/smoke.hyp > /tmp/out_jit.txt
-          /tmp/hyper_smoke > /tmp/out_exe.txt
-          diff /tmp/out_run.txt /tmp/out_jit.txt
-          diff /tmp/out_run.txt /tmp/out_exe.txt
+          cargo run --quiet -- run ci/smoke.hyp > "$HYPER_TMP/out_run.txt"
+          cargo run --quiet -- compile ci/smoke.hyp > "$HYPER_TMP/out_jit.txt"
+          "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_smoke" > "$HYPER_TMP/out_exe.txt"
+          diff "$HYPER_TMP/out_run.txt" "$HYPER_TMP/out_jit.txt"
+          diff "$HYPER_TMP/out_run.txt" "$HYPER_TMP/out_exe.txt"
 
       - name: Break and continue output parity
         run: |
-          cargo run --quiet -- run ci/break_continue.hyp > /tmp/bc_run.txt
-          cargo run --quiet -- compile ci/break_continue.hyp > /tmp/bc_jit.txt
-          /tmp/hyper_bc > /tmp/bc_exe.txt
-          diff /tmp/bc_run.txt /tmp/bc_jit.txt
-          diff /tmp/bc_run.txt /tmp/bc_exe.txt
+          cargo run --quiet -- run ci/break_continue.hyp > "$HYPER_TMP/bc_run.txt"
+          cargo run --quiet -- compile ci/break_continue.hyp > "$HYPER_TMP/bc_jit.txt"
+          "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_bc" > "$HYPER_TMP/bc_exe.txt"
+          diff "$HYPER_TMP/bc_run.txt" "$HYPER_TMP/bc_jit.txt"
+          diff "$HYPER_TMP/bc_run.txt" "$HYPER_TMP/bc_exe.txt"
