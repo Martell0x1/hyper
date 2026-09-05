@@ -72,6 +72,16 @@ jobs:
           EOF
           chmod +x "$HYPER_TMP/run_exe.sh"
 
+      - name: Diff helper (ignore CRLF)
+        run: |
+          cat > "$HYPER_TMP/diff_lf.sh" << 'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          # Ignore CR so Windows AOT (CRLF) matches JIT (LF).
+          diff -u <(tr -d '\r' < "$1") <(tr -d '\r' < "$2")
+          EOF
+          chmod +x "$HYPER_TMP/diff_lf.sh"
+
       - name: Run (JIT) smoke
         run: cargo run --quiet -- run ci/smoke.hyp
 
@@ -113,7 +123,7 @@ jobs:
         run: |
           cargo run --quiet -- compile ci/raise_handle.hyp > "$HYPER_TMP/rh_jit.txt"
           cargo run --quiet -- run ci/raise_handle.hyp > "$HYPER_TMP/rh_run.txt"
-          diff "$HYPER_TMP/rh_run.txt" "$HYPER_TMP/rh_jit.txt"
+          "$HYPER_TMP/diff_lf.sh" "$HYPER_TMP/rh_run.txt" "$HYPER_TMP/rh_jit.txt"
 
       - name: Traits smoke
         run: cargo run --quiet -- compile ci/traits_compile.hyp
@@ -151,7 +161,7 @@ jobs:
         run: |
           cargo run --quiet -- compile ci/raise_handle.hyp --emit-exe "$HYPER_TMP/hyper_rh"
           "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_rh" > "$HYPER_TMP/rh_exe.txt"
-          diff "$HYPER_TMP/rh_jit.txt" "$HYPER_TMP/rh_exe.txt"
+          "$HYPER_TMP/diff_lf.sh" "$HYPER_TMP/rh_jit.txt" "$HYPER_TMP/rh_exe.txt"
 
       - name: Division by zero
         run: |
@@ -163,20 +173,20 @@ jobs:
           set -e
           test "$run_code" -eq 70
           test "$jit_code" -eq 70
-          diff "$HYPER_TMP/dz_run.txt" "$HYPER_TMP/dz_jit.txt"
+          "$HYPER_TMP/diff_lf.sh" "$HYPER_TMP/dz_run.txt" "$HYPER_TMP/dz_jit.txt"
 
       - name: Run and compile output parity
         run: |
           cargo run --quiet -- run ci/smoke.hyp > "$HYPER_TMP/out_run.txt"
           cargo run --quiet -- compile ci/smoke.hyp > "$HYPER_TMP/out_jit.txt"
           "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_smoke" > "$HYPER_TMP/out_exe.txt"
-          diff "$HYPER_TMP/out_run.txt" "$HYPER_TMP/out_jit.txt"
-          diff "$HYPER_TMP/out_run.txt" "$HYPER_TMP/out_exe.txt"
+          "$HYPER_TMP/diff_lf.sh" "$HYPER_TMP/out_run.txt" "$HYPER_TMP/out_jit.txt"
+          "$HYPER_TMP/diff_lf.sh" "$HYPER_TMP/out_run.txt" "$HYPER_TMP/out_exe.txt"
 
       - name: Break and continue output parity
         run: |
           cargo run --quiet -- run ci/break_continue.hyp > "$HYPER_TMP/bc_run.txt"
           cargo run --quiet -- compile ci/break_continue.hyp > "$HYPER_TMP/bc_jit.txt"
           "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_bc" > "$HYPER_TMP/bc_exe.txt"
-          diff "$HYPER_TMP/bc_run.txt" "$HYPER_TMP/bc_jit.txt"
-          diff "$HYPER_TMP/bc_run.txt" "$HYPER_TMP/bc_exe.txt"
+          "$HYPER_TMP/diff_lf.sh" "$HYPER_TMP/bc_run.txt" "$HYPER_TMP/bc_jit.txt"
+          "$HYPER_TMP/diff_lf.sh" "$HYPER_TMP/bc_run.txt" "$HYPER_TMP/bc_exe.txt"
