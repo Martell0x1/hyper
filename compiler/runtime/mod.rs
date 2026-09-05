@@ -1,6 +1,8 @@
 use crate::error;
+use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::sync::{LazyLock, Mutex};
 
 pub const KIND_I64: i64 = 0;
 pub const KIND_F64: i64 = 1;
@@ -19,6 +21,46 @@ mod io;
 mod json;
 mod mmap;
 mod str;
+
+/// Heap strings produced by the runtime (concat, formatting, methods). Interned
+/// `ConstStr` pointers live in Cranelift data and are never inserted here.
+static OWNED_STRS: LazyLock<Mutex<HashSet<usize>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Allocate a Hyper-visible heap C string and record unique ownership.
+pub(crate) fn heap_cstr(text: &str) -> i64 {
+    let c = CString::new(text).unwrap_or_default();
+    let payload = c.into_raw() as i64;
+    register_owned_str(payload);
+    payload
+}
+
+fn register_owned_str(payload: i64) {
+    if payload == 0 {
+        return;
+    }
+    OWNED_STRS.lock().unwrap().insert(payload as usize);
+}
+
+#[cfg(test)]
+fn owned_str_contains(payload: i64) -> bool {
+    if payload == 0 {
+        return false;
+    }
+    OWNED_STRS.lock().unwrap().contains(&(payload as usize))
+}
+
+/// Free `payload` only if it is a registered heap string (never interned literals).
+pub(crate) fn owned_str_release(payload: i64) {
+    if payload == 0 {
+        return;
+    }
+    let mut owned = OWNED_STRS.lock().unwrap();
+    if owned.remove(&(payload as usize)) {
+        unsafe {
+            drop(CString::from_raw(payload as *mut c_char));
+        }
+    }
+}
 pub use file::{
     hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
     hyper_rt_file_open, hyper_rt_file_path, hyper_rt_file_read_all, hyper_rt_file_read_n,
@@ -142,13 +184,7 @@ fn format_struct(st: &RtStruct) -> String {
 /// Safe for overwrite paths (`list_set` / `dict_set` / `struct_set`).
 pub(crate) fn free_rt_value(v: RtValue) {
     match v.kind {
-        KIND_STR => {
-            if v.payload != 0 {
-                unsafe {
-                    drop(CString::from_raw(v.payload as *mut c_char));
-                }
-            }
-        }
+        KIND_STR => owned_str_release(v.payload),
         KIND_LIST => {
             if v.payload != 0 {
                 let list = unsafe { Box::from_raw(v.payload as *mut RtList) };
@@ -582,11 +618,7 @@ pub extern "C" fn hyper_rt_coll_keys(payload: i64, kind: i64, line: i64, _line_k
     }
     let dict = unsafe { &*(payload as *const RtDict) };
     for (key, _) in &dict.entries {
-        let payload = match CString::new(key.as_str()) {
-            Ok(c) => c.into_raw() as i64,
-            Err(_) => 0,
-        };
-        hyper_rt_list_push(list, payload, KIND_STR);
+        hyper_rt_list_push(list, heap_cstr(key), KIND_STR);
     }
     list
 }
@@ -594,30 +626,47 @@ pub extern "C" fn hyper_rt_coll_keys(payload: i64, kind: i64, line: i64, _line_k
 #[unsafe(no_mangle)]
 pub extern "C" fn hyper_rt_value_to_str(payload: i64, kind: i64) -> i64 {
     let s = format_value(&RtValue { kind, payload });
-    match CString::new(s) {
-        Ok(c) => c.into_raw() as i64,
-        Err(_) => 0,
-    }
+    heap_cstr(&s)
 }
 
+/// Concatenate two C strings.
+///
+/// Ownership: the result is a new uniquely owned heap string. `consume_left` /
+/// `consume_right` are 1 when codegen has proven the operand is a dead owned
+/// temp (f-string left-fold) or the store-back `s = s + …` load. Interned
+/// literals and still-live named values are never consumed.
 #[unsafe(no_mangle)]
-pub extern "C" fn hyper_rt_str_concat(left: i64, right: i64) -> i64 {
+pub extern "C" fn hyper_rt_str_concat(
+    left: i64,
+    right: i64,
+    consume_left: i64,
+    consume_right: i64,
+) -> i64 {
     let a = if left == 0 {
-        String::new()
+        ""
     } else {
-        let cstr = unsafe { CStr::from_ptr(left as *const c_char) };
-        cstr.to_str().unwrap_or("").to_string()
+        unsafe { CStr::from_ptr(left as *const c_char) }
+            .to_str()
+            .unwrap_or("")
     };
     let b = if right == 0 {
-        String::new()
+        ""
     } else {
-        let cstr = unsafe { CStr::from_ptr(right as *const c_char) };
-        cstr.to_str().unwrap_or("").to_string()
+        unsafe { CStr::from_ptr(right as *const c_char) }
+            .to_str()
+            .unwrap_or("")
     };
-    match CString::new(format!("{}{}", a, b)) {
-        Ok(c) => c.into_raw() as i64,
-        Err(_) => 0,
+    let mut out = String::with_capacity(a.len() + b.len());
+    out.push_str(a);
+    out.push_str(b);
+    let result = heap_cstr(&out);
+    if consume_left != 0 {
+        owned_str_release(left);
     }
+    if consume_right != 0 {
+        owned_str_release(right);
+    }
+    result
 }
 
 fn cstr_to_str<'a>(payload: i64) -> &'a str {
@@ -799,7 +848,7 @@ mod tests {
     use super::*;
 
     fn str_payload(text: &str) -> i64 {
-        CString::new(text).unwrap().into_raw() as i64
+        heap_cstr(text)
     }
 
     fn list_of(items: &[(i64, i64)]) -> i64 {
@@ -891,5 +940,62 @@ mod tests {
     fn none_equals_none_only() {
         assert_eq!(hyper_rt_value_eq(0, KIND_NONE, 0, KIND_NONE), 1);
         assert_eq!(hyper_rt_value_eq(0, KIND_NONE, 0, KIND_I64), 0);
+    }
+
+    fn interned_lit(bytes: &'static [u8]) -> i64 {
+        bytes.as_ptr() as i64
+    }
+
+    fn read_payload(p: i64) -> String {
+        if p == 0 {
+            return String::new();
+        }
+        unsafe { CStr::from_ptr(p as *const c_char) }
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn concat_without_consume_keeps_live_operands() {
+        let left = heap_cstr("hello");
+        let right = interned_lit(b"!\0");
+        let out = hyper_rt_str_concat(left, right, 0, 0);
+        assert_eq!(read_payload(left), "hello", "naive free-left would UAF here");
+        assert_eq!(read_payload(out), "hello!");
+        assert!(owned_str_contains(left));
+        assert!(!owned_str_contains(right), "interned literals must not be owned");
+        assert!(owned_str_contains(out));
+    }
+
+    #[test]
+    fn concat_consume_left_drops_owned_temp_not_interned() {
+        let left = heap_cstr("ab");
+        let right = interned_lit(b"c\0");
+        let out = hyper_rt_str_concat(left, right, 1, 0);
+        assert_eq!(read_payload(out), "abc");
+        assert!(!owned_str_contains(left));
+        assert!(owned_str_contains(out));
+        // Consuming an interned right is a no-op.
+        let left2 = heap_cstr("x");
+        let out2 = hyper_rt_str_concat(left2, right, 1, 1);
+        assert_eq!(read_payload(out2), "xc");
+        assert!(!owned_str_contains(left2));
+    }
+
+    #[test]
+    fn concat_store_back_loop_does_not_accumulate_owned_strings() {
+        let x = interned_lit(b"x\0");
+        let mut s = heap_cstr("");
+        for _ in 0..10_000 {
+            let next = hyper_rt_str_concat(s, x, 1, 0);
+            assert!(
+                !owned_str_contains(s),
+                "previous concat result must be consumed"
+            );
+            s = next;
+        }
+        assert!(owned_str_contains(s));
+        assert_eq!(read_payload(s).len(), 10_000);
     }
 }
