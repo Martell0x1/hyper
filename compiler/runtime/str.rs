@@ -1,4 +1,4 @@
-//! String methods for the compile path (Python-compatible surface, native speed).
+//! String methods for the compile path
 
 use crate::error;
 use std::ffi::CStr;
