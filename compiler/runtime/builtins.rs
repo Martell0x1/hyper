@@ -1,10 +1,10 @@
 //! Python-like builtins for the compile path (`len`, `abs`, `min`, …).
 
 use super::{
-    hyper_rt_coll_len, hyper_rt_div_by_zero, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64,
-    hyper_rt_list_new, hyper_rt_list_push, hyper_rt_pow_f64, hyper_rt_pow_i64,
-    hyper_rt_value_to_str, RtDict, RtList, RtValue, KIND_BOOL, KIND_DICT, KIND_F64, KIND_I64,
-    KIND_LIST, KIND_NONE, KIND_STR, KIND_U64,
+    format_value, hyper_rt_div_by_zero, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64,
+    hyper_rt_list_new, hyper_rt_list_push, hyper_rt_pow_f64, hyper_rt_pow_i64, hyper_rt_value_to_str,
+    RtDict, RtList, RtValue, KIND_BOOL, KIND_DICT, KIND_F64, KIND_I64, KIND_LIST, KIND_NONE,
+    KIND_STR, KIND_U64,
 };
 use crate::error;
 use std::ffi::CStr;
@@ -55,6 +55,34 @@ fn as_f64(payload: i64, kind: i64, line: i64, ctx: &str) -> f64 {
 
 fn is_numeric(kind: i64) -> bool {
     matches!(kind, KIND_I64 | KIND_U64 | KIND_F64 | KIND_BOOL)
+}
+
+fn as_i64(payload: i64, kind: i64, line: i64, ctx: &str) -> i64 {
+    match kind {
+        KIND_I64 | KIND_BOOL | KIND_U64 => payload,
+        _ => fatal(line, format!("{ctx}: expected an integer")),
+    }
+}
+
+fn push_char(out: i64, ch: char) {
+    let mut buf = [0u8; 4];
+    hyper_rt_list_push(out, cstr_payload(ch.encode_utf8(&mut buf)), KIND_STR);
+}
+
+fn list_from_string(payload: i64, out: i64) {
+    for ch in cstr_to_str(payload).chars() {
+        push_char(out, ch);
+    }
+}
+
+fn list_from_dict(payload: i64, _line: i64, out: i64) {
+    if payload == 0 {
+        return;
+    }
+    let dict = unsafe { &*(payload as *const RtDict) };
+    for (key, _) in &dict.entries {
+        hyper_rt_list_push(out, cstr_payload(key), KIND_STR);
+    }
 }
 
 fn list_items(payload: i64, kind: i64, line: i64, ctx: &str) -> &'static [RtValue] {
@@ -615,4 +643,174 @@ pub extern "C" fn hyper_rt_builtin_reversed(
         hyper_rt_list_push(out, clone_item(item.payload, item.kind), item.kind);
     }
     out
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_builtin_enumerate(
+    payload: i64,
+    kind: i64,
+    start: i64,
+    start_kind: i64,
+    line: i64,
+    _line_kind: i64,
+) -> i64 {
+    let idx = if start_kind == KIND_NONE {
+        0
+    } else {
+        as_i64(start, start_kind, line, "enumerate")
+    };
+    match kind {
+        KIND_LIST => enumerate_list(payload, idx, line),
+        KIND_STR => {
+            let tmp = hyper_rt_list_new();
+            list_from_string(payload, tmp);
+            enumerate_list(tmp, idx, line)
+        }
+        KIND_DICT => {
+            let tmp = hyper_rt_list_new();
+            list_from_dict(payload, line, tmp);
+            enumerate_list(tmp, idx, line)
+        }
+        _ => fatal(line, "enumerate() expected a list, string, or dict"),
+    }
+}
+
+fn enumerate_list(list: i64, mut idx: i64, line: i64) -> i64 {
+    let items = list_items(list, KIND_LIST, line, "enumerate");
+    let out = hyper_rt_list_new();
+    for item in items {
+        let pair = hyper_rt_list_new();
+        hyper_rt_list_push(pair, idx, KIND_I64);
+        hyper_rt_list_push(pair, clone_item(item.payload, item.kind), item.kind);
+        hyper_rt_list_push(out, pair, KIND_LIST);
+        idx = idx.wrapping_add(1);
+    }
+    out
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_builtin_zip(
+    payload: i64,
+    kind: i64,
+    line: i64,
+    _line_kind: i64,
+) -> i64 {
+    let seqs = list_items(payload, kind, line, "zip");
+    let out = hyper_rt_list_new();
+    if seqs.is_empty() {
+        return out;
+    }
+    let mut lists: Vec<&[RtValue]> = Vec::with_capacity(seqs.len());
+    let mut min_len = usize::MAX;
+    for seq in seqs {
+        let items = list_items(seq.payload, seq.kind, line, "zip");
+        min_len = min_len.min(items.len());
+        lists.push(items);
+    }
+    if min_len == usize::MAX {
+        return out;
+    }
+    for i in 0..min_len {
+        let pair = hyper_rt_list_new();
+        for seq in &lists {
+            let item = &seq[i];
+            hyper_rt_list_push(pair, clone_item(item.payload, item.kind), item.kind);
+        }
+        hyper_rt_list_push(out, pair, KIND_LIST);
+    }
+    out
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_builtin_list(
+    payload: i64,
+    kind: i64,
+    line: i64,
+    _line_kind: i64,
+) -> i64 {
+    let out = hyper_rt_list_new();
+    match kind {
+        KIND_NONE => out,
+        KIND_LIST => {
+            for item in list_items(payload, kind, line, "list") {
+                hyper_rt_list_push(out, clone_item(item.payload, item.kind), item.kind);
+            }
+            out
+        }
+        KIND_STR => {
+            list_from_string(payload, out);
+            out
+        }
+        KIND_DICT => {
+            list_from_dict(payload, line, out);
+            out
+        }
+        _ => fatal(line, "list() expected a list, string, or dict"),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_builtin_range(
+    payload: i64,
+    kind: i64,
+    line: i64,
+    _line_kind: i64,
+) -> i64 {
+    let items = list_items(payload, kind, line, "range");
+    let (start, stop, step) = match items.len() {
+        1 => (
+            0,
+            as_i64(items[0].payload, items[0].kind, line, "range"),
+            1,
+        ),
+        2 => (
+            as_i64(items[0].payload, items[0].kind, line, "range"),
+            as_i64(items[1].payload, items[1].kind, line, "range"),
+            1,
+        ),
+        3 => (
+            as_i64(items[0].payload, items[0].kind, line, "range"),
+            as_i64(items[1].payload, items[1].kind, line, "range"),
+            as_i64(items[2].payload, items[2].kind, line, "range"),
+        ),
+        n => fatal(line, format!("range expects 1 to 3 argument(s) but got {n}")),
+    };
+    if step == 0 {
+        fatal(line, "range() arg 3 must not be zero");
+    }
+    let out = hyper_rt_list_new();
+    if step > 0 {
+        let mut i = start;
+        while i < stop {
+            hyper_rt_list_push(out, i, KIND_I64);
+            i = match i.checked_add(step) {
+                Some(n) => n,
+                None => break,
+            };
+        }
+    } else {
+        let mut i = start;
+        while i > stop {
+            hyper_rt_list_push(out, i, KIND_I64);
+            i = match i.checked_add(step) {
+                Some(n) => n,
+                None => break,
+            };
+        }
+    }
+    out
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hyper_rt_builtin_repr(
+    payload: i64,
+    kind: i64,
+    _line: i64,
+    _line_kind: i64,
+) -> i64 {
+    if kind == KIND_STR {
+        cstr_payload(&format!("{:?}", cstr_to_str(payload)))
+    } else {
+        cstr_payload(&format_value(&RtValue { kind, payload }))
+    }
 }

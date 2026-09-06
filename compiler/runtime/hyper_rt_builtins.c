@@ -44,6 +44,7 @@ extern int64_t hyper_rt_coll_len(int64_t payload, int64_t kind, int64_t line, in
 extern int64_t hyper_rt_list_new(void);
 extern void hyper_rt_list_push(int64_t list_h, int64_t value, int64_t kind);
 extern int64_t hyper_rt_value_to_str(int64_t payload, int64_t kind);
+extern char *hyper_rt_str_dup(const char *s);
 extern int64_t hyper_rt_pow_i64(int64_t base, int64_t exp);
 extern double hyper_rt_pow_f64(double base, double exp);
 extern int64_t hyper_rt_floor_div_i64(int64_t a, int64_t b);
@@ -149,9 +150,82 @@ static int is_truthy(int64_t payload, int64_t kind) {
 
 static int64_t clone_item(int64_t payload, int64_t kind) {
     if (kind == KIND_STR) {
-        return (int64_t)(intptr_t)rt_strdup(cstr(payload));
+        return (int64_t)(intptr_t)hyper_rt_str_dup(cstr(payload));
     }
     return payload;
+}
+
+static int64_t as_i64(int64_t payload, int64_t kind, int64_t line, const char *ctx) {
+    if (kind == KIND_I64 || kind == KIND_BOOL || kind == KIND_U64) {
+        return payload;
+    }
+    {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "%s: expected an integer", ctx);
+        runtime_error(line, buf);
+    }
+    return 0;
+}
+
+static size_t utf8_char_len(unsigned char c) {
+    if ((c & 0x80) == 0) {
+        return 1;
+    }
+    if ((c & 0xE0) == 0xC0) {
+        return 2;
+    }
+    if ((c & 0xF0) == 0xE0) {
+        return 3;
+    }
+    if ((c & 0xF8) == 0xF0) {
+        return 4;
+    }
+    return 1;
+}
+
+static void list_from_string(int64_t payload, int64_t out) {
+    const char *s = cstr(payload);
+    size_t i = 0;
+    while (s[i]) {
+        unsigned char c = (unsigned char)s[i];
+        size_t n = utf8_char_len(c);
+        char buf[5];
+        if (n > 4) {
+            n = 1;
+        }
+        memcpy(buf, s + i, n);
+        buf[n] = '\0';
+        hyper_rt_list_push(out, (int64_t)(intptr_t)hyper_rt_str_dup(buf), KIND_STR);
+        i += n;
+    }
+}
+
+static void list_from_dict(int64_t payload, int64_t out) {
+    if (!payload) {
+        return;
+    }
+    const RtDict *dict = (const RtDict *)(intptr_t)payload;
+    for (size_t i = 0; i < dict->len; i++) {
+        hyper_rt_list_push(
+            out,
+            (int64_t)(intptr_t)hyper_rt_str_dup(dict->entries[i].key ? dict->entries[i].key : ""),
+            KIND_STR
+        );
+    }
+}
+
+static int64_t enumerate_items(const RtList *list, int64_t idx) {
+    int64_t out = hyper_rt_list_new();
+    size_t n = list ? list->len : 0;
+    for (size_t i = 0; i < n; i++) {
+        int64_t pair = hyper_rt_list_new();
+        RtValue item = list->items[i];
+        hyper_rt_list_push(pair, idx, KIND_I64);
+        hyper_rt_list_push(pair, clone_item(item.payload, item.kind), item.kind);
+        hyper_rt_list_push(out, pair, KIND_LIST);
+        idx++;
+    }
+    return out;
 }
 
 int64_t hyper_rt_builtin_len(int64_t payload, int64_t kind, int64_t line, int64_t line_kind) {
@@ -746,4 +820,173 @@ int64_t hyper_rt_builtin_reversed(int64_t payload, int64_t kind, int64_t line, i
         hyper_rt_list_push(out, clone_item(item.payload, item.kind), item.kind);
     }
     return out;
+}
+
+int64_t hyper_rt_builtin_enumerate(
+    int64_t payload,
+    int64_t kind,
+    int64_t start,
+    int64_t start_kind,
+    int64_t line,
+    int64_t line_kind
+) {
+    (void)line_kind;
+    int64_t idx = (start_kind == KIND_NONE) ? 0 : as_i64(start, start_kind, line, "enumerate");
+    if (kind == KIND_LIST) {
+        const RtList *list = as_list(payload, kind, line, "enumerate");
+        return enumerate_items(list, idx);
+    }
+    if (kind == KIND_STR || kind == KIND_DICT) {
+        int64_t tmp = hyper_rt_list_new();
+        if (kind == KIND_STR) {
+            list_from_string(payload, tmp);
+        } else {
+            list_from_dict(payload, tmp);
+        }
+        const RtList *list = as_list(tmp, KIND_LIST, line, "enumerate");
+        return enumerate_items(list, idx);
+    }
+    runtime_error(line, "enumerate() expected a list, string, or dict");
+    return 0;
+}
+
+int64_t hyper_rt_builtin_zip(int64_t payload, int64_t kind, int64_t line, int64_t line_kind) {
+    (void)line_kind;
+    const RtList *seqs = as_list(payload, kind, line, "zip");
+    int64_t out = hyper_rt_list_new();
+    size_t nseq = seqs ? seqs->len : 0;
+    if (nseq == 0) {
+        return out;
+    }
+    const RtList **lists = (const RtList **)malloc(nseq * sizeof(RtList *));
+    if (!lists) {
+        runtime_error(line, "out of memory");
+    }
+    size_t min_len = (size_t)-1;
+    for (size_t i = 0; i < nseq; i++) {
+        RtValue seq = seqs->items[i];
+        const RtList *list = as_list(seq.payload, seq.kind, line, "zip");
+        lists[i] = list;
+        size_t n = list ? list->len : 0;
+        if (n < min_len) {
+            min_len = n;
+        }
+    }
+    for (size_t i = 0; i < min_len; i++) {
+        int64_t pair = hyper_rt_list_new();
+        for (size_t s = 0; s < nseq; s++) {
+            const RtList *list = lists[s];
+            RtValue item = list->items[i];
+            hyper_rt_list_push(pair, clone_item(item.payload, item.kind), item.kind);
+        }
+        hyper_rt_list_push(out, pair, KIND_LIST);
+    }
+    free(lists);
+    return out;
+}
+
+int64_t hyper_rt_builtin_list(int64_t payload, int64_t kind, int64_t line, int64_t line_kind) {
+    (void)line_kind;
+    int64_t out = hyper_rt_list_new();
+    if (kind == KIND_NONE) {
+        return out;
+    }
+    if (kind == KIND_LIST) {
+        const RtList *list = as_list(payload, kind, line, "list");
+        size_t n = list ? list->len : 0;
+        for (size_t i = 0; i < n; i++) {
+            RtValue item = list->items[i];
+            hyper_rt_list_push(out, clone_item(item.payload, item.kind), item.kind);
+        }
+        return out;
+    }
+    if (kind == KIND_STR) {
+        list_from_string(payload, out);
+        return out;
+    }
+    if (kind == KIND_DICT) {
+        list_from_dict(payload, out);
+        return out;
+    }
+    runtime_error(line, "list() expected a list, string, or dict");
+    return 0;
+}
+
+int64_t hyper_rt_builtin_range(int64_t payload, int64_t kind, int64_t line, int64_t line_kind) {
+    (void)line_kind;
+    const RtList *items = as_list(payload, kind, line, "range");
+    size_t n = items ? items->len : 0;
+    int64_t start = 0;
+    int64_t stop = 0;
+    int64_t step = 1;
+    if (n == 1) {
+        stop = as_i64(items->items[0].payload, items->items[0].kind, line, "range");
+    } else if (n == 2) {
+        start = as_i64(items->items[0].payload, items->items[0].kind, line, "range");
+        stop = as_i64(items->items[1].payload, items->items[1].kind, line, "range");
+    } else if (n == 3) {
+        start = as_i64(items->items[0].payload, items->items[0].kind, line, "range");
+        stop = as_i64(items->items[1].payload, items->items[1].kind, line, "range");
+        step = as_i64(items->items[2].payload, items->items[2].kind, line, "range");
+    } else {
+        runtime_error(line, "range expects 1 to 3 argument(s)");
+    }
+    if (step == 0) {
+        runtime_error(line, "range() arg 3 must not be zero");
+    }
+    int64_t out = hyper_rt_list_new();
+    if (step > 0) {
+        for (int64_t i = start; i < stop; ) {
+            hyper_rt_list_push(out, i, KIND_I64);
+            if (i > INT64_MAX - step) {
+                break;
+            }
+            i += step;
+        }
+    } else {
+        for (int64_t i = start; i > stop; ) {
+            hyper_rt_list_push(out, i, KIND_I64);
+            if (i < INT64_MIN - step) {
+                break;
+            }
+            i += step;
+        }
+    }
+    return out;
+}
+
+int64_t hyper_rt_builtin_repr(int64_t payload, int64_t kind, int64_t line, int64_t line_kind) {
+    (void)line;
+    (void)line_kind;
+    if (kind == KIND_STR) {
+        const char *s = cstr(payload);
+        size_t n = strlen(s);
+        char *buf = (char *)malloc(n * 4 + 3);
+        if (!buf) {
+            runtime_error(0, "out of memory");
+        }
+        size_t j = 0;
+        buf[j++] = '"';
+        for (size_t i = 0; i < n; i++) {
+            unsigned char c = (unsigned char)s[i];
+            if (c == '"' || c == '\\') {
+                buf[j++] = '\\';
+                buf[j++] = (char)c;
+            } else if (c == '\n') {
+                buf[j++] = '\\';
+                buf[j++] = 'n';
+            } else if (c == '\t') {
+                buf[j++] = '\\';
+                buf[j++] = 't';
+            } else {
+                buf[j++] = (char)c;
+            }
+        }
+        buf[j++] = '"';
+        buf[j] = '\0';
+        int64_t out = (int64_t)(intptr_t)hyper_rt_str_dup(buf);
+        free(buf);
+        return out;
+    }
+    return hyper_rt_value_to_str(payload, kind);
 }

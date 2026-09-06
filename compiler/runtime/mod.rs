@@ -107,7 +107,8 @@ pub use builtins::{
     hyper_rt_builtin_hex, hyper_rt_builtin_int, hyper_rt_builtin_len, hyper_rt_builtin_max,
     hyper_rt_builtin_min, hyper_rt_builtin_oct, hyper_rt_builtin_ord, hyper_rt_builtin_pow,
     hyper_rt_builtin_reversed, hyper_rt_builtin_round, hyper_rt_builtin_sorted,
-    hyper_rt_builtin_str, hyper_rt_builtin_sum,
+    hyper_rt_builtin_str, hyper_rt_builtin_sum, hyper_rt_builtin_enumerate, hyper_rt_builtin_list,
+    hyper_rt_builtin_range, hyper_rt_builtin_repr, hyper_rt_builtin_zip,
 };
 pub use file::{
     hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
