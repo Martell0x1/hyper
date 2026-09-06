@@ -437,6 +437,31 @@ impl Parser {
             });
         }
 
+        // `bool` is a type keyword; allow `bool(x)` as the conversion builtin (like `input()`).
+        if self.check(&TokenType::TypeBool) && self.check_next(&TokenType::LeftParen) {
+            let line = self.peek().line as u32;
+            self.advance(); // TypeBool
+            let mut args = Vec::new();
+            self.consume(TokenType::LeftParen, "Expect '(' after bool.")?;
+            if !self.check(&TokenType::RightParen) {
+                args.push(CallArg::Positional(self.expression()?));
+                while self.match_types(&[TokenType::Comma]) {
+                    if self.check(&TokenType::RightParen) {
+                        break;
+                    }
+                    args.push(CallArg::Positional(self.expression()?));
+                }
+            }
+            self.consume(TokenType::RightParen, "Expect ')' after bool argument.")?;
+            return Ok(Expr::Call {
+                callee: Box::new(Expr::Variable {
+                    name: "bool".to_string(),
+                    line,
+                }),
+                args,
+            });
+        }
+
         if self.match_types(&[TokenType::FString]) {
             let f_content = self.previous().literal.clone();
             let line = self.previous().line;
@@ -691,6 +716,14 @@ impl Parser {
             return false;
         }
         &self.peek().token_type == token_type
+    }
+
+    fn check_next(&self, token_type: &TokenType) -> bool {
+        let next = self.current + 1;
+        if next >= self.tokens.len() {
+            return false;
+        }
+        &self.tokens[next].token_type == token_type
     }
 
     fn advance(&mut self) -> &Token {
