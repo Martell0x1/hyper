@@ -1,0 +1,47 @@
+# Python-like builtins smoke (compile path).
+print(len([1, 2, 3]))
+print(len("hi"))
+print(len({"a": 1}))
+
+print(abs(-7))
+print(abs(-3.5))
+
+print(min(3, 1, 2))
+print(max([1, 9, 4]))
+print(sum([1, 2, 3]))
+print(sum([1.5, 2.5]))
+
+print(round(3.6))
+print(round(3.14159, 2))
+
+print(pow(2, 10))
+print(pow(2.0, 3))
+
+print(divmod(7, 3))
+print(divmod(-7, 3))
+
+print(chr(65))
+print(ord("A"))
+
+print(bin(10))
+print(hex(255))
+print(oct(8))
+print(bin(-5))
+
+print(int("42"))
+print(int(3.9))
+print(float("2.5"))
+print(str(123))
+print(bool(0))
+print(bool([1]))
+print(bool(""))
+
+print(all([1, 2, 3]))
+print(all([1, 0, 3]))
+print(any([0, 0, 1]))
+print(any([0, 0, 0]))
+
+print(sorted([3, 1, 2]))
+print(sorted([3.5, 1.1, 2.2]))
+print(sorted(["c", "a", "b"]))
+print(reversed([1, 2, 3]))
