@@ -1007,6 +1007,8 @@ mod tests {
             elapsed.as_millis() < 1500,
             "medium dict get should be hash-backed, took {elapsed:?}"
         );
+    }
+
     fn interned_lit(bytes: &'static [u8]) -> i64 {
         bytes.as_ptr() as i64
     }
