@@ -118,6 +118,9 @@ jobs:
       - name: Compiler collection methods smoke
         run: cargo run --quiet -- compile ci/collections_compile.hyp
 
+      - name: Compiler builtins smoke
+        run: cargo run --quiet -- compile ci/builtins_compile.hyp
+
       - name: Compiler string methods smoke
         run: cargo run --quiet -- compile ci/strings_compile.hyp
 
