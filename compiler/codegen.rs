@@ -438,8 +438,9 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     };
     let str_concat = {
         let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::I64));
+        for _ in 0..4 {
+            sig.params.push(AbiParam::new(types::I64));
+        }
         sig.returns.push(AbiParam::new(types::I64));
         module
             .declare_function("hyper_rt_str_concat", Linkage::Import, &sig)
@@ -1396,6 +1397,252 @@ fn error_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, Value
     }
 }
 
+fn instr_uses(instr: &IrInstr) -> Vec<ValueId> {
+    match instr {
+        IrInstr::ConstI64 { .. }
+        | IrInstr::ConstF64 { .. }
+        | IrInstr::ConstBool { .. }
+        | IrInstr::ConstStr { .. }
+        | IrInstr::ConstNone { .. }
+        | IrInstr::Load { .. }
+        | IrInstr::Label { .. }
+        | IrInstr::Jump { .. }
+        | IrInstr::MakeStruct { .. }
+        | IrInstr::ParallelForEnd => vec![],
+        IrInstr::Store { value, .. } => vec![*value],
+        IrInstr::Unary { src, .. } => vec![*src],
+        IrInstr::Binary { left, right, .. } => vec![*left, *right],
+        IrInstr::IntWrap { src, .. } => vec![*src],
+        IrInstr::GuardDivisor { value, .. } => vec![*value],
+        IrInstr::Call { args, .. } => args.clone(),
+        IrInstr::MakeList { items, .. } => items.clone(),
+        IrInstr::MakeDict { entries, .. } => entries.iter().flat_map(|(k, v)| [*k, *v]).collect(),
+        IrInstr::IndexGet { object, index, .. } => vec![*object, *index],
+        IrInstr::IndexSet {
+            object,
+            index,
+            value,
+        } => vec![*object, *index, *value],
+        IrInstr::ListLen { list, .. } => vec![*list],
+        IrInstr::ValueToStr { src, .. } => vec![*src],
+        IrInstr::StrConcat { left, right, .. } => vec![*left, *right],
+        IrInstr::StructGet { object, .. } => vec![*object],
+        IrInstr::StructSet { object, value, .. } => vec![*object, *value],
+        IrInstr::Print { args } => args.clone(),
+        IrInstr::Return { value } => value.iter().copied().collect(),
+        IrInstr::Branch { cond, .. } => vec![*cond],
+        IrInstr::ParallelForBegin { start, end, .. } => vec![*start, *end],
+    }
+}
+
+fn call_returns_owned_str(func: &str) -> bool {
+    matches!(
+        func,
+        "hyper_rt_str_upper"
+            | "hyper_rt_str_lower"
+            | "hyper_rt_str_capitalize"
+            | "hyper_rt_str_title"
+            | "hyper_rt_str_swapcase"
+            | "hyper_rt_str_strip"
+            | "hyper_rt_str_lstrip"
+            | "hyper_rt_str_rstrip"
+            | "hyper_rt_str_replace"
+            | "hyper_rt_str_join"
+            | "hyper_rt_str_center"
+            | "hyper_rt_str_ljust"
+            | "hyper_rt_str_rjust"
+            | "hyper_rt_str_zfill"
+            | "hyper_rt_str_removeprefix"
+            | "hyper_rt_str_removesuffix"
+            | "hyper_rt_input"
+            | "hyper_rt_json_dumps"
+            | "hyper_rt_file_read_all"
+            | "hyper_rt_file_read_n"
+            | "hyper_rt_file_path"
+            | "hyper_rt_file_mode"
+            | "hyper_rt_mmap_read_chunk"
+    )
+}
+
+/// True when `name` is overwritten with `concat_dest` before it is reloaded or
+/// control leaves the current straight-line region (`s = s + …`).
+fn concat_stored_back_to_name(
+    body: &[IrInstr],
+    concat_idx: usize,
+    concat_dest: ValueId,
+    name: &str,
+) -> bool {
+    for instr in body.iter().skip(concat_idx + 1) {
+        match instr {
+            IrInstr::Label { .. } => {}
+            IrInstr::Store { name: n, value } if n == name => return *value == concat_dest,
+            IrInstr::Load { name: n, .. } if n == name => return false,
+            IrInstr::Jump { .. } | IrInstr::Branch { .. } | IrInstr::Return { .. } => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn should_consume_concat_operand(
+    operand: ValueId,
+    concat_idx: usize,
+    concat_dest: ValueId,
+    last_use: &HashMap<ValueId, usize>,
+    owned_temps: &HashSet<ValueId>,
+    load_names: &HashMap<ValueId, String>,
+    body: &[IrInstr],
+) -> bool {
+    if last_use.get(&operand).copied() != Some(concat_idx) {
+        return false;
+    }
+    if owned_temps.contains(&operand) {
+        return true;
+    }
+    if let Some(name) = load_names.get(&operand) {
+        return concat_stored_back_to_name(body, concat_idx, concat_dest, name);
+    }
+    false
+}
+
+/// Per-instruction `(consume_left, consume_right)` for `str_concat` / string `+`.
+fn concat_consume_plan(body: &[IrInstr]) -> Vec<(bool, bool)> {
+    let mut value_kinds: HashMap<ValueId, ValueKind> = HashMap::new();
+    let mut named_kinds: HashMap<String, ValueKind> = HashMap::new();
+    let mut owned_temps: HashSet<ValueId> = HashSet::new();
+    let mut load_names: HashMap<ValueId, String> = HashMap::new();
+    let mut last_use: HashMap<ValueId, usize> = HashMap::new();
+    let mut concat_dests: Vec<Option<ValueId>> = vec![None; body.len()];
+
+    let vk = |map: &HashMap<ValueId, ValueKind>, id: ValueId| {
+        map.get(&id).copied().unwrap_or(ValueKind::Dynamic)
+    };
+
+    for (i, instr) in body.iter().enumerate() {
+        for u in instr_uses(instr) {
+            last_use.insert(u, i);
+        }
+        match instr {
+            IrInstr::ConstI64 { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::I64);
+            }
+            IrInstr::ConstF64 { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::F64);
+            }
+            IrInstr::ConstBool { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Bool);
+            }
+            IrInstr::ConstNone { dest } => {
+                value_kinds.insert(*dest, ValueKind::None_);
+            }
+            IrInstr::ConstStr { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Str);
+            }
+            IrInstr::Load { dest, name } => {
+                let k = named_kinds.get(name).copied().unwrap_or(ValueKind::Dynamic);
+                value_kinds.insert(*dest, k);
+                load_names.insert(*dest, name.clone());
+            }
+            IrInstr::Store { name, value } => {
+                let incoming = vk(&value_kinds, *value);
+                let merged = match named_kinds.get(name) {
+                    Some(prev) if *prev != incoming => ValueKind::Dynamic,
+                    Some(prev) => *prev,
+                    None => incoming,
+                };
+                named_kinds.insert(name.clone(), merged);
+            }
+            IrInstr::ValueToStr { dest, src } => {
+                value_kinds.insert(*dest, ValueKind::Str);
+                if vk(&value_kinds, *src) != ValueKind::Str {
+                    owned_temps.insert(*dest);
+                } else if owned_temps.contains(src) {
+                    owned_temps.insert(*dest);
+                }
+            }
+            IrInstr::StrConcat { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Str);
+                owned_temps.insert(*dest);
+                concat_dests[i] = Some(*dest);
+            }
+            IrInstr::Binary {
+                dest,
+                op,
+                left,
+                right,
+            } => {
+                let lk = vk(&value_kinds, *left);
+                let rk = vk(&value_kinds, *right);
+                let out = if lk == ValueKind::Str
+                    && rk == ValueKind::Str
+                    && matches!(op, IrOp::Add)
+                {
+                    owned_temps.insert(*dest);
+                    concat_dests[i] = Some(*dest);
+                    ValueKind::Str
+                } else if matches!(
+                    op,
+                    IrOp::Eq | IrOp::Ne | IrOp::Lt | IrOp::Le | IrOp::Gt | IrOp::Ge
+                ) {
+                    ValueKind::Bool
+                } else if lk == ValueKind::F64 || rk == ValueKind::F64 {
+                    ValueKind::F64
+                } else {
+                    ValueKind::I64
+                };
+                value_kinds.insert(*dest, out);
+            }
+            IrInstr::Call { dest, func, .. } => {
+                if call_returns_owned_str(func) {
+                    value_kinds.insert(*dest, ValueKind::Str);
+                    owned_temps.insert(*dest);
+                } else {
+                    value_kinds.insert(*dest, ValueKind::Dynamic);
+                }
+            }
+            IrInstr::ListLen { dest, .. } | IrInstr::IntWrap { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::I64);
+            }
+            IrInstr::MakeList { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::List);
+            }
+            IrInstr::MakeDict { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Dict);
+            }
+            IrInstr::MakeStruct { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Struct);
+            }
+            IrInstr::IndexGet { dest, .. } | IrInstr::StructGet { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Dynamic);
+            }
+            _ => {}
+        }
+    }
+
+    let mut plan = vec![(false, false); body.len()];
+    for (i, instr) in body.iter().enumerate() {
+        let (left, right, dest) = match instr {
+            IrInstr::StrConcat { dest, left, right } => (*left, *right, *dest),
+            IrInstr::Binary {
+                dest,
+                op: IrOp::Add,
+                left,
+                right,
+            } if concat_dests[i].is_some() => (*left, *right, *dest),
+            _ => continue,
+        };
+        plan[i] = (
+            should_consume_concat_operand(
+                left, i, dest, &last_use, &owned_temps, &load_names, body,
+            ),
+            should_consume_concat_operand(
+                right, i, dest, &last_use, &owned_temps, &load_names, body,
+            ),
+        );
+    }
+    plan
+}
+
 fn define_function<M: Module>(
     module: &mut M,
     ctx: &mut cranelift_codegen::Context,
@@ -1622,7 +1869,9 @@ fn define_function<M: Module>(
             named_kind_vars.insert(name, kv);
         }
 
-        for instr in body {
+        let concat_consume = concat_consume_plan(body);
+
+        for (idx, instr) in body.iter().enumerate() {
             match instr {
                 IrInstr::Label { block } => {
                     let b = blocks[block];
@@ -1802,9 +2051,12 @@ fn define_function<M: Module>(
                         && rk == ValueKind::Str
                         && matches!(op, IrOp::Add)
                     {
+                        let (c_l, c_r) = concat_consume[idx];
+                        let consume_l = builder.ins().iconst(types::I64, c_l as i64);
+                        let consume_r = builder.ins().iconst(types::I64, c_r as i64);
                         let fref = module
                             .declare_func_in_func(runtime.str_concat, &mut builder.func);
-                        let call = builder.ins().call(fref, &[l, r]);
+                        let call = builder.ins().call(fref, &[l, r, consume_l, consume_r]);
                         (builder.inst_results(call)[0], ValueKind::Str)
                     } else if matches!(op, IrOp::Eq | IrOp::Ne)
                         && (needs_runtime_eq(lk) || needs_runtime_eq(rk))
@@ -2358,9 +2610,12 @@ fn define_function<M: Module>(
                 IrInstr::StrConcat { dest, left, right } => {
                     let l = builder.use_var(value_vars[left]);
                     let r = builder.use_var(value_vars[right]);
+                    let (c_l, c_r) = concat_consume[idx];
+                    let consume_l = builder.ins().iconst(types::I64, c_l as i64);
+                    let consume_r = builder.ins().iconst(types::I64, c_r as i64);
                     let fref =
                         module.declare_func_in_func(runtime.str_concat, &mut builder.func);
-                    let call = builder.ins().call(fref, &[l, r]);
+                    let call = builder.ins().call(fref, &[l, r, consume_l, consume_r]);
                     let ret = builder.inst_results(call)[0];
                     builder.def_var(value_vars[dest], ret);
                     value_kinds.insert(*dest, ValueKind::Str);

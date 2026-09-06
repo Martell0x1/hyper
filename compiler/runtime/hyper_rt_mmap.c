@@ -16,6 +16,9 @@
 
 enum { KIND_STR = 2, KIND_I64 = 0 };
 
+extern char *hyper_rt_str_dup(const char *s);
+extern void hyper_rt_owned_str_register(void *p);
+
 typedef struct {
     unsigned char *data;
     size_t len;
@@ -207,7 +210,7 @@ int64_t hyper_rt_mmap_read_chunk(
     size_t off = (offset_kind == KIND_I64 && offset > 0) ? (size_t)offset : 0;
     size_t n = (size_kind == KIND_I64 && size > 0) ? (size_t)size : 0;
     if (off >= m->len) {
-        return (int64_t)(intptr_t)rt_strdup("");
+        return (int64_t)(intptr_t)hyper_rt_str_dup("");
     }
     size_t end = off + n;
     if (end > m->len || end < off) {
@@ -222,5 +225,6 @@ int64_t hyper_rt_mmap_read_chunk(
         memcpy(out, m->data + off, chunk_len);
     }
     out[chunk_len] = '\0';
+    hyper_rt_owned_str_register(out);
     return (int64_t)(intptr_t)out;
 }

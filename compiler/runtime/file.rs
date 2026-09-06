@@ -2,7 +2,7 @@
 
 use crate::error;
 use crate::fileio::HyperFile;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::c_char;
 
 use super::{
@@ -19,7 +19,7 @@ fn line_no(line: i64, _kind: i64) -> i64 {
 }
 
 fn cstr_payload(text: &str) -> i64 {
-    CString::new(text).unwrap_or_default().into_raw() as i64
+    super::heap_cstr(text)
 }
 
 fn str_arg(payload: i64, kind: i64, line: i64, context: &str) -> String {

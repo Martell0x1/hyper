@@ -1,0 +1,7 @@
+# Issue #46 stress: left-fold concat without reclaiming prefixes.
+# Each `s = s + "x"` mallocs a new string. Before the fix, every prefix stayed
+# live (quadratic RSS). After, only the current `s` is owned.
+let mut s = ""
+for i in range(80000):
+    s = s + "x"
+print(s.len())
