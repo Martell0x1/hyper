@@ -26,6 +26,7 @@ This list reflects what **`hyper compile`** can lower today (JIT and `--emit-exe
 | `input(prompt?)` | Stdin line read |
 | `clock()` | Seconds since UNIX epoch (`f64`) |
 | Collection methods | list/array `len()`, `append(x)`; dict `len()`, `keys()`; string `len()` |
+| Builtins | `len`, `abs`, `min`/`max`, `sum`, `round`, `pow`, `divmod`, `chr`/`ord`, `bin`/`hex`/`oct`, `int`/`float`/`str`/`bool`, `all`/`any`, `sorted`, `reversed` (`bool(x)` allowed even though `bool` is a type keyword) |
 | String methods | Full Python-compatible set on compile path: `upper`/`lower`/`capitalize`/`title`/`swapcase`, `strip`/`lstrip`/`rstrip`, `startswith`/`endswith`, `split`/`rsplit`, `replace`, `join`, `find`/`rfind`/`index`/`rindex`, `count`, `isdigit`/`isalpha`/`isalnum`/`isspace`/`islower`/`isupper`/`istitle`/`isascii`, `center`/`ljust`/`rjust`/`zfill`, `removeprefix`/`removesuffix`, `partition`/`rpartition` |
 | `import json` | `loads`, `dumps`, `load`, `dump` |
 
@@ -49,6 +50,7 @@ Integer `/`, `%`, `//` guard division by zero at runtime.
 | `ci/input_compile.hyp` | `input()` on compile path |
 | `ci/clock_compile.hyp` | `clock()` on compile path |
 | `ci/collections_compile.hyp` | list/array/dict `len`, `append`, `keys` on compile path |
+| `ci/builtins_compile.hyp` | Builtins (`len`/`abs`/`min`/`max`/…) on compile path |
 | `ci/strings_compile.hyp` | string methods on compile path (JIT and `--emit-exe`) |
 | `ci/break_continue.hyp` | `break` / `continue` in `while`, `for` and `for-in`; run / JIT / `--emit-exe` output parity |
 | `ci/raise_handle.hyp` | `raise` / `raises` / `handle` on run and compile |
