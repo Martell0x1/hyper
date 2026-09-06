@@ -1,10 +1,10 @@
 //! Python-like builtins for the compile path (`len`, `abs`, `min`, …).
 
 use super::{
-    format_value, hyper_rt_div_by_zero, hyper_rt_floor_div_f64, hyper_rt_floor_div_i64,
-    hyper_rt_list_new, hyper_rt_list_push, hyper_rt_pow_f64, hyper_rt_pow_i64, hyper_rt_value_to_str,
-    RtDict, RtList, RtValue, KIND_BOOL, KIND_DICT, KIND_F64, KIND_I64, KIND_LIST, KIND_NONE,
-    KIND_STR, KIND_U64,
+    format_value, hyper_rt_coll_len, hyper_rt_div_by_zero, hyper_rt_floor_div_f64,
+    hyper_rt_floor_div_i64, hyper_rt_list_new, hyper_rt_list_push, hyper_rt_pow_f64, hyper_rt_pow_i64,
+    hyper_rt_value_to_str, RtDict, RtList, RtValue, KIND_BOOL, KIND_DICT, KIND_F64, KIND_I64,
+    KIND_LIST, KIND_NONE, KIND_STR, KIND_U64,
 };
 use crate::error;
 use std::ffi::CStr;
