@@ -150,6 +150,11 @@ impl TypeChecker {
         tc.define("any", any1(HyperType::Bool));
         tc.define("sorted", any1(HyperType::List(Box::new(HyperType::Any))));
         tc.define("reversed", any1(HyperType::List(Box::new(HyperType::Any))));
+        tc.define("enumerate", any1(HyperType::List(Box::new(HyperType::Any))));
+        tc.define("zip", any1(HyperType::List(Box::new(HyperType::Any))));
+        tc.define("list", any1(HyperType::List(Box::new(HyperType::Any))));
+        tc.define("range", any1(HyperType::List(Box::new(HyperType::I64))));
+        tc.define("repr", any1(HyperType::String));
         tc
     }
 

@@ -27,7 +27,8 @@ use super::runtime::{
     hyper_rt_builtin_hex, hyper_rt_builtin_int, hyper_rt_builtin_len, hyper_rt_builtin_max,
     hyper_rt_builtin_min, hyper_rt_builtin_oct, hyper_rt_builtin_ord, hyper_rt_builtin_pow,
     hyper_rt_builtin_reversed, hyper_rt_builtin_round, hyper_rt_builtin_sorted,
-    hyper_rt_builtin_str, hyper_rt_builtin_sum,
+    hyper_rt_builtin_str, hyper_rt_builtin_sum, hyper_rt_builtin_enumerate, hyper_rt_builtin_list,
+    hyper_rt_builtin_range, hyper_rt_builtin_repr, hyper_rt_builtin_zip,
     hyper_rt_str_capitalize, hyper_rt_str_center, hyper_rt_str_count, hyper_rt_str_endswith,
     hyper_rt_str_find, hyper_rt_str_index, hyper_rt_str_isalnum, hyper_rt_str_isalpha,
     hyper_rt_str_isascii, hyper_rt_str_isdigit, hyper_rt_str_islower, hyper_rt_str_isspace,
@@ -187,6 +188,11 @@ struct RuntimeIds {
     builtin_any: FuncId,
     builtin_sorted: FuncId,
     builtin_reversed: FuncId,
+    builtin_enumerate: FuncId,
+    builtin_zip: FuncId,
+    builtin_list: FuncId,
+    builtin_range: FuncId,
+    builtin_repr: FuncId,
     str_upper: FuncId,
     str_lower: FuncId,
     str_capitalize: FuncId,
@@ -564,6 +570,11 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     let builtin_any = declare_file("hyper_rt_builtin_any", 4, 1)?;
     let builtin_sorted = declare_file("hyper_rt_builtin_sorted", 4, 1)?;
     let builtin_reversed = declare_file("hyper_rt_builtin_reversed", 4, 1)?;
+    let builtin_enumerate = declare_file("hyper_rt_builtin_enumerate", 6, 1)?;
+    let builtin_zip = declare_file("hyper_rt_builtin_zip", 4, 1)?;
+    let builtin_list = declare_file("hyper_rt_builtin_list", 4, 1)?;
+    let builtin_range = declare_file("hyper_rt_builtin_range", 4, 1)?;
+    let builtin_repr = declare_file("hyper_rt_builtin_repr", 4, 1)?;
     let str_upper = declare_file("hyper_rt_str_upper", 4, 1)?;
     let str_lower = declare_file("hyper_rt_str_lower", 4, 1)?;
     let str_capitalize = declare_file("hyper_rt_str_capitalize", 4, 1)?;
@@ -682,6 +693,11 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         builtin_any,
         builtin_sorted,
         builtin_reversed,
+        builtin_enumerate,
+        builtin_zip,
+        builtin_list,
+        builtin_range,
+        builtin_repr,
         str_upper,
         str_lower,
         str_capitalize,
@@ -999,6 +1015,11 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_builtin_any", hyper_rt_builtin_any as *const u8);
     jit_builder.symbol("hyper_rt_builtin_sorted", hyper_rt_builtin_sorted as *const u8);
     jit_builder.symbol("hyper_rt_builtin_reversed", hyper_rt_builtin_reversed as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_enumerate", hyper_rt_builtin_enumerate as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_zip", hyper_rt_builtin_zip as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_list", hyper_rt_builtin_list as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_range", hyper_rt_builtin_range as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_repr", hyper_rt_builtin_repr as *const u8);
     jit_builder.symbol("hyper_rt_str_upper", hyper_rt_str_upper as *const u8);
     jit_builder.symbol("hyper_rt_str_lower", hyper_rt_str_lower as *const u8);
     jit_builder.symbol("hyper_rt_str_capitalize", hyper_rt_str_capitalize as *const u8);
@@ -1451,6 +1472,11 @@ fn builtin_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, Val
         "hyper_rt_builtin_any" => Some((runtime.builtin_any, ValueKind::Bool, false)),
         "hyper_rt_builtin_sorted" => Some((runtime.builtin_sorted, ValueKind::List, false)),
         "hyper_rt_builtin_reversed" => Some((runtime.builtin_reversed, ValueKind::List, false)),
+        "hyper_rt_builtin_enumerate" => Some((runtime.builtin_enumerate, ValueKind::List, false)),
+        "hyper_rt_builtin_zip" => Some((runtime.builtin_zip, ValueKind::List, false)),
+        "hyper_rt_builtin_list" => Some((runtime.builtin_list, ValueKind::List, false)),
+        "hyper_rt_builtin_range" => Some((runtime.builtin_range, ValueKind::List, false)),
+        "hyper_rt_builtin_repr" => Some((runtime.builtin_repr, ValueKind::Str, false)),
         _ => None,
     }
 }

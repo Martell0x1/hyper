@@ -5,6 +5,39 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::{LazyLock, Mutex};
 
+/// Serializes heap-string register/release in unit tests so a freed pointer
+/// cannot be recycled by another test thread and re-inserted into `OWNED_STRS`
+/// (macOS malloc reuses small allocations quickly).
+#[cfg(test)]
+mod owned_str_test_lock {
+    use std::cell::Cell;
+    use std::sync::{Mutex, MutexGuard};
+
+    static LOCK: Mutex<()> = Mutex::new(());
+    thread_local! {
+        static HELD: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub struct Guard(Option<MutexGuard<'static, ()>>);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            if self.0.is_some() {
+                HELD.set(false);
+            }
+        }
+    }
+
+    pub fn hold() -> Guard {
+        if HELD.get() {
+            return Guard(None);
+        }
+        let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        HELD.set(true);
+        Guard(Some(guard))
+    }
+}
+
 pub const KIND_I64: i64 = 0;
 pub const KIND_F64: i64 = 1;
 pub const KIND_STR: i64 = 2;
@@ -30,6 +63,8 @@ static OWNED_STRS: LazyLock<Mutex<HashSet<usize>>> = LazyLock::new(|| Mutex::new
 
 /// Allocate a Hyper-visible heap C string and record unique ownership.
 pub(crate) fn heap_cstr(text: &str) -> i64 {
+    #[cfg(test)]
+    let _test_lock = owned_str_test_lock::hold();
     let c = CString::new(text).unwrap_or_default();
     let payload = c.into_raw() as i64;
     register_owned_str(payload);
@@ -45,6 +80,7 @@ fn register_owned_str(payload: i64) {
 
 #[cfg(test)]
 fn owned_str_contains(payload: i64) -> bool {
+    let _test_lock = owned_str_test_lock::hold();
     if payload == 0 {
         return false;
     }
@@ -53,6 +89,8 @@ fn owned_str_contains(payload: i64) -> bool {
 
 /// Free `payload` only if it is a registered heap string (never interned literals).
 pub(crate) fn owned_str_release(payload: i64) {
+    #[cfg(test)]
+    let _test_lock = owned_str_test_lock::hold();
     if payload == 0 {
         return;
     }
@@ -70,7 +108,8 @@ pub use builtins::{
     hyper_rt_builtin_hex, hyper_rt_builtin_int, hyper_rt_builtin_len, hyper_rt_builtin_max,
     hyper_rt_builtin_min, hyper_rt_builtin_oct, hyper_rt_builtin_ord, hyper_rt_builtin_pow,
     hyper_rt_builtin_reversed, hyper_rt_builtin_round, hyper_rt_builtin_sorted,
-    hyper_rt_builtin_str, hyper_rt_builtin_sum,
+    hyper_rt_builtin_str, hyper_rt_builtin_sum, hyper_rt_builtin_enumerate, hyper_rt_builtin_list,
+    hyper_rt_builtin_range, hyper_rt_builtin_repr, hyper_rt_builtin_zip,
 };
 pub use file::{
     hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
@@ -984,6 +1023,7 @@ mod tests {
 
     #[test]
     fn concat_without_consume_keeps_live_operands() {
+        let _hold = super::owned_str_test_lock::hold();
         let left = heap_cstr("hello");
         let right = interned_lit(b"!\0");
         let out = hyper_rt_str_concat(left, right, 0, 0);
@@ -996,6 +1036,7 @@ mod tests {
 
     #[test]
     fn concat_consume_left_drops_owned_temp_not_interned() {
+        let _hold = super::owned_str_test_lock::hold();
         let left = heap_cstr("ab");
         let right = interned_lit(b"c\0");
         let out = hyper_rt_str_concat(left, right, 1, 0);
@@ -1011,6 +1052,7 @@ mod tests {
 
     #[test]
     fn concat_store_back_loop_does_not_accumulate_owned_strings() {
+        let _hold = super::owned_str_test_lock::hold();
         let x = interned_lit(b"x\0");
         let mut s = heap_cstr("");
         for _ in 0..10_000 {

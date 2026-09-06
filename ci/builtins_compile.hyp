@@ -45,3 +45,25 @@ print(sorted([3, 1, 2]))
 print(sorted([3.5, 1.1, 2.2]))
 print(sorted(["c", "a", "b"]))
 print(reversed([1, 2, 3]))
+
+print(enumerate(["a", "b", "c"]))
+print(enumerate(["a", "b"], 10))
+print(enumerate("hi"))
+
+print(zip([1, 2, 3], ["a", "b", "c"]))
+print(zip([1, 2], [10, 20, 30], [100]))
+
+print(list())
+print(list("ab"))
+print(list({"x": 1, "y": 2}))
+print(list([3, 1, 2]))
+
+print(range(4))
+print(range(2, 6))
+print(range(5, 0, -1))
+
+print(repr("hi"))
+print(repr(12))
+
+for pair in enumerate(["x", "y"]):
+    print(pair[0], pair[1])
