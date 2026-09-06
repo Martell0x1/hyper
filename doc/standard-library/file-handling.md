@@ -68,7 +68,7 @@ with open_mmap("huge_model.bin") as mapped_file:
 
 Offsets past EOF return an empty string. Compiler support is not planned for v0.1.
 
-Sample: `doc/examples/file_handling/mmap.hyo`.
+Sample: `doc/examples/file_handling/mmap.hyp`.
 
 ## Related
 
