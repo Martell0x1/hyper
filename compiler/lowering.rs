@@ -564,6 +564,125 @@ impl Lowerer {
         dest
     }
 
+    fn lower_call_args(&mut self, args: &[CallArg]) -> Vec<ValueId> {
+        let mut ids = Vec::with_capacity(args.len());
+        for arg in args {
+            match arg {
+                CallArg::Positional(e) | CallArg::Named { value: e, .. } => {
+                    ids.push(self.lower_expr(e));
+                }
+            }
+        }
+        ids
+    }
+
+    fn lower_builtin_runtime(
+        &mut self,
+        func: &str,
+        arg_ids: Vec<ValueId>,
+    ) -> ValueId {
+        let mut call_args = arg_ids;
+        call_args.push(self.line_arg());
+        let dest = self.fresh_value();
+        self.emit(IrInstr::Call {
+            dest,
+            func: func.to_string(),
+            args: call_args,
+        });
+        dest
+    }
+
+    fn lower_builtin_unary(&mut self, func: &str, args: &[CallArg]) -> ValueId {
+        if args.len() != 1 {
+            let name = func
+                .strip_prefix("hyper_rt_builtin_")
+                .unwrap_or(func);
+            self.error(format!("{name} expects 1 argument but got {}", args.len()));
+            return self.error_value();
+        }
+        let arg_ids = self.lower_call_args(args);
+        self.lower_builtin_runtime(func, arg_ids)
+    }
+
+    fn lower_builtin_binary(&mut self, func: &str, args: &[CallArg]) -> ValueId {
+        if args.len() != 2 {
+            let name = func
+                .strip_prefix("hyper_rt_builtin_")
+                .unwrap_or(func);
+            self.error(format!("{name} expects 2 arguments but got {}", args.len()));
+            return self.error_value();
+        }
+        let arg_ids = self.lower_call_args(args);
+        self.lower_builtin_runtime(func, arg_ids)
+    }
+
+    fn lower_builtin_round(&mut self, args: &[CallArg]) -> ValueId {
+        if args.is_empty() || args.len() > 2 {
+            self.error(format!(
+                "round expects 1 or 2 argument(s) but got {}",
+                args.len()
+            ));
+            return self.error_value();
+        }
+        let mut arg_ids = self.lower_call_args(args);
+        if arg_ids.len() == 1 {
+            let none = self.fresh_value();
+            self.emit(IrInstr::ConstNone { dest: none });
+            arg_ids.push(none);
+        }
+        self.lower_builtin_runtime("hyper_rt_builtin_round", arg_ids)
+    }
+
+    fn lower_builtin_min_max(&mut self, name: &str, args: &[CallArg]) -> ValueId {
+        let func = if name == "min" {
+            "hyper_rt_builtin_min"
+        } else {
+            "hyper_rt_builtin_max"
+        };
+        if args.is_empty() {
+            self.error(format!("{name} expects at least 1 argument"));
+            return self.error_value();
+        }
+        if args.len() == 1 {
+            return self.lower_builtin_unary(func, args);
+        }
+        let items = self.lower_call_args(args);
+        let list = self.fresh_value();
+        self.emit(IrInstr::MakeList {
+            dest: list,
+            items,
+        });
+        self.lower_builtin_runtime(func, vec![list])
+    }
+
+    /// Dispatch Python-like builtins before generic user calls.
+    fn lower_named_builtin(&mut self, name: &str, args: &[CallArg]) -> Option<ValueId> {
+        Some(match name {
+            "len" => self.lower_builtin_unary("hyper_rt_builtin_len", args),
+            "abs" => self.lower_builtin_unary("hyper_rt_builtin_abs", args),
+            "min" => self.lower_builtin_min_max("min", args),
+            "max" => self.lower_builtin_min_max("max", args),
+            "sum" => self.lower_builtin_unary("hyper_rt_builtin_sum", args),
+            "round" => self.lower_builtin_round(args),
+            "pow" => self.lower_builtin_binary("hyper_rt_builtin_pow", args),
+            "divmod" => self.lower_builtin_binary("hyper_rt_builtin_divmod", args),
+            "chr" => self.lower_builtin_unary("hyper_rt_builtin_chr", args),
+            "ord" => self.lower_builtin_unary("hyper_rt_builtin_ord", args),
+            "bin" => self.lower_builtin_unary("hyper_rt_builtin_bin", args),
+            "hex" => self.lower_builtin_unary("hyper_rt_builtin_hex", args),
+            "oct" => self.lower_builtin_unary("hyper_rt_builtin_oct", args),
+            "int" => self.lower_builtin_unary("hyper_rt_builtin_int", args),
+            "float" => self.lower_builtin_unary("hyper_rt_builtin_float", args),
+            "str" => self.lower_builtin_unary("hyper_rt_builtin_str", args),
+            "bool" => self.lower_builtin_unary("hyper_rt_builtin_bool", args),
+            "all" => self.lower_builtin_unary("hyper_rt_builtin_all", args),
+            "any" => self.lower_builtin_unary("hyper_rt_builtin_any", args),
+            "sorted" => self.lower_builtin_unary("hyper_rt_builtin_sorted", args),
+            "reversed" => self.lower_builtin_unary("hyper_rt_builtin_reversed", args),
+            _ => return None,
+        })
+    }
+
     fn lower_mmap_method(&mut self, object: &str, method: &str, args: &[Expr]) -> ValueId {
         let handle = self.fresh_value();
         self.emit(IrInstr::Load {
@@ -1635,6 +1754,9 @@ impl Lowerer {
                     }
                     if name == "clock" {
                         return self.lower_clock(args);
+                    }
+                    if let Some(v) = self.lower_named_builtin(name, args) {
+                        return v;
                     }
                     if self.structs.contains_key(name) {
                         return self.lower_struct_ctor(name, args);
