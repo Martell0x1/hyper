@@ -655,6 +655,69 @@ impl Lowerer {
         self.lower_builtin_runtime(func, vec![list])
     }
 
+    fn lower_builtin_enumerate(&mut self, args: &[CallArg]) -> ValueId {
+        if args.is_empty() || args.len() > 2 {
+            self.error(format!(
+                "enumerate expects 1 or 2 argument(s) but got {}",
+                args.len()
+            ));
+            return self.error_value();
+        }
+        let mut arg_ids = self.lower_call_args(args);
+        if arg_ids.len() == 1 {
+            let none = self.fresh_value();
+            self.emit(IrInstr::ConstNone { dest: none });
+            arg_ids.push(none);
+        }
+        self.lower_builtin_runtime("hyper_rt_builtin_enumerate", arg_ids)
+    }
+
+    fn lower_builtin_zip(&mut self, args: &[CallArg]) -> ValueId {
+        let items = self.lower_call_args(args);
+        let list = self.fresh_value();
+        self.emit(IrInstr::MakeList {
+            dest: list,
+            items,
+        });
+        self.lower_builtin_runtime("hyper_rt_builtin_zip", vec![list])
+    }
+
+    fn lower_builtin_list(&mut self, args: &[CallArg]) -> ValueId {
+        if args.len() > 1 {
+            self.error(format!(
+                "list expects 0 or 1 argument(s) but got {}",
+                args.len()
+            ));
+            return self.error_value();
+        }
+        if args.is_empty() {
+            let dest = self.fresh_value();
+            self.emit(IrInstr::MakeList {
+                dest,
+                items: vec![],
+            });
+            return dest;
+        }
+        self.lower_builtin_unary("hyper_rt_builtin_list", args)
+    }
+
+    fn lower_builtin_range(&mut self, args: &[CallArg]) -> ValueId {
+        if args.is_empty() || args.len() > 3 {
+            self.error(format!(
+                "range expects 1 to 3 argument(s) but got {}",
+                args.len()
+            ));
+            return self.error_value();
+        }
+        let items = self.lower_call_args(args);
+        let list = self.fresh_value();
+        self.emit(IrInstr::MakeList {
+            dest: list,
+            items,
+        });
+        self.lower_builtin_runtime("hyper_rt_builtin_range", vec![list])
+    }
+
     /// Dispatch Python-like builtins before generic user calls.
     fn lower_named_builtin(&mut self, name: &str, args: &[CallArg]) -> Option<ValueId> {
         Some(match name {
@@ -679,6 +742,11 @@ impl Lowerer {
             "any" => self.lower_builtin_unary("hyper_rt_builtin_any", args),
             "sorted" => self.lower_builtin_unary("hyper_rt_builtin_sorted", args),
             "reversed" => self.lower_builtin_unary("hyper_rt_builtin_reversed", args),
+            "enumerate" => self.lower_builtin_enumerate(args),
+            "zip" => self.lower_builtin_zip(args),
+            "list" => self.lower_builtin_list(args),
+            "range" => self.lower_builtin_range(args),
+            "repr" => self.lower_builtin_unary("hyper_rt_builtin_repr", args),
             _ => return None,
         })
     }
