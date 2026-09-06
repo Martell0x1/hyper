@@ -22,6 +22,12 @@ use super::runtime::{
     hyper_rt_json_dump, hyper_rt_json_dumps, hyper_rt_json_load, hyper_rt_json_loads,
     hyper_rt_mmap_close, hyper_rt_mmap_open, hyper_rt_mmap_read_chunk,
     hyper_rt_coll_append, hyper_rt_coll_keys, hyper_rt_coll_len,
+    hyper_rt_builtin_abs, hyper_rt_builtin_all, hyper_rt_builtin_any, hyper_rt_builtin_bin,
+    hyper_rt_builtin_bool, hyper_rt_builtin_chr, hyper_rt_builtin_divmod, hyper_rt_builtin_float,
+    hyper_rt_builtin_hex, hyper_rt_builtin_int, hyper_rt_builtin_len, hyper_rt_builtin_max,
+    hyper_rt_builtin_min, hyper_rt_builtin_oct, hyper_rt_builtin_ord, hyper_rt_builtin_pow,
+    hyper_rt_builtin_reversed, hyper_rt_builtin_round, hyper_rt_builtin_sorted,
+    hyper_rt_builtin_str, hyper_rt_builtin_sum,
     hyper_rt_str_capitalize, hyper_rt_str_center, hyper_rt_str_count, hyper_rt_str_endswith,
     hyper_rt_str_find, hyper_rt_str_index, hyper_rt_str_isalnum, hyper_rt_str_isalpha,
     hyper_rt_str_isascii, hyper_rt_str_isdigit, hyper_rt_str_islower, hyper_rt_str_isspace,
@@ -160,6 +166,27 @@ struct RuntimeIds {
     coll_len: FuncId,
     coll_append: FuncId,
     coll_keys: FuncId,
+    builtin_len: FuncId,
+    builtin_abs: FuncId,
+    builtin_min: FuncId,
+    builtin_max: FuncId,
+    builtin_sum: FuncId,
+    builtin_round: FuncId,
+    builtin_pow: FuncId,
+    builtin_divmod: FuncId,
+    builtin_chr: FuncId,
+    builtin_ord: FuncId,
+    builtin_bin: FuncId,
+    builtin_hex: FuncId,
+    builtin_oct: FuncId,
+    builtin_int: FuncId,
+    builtin_float: FuncId,
+    builtin_str: FuncId,
+    builtin_bool: FuncId,
+    builtin_all: FuncId,
+    builtin_any: FuncId,
+    builtin_sorted: FuncId,
+    builtin_reversed: FuncId,
     str_upper: FuncId,
     str_lower: FuncId,
     str_capitalize: FuncId,
@@ -438,8 +465,9 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     };
     let str_concat = {
         let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::I64));
+        for _ in 0..4 {
+            sig.params.push(AbiParam::new(types::I64));
+        }
         sig.returns.push(AbiParam::new(types::I64));
         module
             .declare_function("hyper_rt_str_concat", Linkage::Import, &sig)
@@ -515,6 +543,27 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
     let coll_len = declare_file("hyper_rt_coll_len", 4, 1)?;
     let coll_append = declare_file("hyper_rt_coll_append", 6, 0)?;
     let coll_keys = declare_file("hyper_rt_coll_keys", 4, 1)?;
+    let builtin_len = declare_file("hyper_rt_builtin_len", 4, 1)?;
+    let builtin_abs = declare_file("hyper_rt_builtin_abs", 5, 1)?;
+    let builtin_min = declare_file("hyper_rt_builtin_min", 5, 1)?;
+    let builtin_max = declare_file("hyper_rt_builtin_max", 5, 1)?;
+    let builtin_sum = declare_file("hyper_rt_builtin_sum", 5, 1)?;
+    let builtin_round = declare_file("hyper_rt_builtin_round", 7, 1)?;
+    let builtin_pow = declare_file("hyper_rt_builtin_pow", 7, 1)?;
+    let builtin_divmod = declare_file("hyper_rt_builtin_divmod", 6, 1)?;
+    let builtin_chr = declare_file("hyper_rt_builtin_chr", 4, 1)?;
+    let builtin_ord = declare_file("hyper_rt_builtin_ord", 4, 1)?;
+    let builtin_bin = declare_file("hyper_rt_builtin_bin", 4, 1)?;
+    let builtin_hex = declare_file("hyper_rt_builtin_hex", 4, 1)?;
+    let builtin_oct = declare_file("hyper_rt_builtin_oct", 4, 1)?;
+    let builtin_int = declare_file("hyper_rt_builtin_int", 5, 1)?;
+    let builtin_float = declare_file("hyper_rt_builtin_float", 5, 1)?;
+    let builtin_str = declare_file("hyper_rt_builtin_str", 4, 1)?;
+    let builtin_bool = declare_file("hyper_rt_builtin_bool", 4, 1)?;
+    let builtin_all = declare_file("hyper_rt_builtin_all", 4, 1)?;
+    let builtin_any = declare_file("hyper_rt_builtin_any", 4, 1)?;
+    let builtin_sorted = declare_file("hyper_rt_builtin_sorted", 4, 1)?;
+    let builtin_reversed = declare_file("hyper_rt_builtin_reversed", 4, 1)?;
     let str_upper = declare_file("hyper_rt_str_upper", 4, 1)?;
     let str_lower = declare_file("hyper_rt_str_lower", 4, 1)?;
     let str_capitalize = declare_file("hyper_rt_str_capitalize", 4, 1)?;
@@ -612,6 +661,27 @@ fn declare_runtime<M: Module>(module: &mut M) -> Result<RuntimeIds, String> {
         coll_len,
         coll_append,
         coll_keys,
+        builtin_len,
+        builtin_abs,
+        builtin_min,
+        builtin_max,
+        builtin_sum,
+        builtin_round,
+        builtin_pow,
+        builtin_divmod,
+        builtin_chr,
+        builtin_ord,
+        builtin_bin,
+        builtin_hex,
+        builtin_oct,
+        builtin_int,
+        builtin_float,
+        builtin_str,
+        builtin_bool,
+        builtin_all,
+        builtin_any,
+        builtin_sorted,
+        builtin_reversed,
         str_upper,
         str_lower,
         str_capitalize,
@@ -908,6 +978,27 @@ fn register_jit_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("hyper_rt_coll_len", hyper_rt_coll_len as *const u8);
     jit_builder.symbol("hyper_rt_coll_append", hyper_rt_coll_append as *const u8);
     jit_builder.symbol("hyper_rt_coll_keys", hyper_rt_coll_keys as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_len", hyper_rt_builtin_len as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_abs", hyper_rt_builtin_abs as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_min", hyper_rt_builtin_min as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_max", hyper_rt_builtin_max as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_sum", hyper_rt_builtin_sum as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_round", hyper_rt_builtin_round as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_pow", hyper_rt_builtin_pow as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_divmod", hyper_rt_builtin_divmod as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_chr", hyper_rt_builtin_chr as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_ord", hyper_rt_builtin_ord as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_bin", hyper_rt_builtin_bin as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_hex", hyper_rt_builtin_hex as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_oct", hyper_rt_builtin_oct as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_int", hyper_rt_builtin_int as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_float", hyper_rt_builtin_float as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_str", hyper_rt_builtin_str as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_bool", hyper_rt_builtin_bool as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_all", hyper_rt_builtin_all as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_any", hyper_rt_builtin_any as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_sorted", hyper_rt_builtin_sorted as *const u8);
+    jit_builder.symbol("hyper_rt_builtin_reversed", hyper_rt_builtin_reversed as *const u8);
     jit_builder.symbol("hyper_rt_str_upper", hyper_rt_str_upper as *const u8);
     jit_builder.symbol("hyper_rt_str_lower", hyper_rt_str_lower as *const u8);
     jit_builder.symbol("hyper_rt_str_capitalize", hyper_rt_str_capitalize as *const u8);
@@ -1113,6 +1204,18 @@ fn runtime_str_c_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn runtime_builtins_c_path() -> Result<PathBuf, String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest
+        .join("compiler")
+        .join("runtime")
+        .join("hyper_rt_builtins.c");
+    if !path.exists() {
+        return Err(format!("runtime source not found: {}", path.display()));
+    }
+    Ok(path)
+}
+
 fn find_cc() -> Result<(String, bool), String> {
     // Returns (program, is_msvc_cl).
     if let Ok(cc) = std::env::var("CC") {
@@ -1203,6 +1306,7 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
     let rt_mmap = runtime_mmap_c_path()?;
     let rt_io = runtime_io_c_path()?;
     let rt_str = runtime_str_c_path()?;
+    let rt_builtins = runtime_builtins_c_path()?;
     let (cc, is_msvc) = find_cc()?;
     let out = normalize_exe_path(out_path);
 
@@ -1227,6 +1331,7 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
             .arg(rt_mmap.as_os_str())
             .arg(rt_io.as_os_str())
             .arg(rt_str.as_os_str())
+            .arg(rt_builtins.as_os_str())
             .status()
             .map_err(|e| format!("failed to invoke {cc}: {e}"))?;
         let _ = std::fs::remove_dir_all(&fo_dir);
@@ -1240,6 +1345,7 @@ pub fn emit_exe(module: &IrModule, out_path: &str) -> Result<(), String> {
             .arg(rt_mmap.as_os_str())
             .arg(rt_io.as_os_str())
             .arg(rt_str.as_os_str())
+            .arg(rt_builtins.as_os_str())
             .arg("-o")
             .arg(&out);
         // libm is separate on many Unix toolchains; not required on Windows.
@@ -1322,6 +1428,33 @@ fn coll_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueK
     }
 }
 
+fn builtin_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
+    match func {
+        "hyper_rt_builtin_len" => Some((runtime.builtin_len, ValueKind::I64, false)),
+        "hyper_rt_builtin_abs" => Some((runtime.builtin_abs, ValueKind::Dynamic, true)),
+        "hyper_rt_builtin_min" => Some((runtime.builtin_min, ValueKind::Dynamic, true)),
+        "hyper_rt_builtin_max" => Some((runtime.builtin_max, ValueKind::Dynamic, true)),
+        "hyper_rt_builtin_sum" => Some((runtime.builtin_sum, ValueKind::Dynamic, true)),
+        "hyper_rt_builtin_round" => Some((runtime.builtin_round, ValueKind::Dynamic, true)),
+        "hyper_rt_builtin_pow" => Some((runtime.builtin_pow, ValueKind::Dynamic, true)),
+        "hyper_rt_builtin_divmod" => Some((runtime.builtin_divmod, ValueKind::List, false)),
+        "hyper_rt_builtin_chr" => Some((runtime.builtin_chr, ValueKind::Str, false)),
+        "hyper_rt_builtin_ord" => Some((runtime.builtin_ord, ValueKind::I64, false)),
+        "hyper_rt_builtin_bin" => Some((runtime.builtin_bin, ValueKind::Str, false)),
+        "hyper_rt_builtin_hex" => Some((runtime.builtin_hex, ValueKind::Str, false)),
+        "hyper_rt_builtin_oct" => Some((runtime.builtin_oct, ValueKind::Str, false)),
+        "hyper_rt_builtin_int" => Some((runtime.builtin_int, ValueKind::Dynamic, true)),
+        "hyper_rt_builtin_float" => Some((runtime.builtin_float, ValueKind::Dynamic, true)),
+        "hyper_rt_builtin_str" => Some((runtime.builtin_str, ValueKind::Str, false)),
+        "hyper_rt_builtin_bool" => Some((runtime.builtin_bool, ValueKind::Bool, false)),
+        "hyper_rt_builtin_all" => Some((runtime.builtin_all, ValueKind::Bool, false)),
+        "hyper_rt_builtin_any" => Some((runtime.builtin_any, ValueKind::Bool, false)),
+        "hyper_rt_builtin_sorted" => Some((runtime.builtin_sorted, ValueKind::List, false)),
+        "hyper_rt_builtin_reversed" => Some((runtime.builtin_reversed, ValueKind::List, false)),
+        _ => None,
+    }
+}
+
 fn str_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, ValueKind, bool)> {
     match func {
         "hyper_rt_str_upper" => Some((runtime.str_upper, ValueKind::Str, false)),
@@ -1394,6 +1527,252 @@ fn error_runtime_call(func: &str, runtime: &RuntimeIds) -> Option<(FuncId, Value
         "hyper_rt_raise" => Some((runtime.raise_fn, ValueKind::I64, false)),
         _ => None,
     }
+}
+
+fn instr_uses(instr: &IrInstr) -> Vec<ValueId> {
+    match instr {
+        IrInstr::ConstI64 { .. }
+        | IrInstr::ConstF64 { .. }
+        | IrInstr::ConstBool { .. }
+        | IrInstr::ConstStr { .. }
+        | IrInstr::ConstNone { .. }
+        | IrInstr::Load { .. }
+        | IrInstr::Label { .. }
+        | IrInstr::Jump { .. }
+        | IrInstr::MakeStruct { .. }
+        | IrInstr::ParallelForEnd => vec![],
+        IrInstr::Store { value, .. } => vec![*value],
+        IrInstr::Unary { src, .. } => vec![*src],
+        IrInstr::Binary { left, right, .. } => vec![*left, *right],
+        IrInstr::IntWrap { src, .. } => vec![*src],
+        IrInstr::GuardDivisor { value, .. } => vec![*value],
+        IrInstr::Call { args, .. } => args.clone(),
+        IrInstr::MakeList { items, .. } => items.clone(),
+        IrInstr::MakeDict { entries, .. } => entries.iter().flat_map(|(k, v)| [*k, *v]).collect(),
+        IrInstr::IndexGet { object, index, .. } => vec![*object, *index],
+        IrInstr::IndexSet {
+            object,
+            index,
+            value,
+        } => vec![*object, *index, *value],
+        IrInstr::ListLen { list, .. } => vec![*list],
+        IrInstr::ValueToStr { src, .. } => vec![*src],
+        IrInstr::StrConcat { left, right, .. } => vec![*left, *right],
+        IrInstr::StructGet { object, .. } => vec![*object],
+        IrInstr::StructSet { object, value, .. } => vec![*object, *value],
+        IrInstr::Print { args } => args.clone(),
+        IrInstr::Return { value } => value.iter().copied().collect(),
+        IrInstr::Branch { cond, .. } => vec![*cond],
+        IrInstr::ParallelForBegin { start, end, .. } => vec![*start, *end],
+    }
+}
+
+fn call_returns_owned_str(func: &str) -> bool {
+    matches!(
+        func,
+        "hyper_rt_str_upper"
+            | "hyper_rt_str_lower"
+            | "hyper_rt_str_capitalize"
+            | "hyper_rt_str_title"
+            | "hyper_rt_str_swapcase"
+            | "hyper_rt_str_strip"
+            | "hyper_rt_str_lstrip"
+            | "hyper_rt_str_rstrip"
+            | "hyper_rt_str_replace"
+            | "hyper_rt_str_join"
+            | "hyper_rt_str_center"
+            | "hyper_rt_str_ljust"
+            | "hyper_rt_str_rjust"
+            | "hyper_rt_str_zfill"
+            | "hyper_rt_str_removeprefix"
+            | "hyper_rt_str_removesuffix"
+            | "hyper_rt_input"
+            | "hyper_rt_json_dumps"
+            | "hyper_rt_file_read_all"
+            | "hyper_rt_file_read_n"
+            | "hyper_rt_file_path"
+            | "hyper_rt_file_mode"
+            | "hyper_rt_mmap_read_chunk"
+    )
+}
+
+/// True when `name` is overwritten with `concat_dest` before it is reloaded or
+/// control leaves the current straight-line region (`s = s + …`).
+fn concat_stored_back_to_name(
+    body: &[IrInstr],
+    concat_idx: usize,
+    concat_dest: ValueId,
+    name: &str,
+) -> bool {
+    for instr in body.iter().skip(concat_idx + 1) {
+        match instr {
+            IrInstr::Label { .. } => {}
+            IrInstr::Store { name: n, value } if n == name => return *value == concat_dest,
+            IrInstr::Load { name: n, .. } if n == name => return false,
+            IrInstr::Jump { .. } | IrInstr::Branch { .. } | IrInstr::Return { .. } => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn should_consume_concat_operand(
+    operand: ValueId,
+    concat_idx: usize,
+    concat_dest: ValueId,
+    last_use: &HashMap<ValueId, usize>,
+    owned_temps: &HashSet<ValueId>,
+    load_names: &HashMap<ValueId, String>,
+    body: &[IrInstr],
+) -> bool {
+    if last_use.get(&operand).copied() != Some(concat_idx) {
+        return false;
+    }
+    if owned_temps.contains(&operand) {
+        return true;
+    }
+    if let Some(name) = load_names.get(&operand) {
+        return concat_stored_back_to_name(body, concat_idx, concat_dest, name);
+    }
+    false
+}
+
+/// Per-instruction `(consume_left, consume_right)` for `str_concat` / string `+`.
+fn concat_consume_plan(body: &[IrInstr]) -> Vec<(bool, bool)> {
+    let mut value_kinds: HashMap<ValueId, ValueKind> = HashMap::new();
+    let mut named_kinds: HashMap<String, ValueKind> = HashMap::new();
+    let mut owned_temps: HashSet<ValueId> = HashSet::new();
+    let mut load_names: HashMap<ValueId, String> = HashMap::new();
+    let mut last_use: HashMap<ValueId, usize> = HashMap::new();
+    let mut concat_dests: Vec<Option<ValueId>> = vec![None; body.len()];
+
+    let vk = |map: &HashMap<ValueId, ValueKind>, id: ValueId| {
+        map.get(&id).copied().unwrap_or(ValueKind::Dynamic)
+    };
+
+    for (i, instr) in body.iter().enumerate() {
+        for u in instr_uses(instr) {
+            last_use.insert(u, i);
+        }
+        match instr {
+            IrInstr::ConstI64 { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::I64);
+            }
+            IrInstr::ConstF64 { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::F64);
+            }
+            IrInstr::ConstBool { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Bool);
+            }
+            IrInstr::ConstNone { dest } => {
+                value_kinds.insert(*dest, ValueKind::None_);
+            }
+            IrInstr::ConstStr { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Str);
+            }
+            IrInstr::Load { dest, name } => {
+                let k = named_kinds.get(name).copied().unwrap_or(ValueKind::Dynamic);
+                value_kinds.insert(*dest, k);
+                load_names.insert(*dest, name.clone());
+            }
+            IrInstr::Store { name, value } => {
+                let incoming = vk(&value_kinds, *value);
+                let merged = match named_kinds.get(name) {
+                    Some(prev) if *prev != incoming => ValueKind::Dynamic,
+                    Some(prev) => *prev,
+                    None => incoming,
+                };
+                named_kinds.insert(name.clone(), merged);
+            }
+            IrInstr::ValueToStr { dest, src } => {
+                value_kinds.insert(*dest, ValueKind::Str);
+                if vk(&value_kinds, *src) != ValueKind::Str {
+                    owned_temps.insert(*dest);
+                } else if owned_temps.contains(src) {
+                    owned_temps.insert(*dest);
+                }
+            }
+            IrInstr::StrConcat { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Str);
+                owned_temps.insert(*dest);
+                concat_dests[i] = Some(*dest);
+            }
+            IrInstr::Binary {
+                dest,
+                op,
+                left,
+                right,
+            } => {
+                let lk = vk(&value_kinds, *left);
+                let rk = vk(&value_kinds, *right);
+                let out = if lk == ValueKind::Str
+                    && rk == ValueKind::Str
+                    && matches!(op, IrOp::Add)
+                {
+                    owned_temps.insert(*dest);
+                    concat_dests[i] = Some(*dest);
+                    ValueKind::Str
+                } else if matches!(
+                    op,
+                    IrOp::Eq | IrOp::Ne | IrOp::Lt | IrOp::Le | IrOp::Gt | IrOp::Ge
+                ) {
+                    ValueKind::Bool
+                } else if lk == ValueKind::F64 || rk == ValueKind::F64 {
+                    ValueKind::F64
+                } else {
+                    ValueKind::I64
+                };
+                value_kinds.insert(*dest, out);
+            }
+            IrInstr::Call { dest, func, .. } => {
+                if call_returns_owned_str(func) {
+                    value_kinds.insert(*dest, ValueKind::Str);
+                    owned_temps.insert(*dest);
+                } else {
+                    value_kinds.insert(*dest, ValueKind::Dynamic);
+                }
+            }
+            IrInstr::ListLen { dest, .. } | IrInstr::IntWrap { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::I64);
+            }
+            IrInstr::MakeList { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::List);
+            }
+            IrInstr::MakeDict { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Dict);
+            }
+            IrInstr::MakeStruct { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Struct);
+            }
+            IrInstr::IndexGet { dest, .. } | IrInstr::StructGet { dest, .. } => {
+                value_kinds.insert(*dest, ValueKind::Dynamic);
+            }
+            _ => {}
+        }
+    }
+
+    let mut plan = vec![(false, false); body.len()];
+    for (i, instr) in body.iter().enumerate() {
+        let (left, right, dest) = match instr {
+            IrInstr::StrConcat { dest, left, right } => (*left, *right, *dest),
+            IrInstr::Binary {
+                dest,
+                op: IrOp::Add,
+                left,
+                right,
+            } if concat_dests[i].is_some() => (*left, *right, *dest),
+            _ => continue,
+        };
+        plan[i] = (
+            should_consume_concat_operand(
+                left, i, dest, &last_use, &owned_temps, &load_names, body,
+            ),
+            should_consume_concat_operand(
+                right, i, dest, &last_use, &owned_temps, &load_names, body,
+            ),
+        );
+    }
+    plan
 }
 
 fn define_function<M: Module>(
@@ -1622,7 +2001,9 @@ fn define_function<M: Module>(
             named_kind_vars.insert(name, kv);
         }
 
-        for instr in body {
+        let concat_consume = concat_consume_plan(body);
+
+        for (idx, instr) in body.iter().enumerate() {
             match instr {
                 IrInstr::Label { block } => {
                     let b = blocks[block];
@@ -1802,9 +2183,12 @@ fn define_function<M: Module>(
                         && rk == ValueKind::Str
                         && matches!(op, IrOp::Add)
                     {
+                        let (c_l, c_r) = concat_consume[idx];
+                        let consume_l = builder.ins().iconst(types::I64, c_l as i64);
+                        let consume_r = builder.ins().iconst(types::I64, c_r as i64);
                         let fref = module
                             .declare_func_in_func(runtime.str_concat, &mut builder.func);
-                        let call = builder.ins().call(fref, &[l, r]);
+                        let call = builder.ins().call(fref, &[l, r, consume_l, consume_r]);
                         (builder.inst_results(call)[0], ValueKind::Str)
                     } else if matches!(op, IrOp::Eq | IrOp::Ne)
                         && (needs_runtime_eq(lk) || needs_runtime_eq(rk))
@@ -2109,6 +2493,36 @@ fn define_function<M: Module>(
                             value_kinds.insert(*dest, out_kind);
                         }
                     } else if let Some((rt_id, out_kind, uses_out_kind)) =
+                        builtin_runtime_call(func, runtime)
+                    {
+                        if uses_out_kind {
+                            let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                                StackSlotKind::ExplicitSlot,
+                                8,
+                                0,
+                            ));
+                            let kind_ptr = builder.ins().stack_addr(types::I64, slot, 0);
+                            arg_vals.push(kind_ptr);
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            let call = builder.ins().call(fref, &arg_vals);
+                            let payload = builder.inst_results(call)[0];
+                            builder.def_var(value_vars[dest], payload);
+                            let kind_val =
+                                builder.ins().load(types::I64, MemFlags::new(), kind_ptr, 0);
+                            let kv = declare_var(&mut builder, &mut next_var);
+                            builder.def_var(kv, kind_val);
+                            kind_vars.insert(*dest, kv);
+                            value_kinds.insert(*dest, ValueKind::Dynamic);
+                        } else {
+                            let fref =
+                                module.declare_func_in_func(rt_id, &mut builder.func);
+                            let call = builder.ins().call(fref, &arg_vals);
+                            let payload = builder.inst_results(call)[0];
+                            builder.def_var(value_vars[dest], payload);
+                            value_kinds.insert(*dest, out_kind);
+                        }
+                    } else if let Some((rt_id, out_kind, uses_out_kind)) =
                         str_runtime_call(func, runtime)
                     {
                         if uses_out_kind {
@@ -2358,9 +2772,12 @@ fn define_function<M: Module>(
                 IrInstr::StrConcat { dest, left, right } => {
                     let l = builder.use_var(value_vars[left]);
                     let r = builder.use_var(value_vars[right]);
+                    let (c_l, c_r) = concat_consume[idx];
+                    let consume_l = builder.ins().iconst(types::I64, c_l as i64);
+                    let consume_r = builder.ins().iconst(types::I64, c_r as i64);
                     let fref =
                         module.declare_func_in_func(runtime.str_concat, &mut builder.func);
-                    let call = builder.ins().call(fref, &[l, r]);
+                    let call = builder.ins().call(fref, &[l, r, consume_l, consume_r]);
                     let ret = builder.inst_results(call)[0];
                     builder.def_var(value_vars[dest], ret);
                     value_kinds.insert(*dest, ValueKind::Str);

@@ -7,6 +7,7 @@ enum { KIND_NONE = 4 };
 
 extern void hyper_rt_print_value(int64_t payload, int64_t kind);
 extern void hyper_rt_print_newline(void);
+extern char *hyper_rt_str_dup(const char *s);
 
 static void runtime_error(int64_t line, const char *msg) {
     fflush(stdout);
@@ -15,12 +16,7 @@ static void runtime_error(int64_t line, const char *msg) {
 }
 
 static char *rt_strdup(const char *s) {
-    size_t n = strlen(s) + 1;
-    char *out = (char *)malloc(n);
-    if (out) {
-        memcpy(out, s, n);
-    }
-    return out;
+    return hyper_rt_str_dup(s);
 }
 
 int64_t hyper_rt_input(int64_t prompt, int64_t prompt_kind, int64_t line, int64_t _line_kind) {

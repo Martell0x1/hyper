@@ -1,7 +1,7 @@
-//! String methods for the compile path (Python-compatible surface, native speed).
+//! String methods for the compile path
 
 use crate::error;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::c_char;
 
 use super::{
@@ -14,7 +14,7 @@ fn fatal(line: i64, msg: impl Into<String>) -> ! {
 }
 
 fn cstr_payload(text: &str) -> i64 {
-    CString::new(text).unwrap_or_default().into_raw() as i64
+    super::heap_cstr(text)
 }
 
 fn require_str(payload: i64, kind: i64, line: i64) -> String {

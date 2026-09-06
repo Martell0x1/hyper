@@ -114,6 +114,42 @@ impl TypeChecker {
                 mutable: false,
             },
         );
+        // Python-like builtins (compile path). Soft arity via single Any where needed.
+        let any1 = |ret: HyperType| Binding {
+            ty: HyperType::Function {
+                params: vec![HyperType::Any],
+                ret: Box::new(ret),
+            },
+            mutable: false,
+        };
+        let any2 = |ret: HyperType| Binding {
+            ty: HyperType::Function {
+                params: vec![HyperType::Any, HyperType::Any],
+                ret: Box::new(ret),
+            },
+            mutable: false,
+        };
+        tc.define("len", any1(HyperType::I64));
+        tc.define("abs", any1(HyperType::Any));
+        tc.define("min", any1(HyperType::Any));
+        tc.define("max", any1(HyperType::Any));
+        tc.define("sum", any1(HyperType::Any));
+        tc.define("round", any1(HyperType::Any));
+        tc.define("pow", any2(HyperType::Any));
+        tc.define("divmod", any2(HyperType::List(Box::new(HyperType::Any))));
+        tc.define("chr", any1(HyperType::String));
+        tc.define("ord", any1(HyperType::I64));
+        tc.define("bin", any1(HyperType::String));
+        tc.define("hex", any1(HyperType::String));
+        tc.define("oct", any1(HyperType::String));
+        tc.define("int", any1(HyperType::I64));
+        tc.define("float", any1(HyperType::F64));
+        tc.define("str", any1(HyperType::String));
+        tc.define("bool", any1(HyperType::Bool));
+        tc.define("all", any1(HyperType::Bool));
+        tc.define("any", any1(HyperType::Bool));
+        tc.define("sorted", any1(HyperType::List(Box::new(HyperType::Any))));
+        tc.define("reversed", any1(HyperType::List(Box::new(HyperType::Any))));
         tc
     }
 

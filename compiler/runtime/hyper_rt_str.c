@@ -11,6 +11,7 @@ extern void hyper_rt_list_push(int64_t list, int64_t payload, int64_t kind);
 extern int64_t hyper_rt_list_len(int64_t list);
 extern int64_t hyper_rt_list_get(int64_t list, int64_t index, int64_t *out_kind);
 extern int64_t hyper_rt_value_to_str(int64_t payload, int64_t kind);
+extern char *hyper_rt_str_dup(const char *s);
 
 static void rt_fatal(int64_t line, const char *msg) {
     fflush(stdout);
@@ -19,12 +20,7 @@ static void rt_fatal(int64_t line, const char *msg) {
 }
 
 static char *rt_strdup(const char *s) {
-    size_t n = strlen(s) + 1;
-    char *out = (char *)malloc(n);
-    if (out) {
-        memcpy(out, s, n);
-    }
-    return out;
+    return hyper_rt_str_dup(s);
 }
 
 static const char *require_str(int64_t payload, int64_t kind, int64_t line) {

@@ -59,6 +59,7 @@ extern int64_t hyper_rt_file_write(
     int64_t line,
     int64_t line_kind
 );
+extern char *hyper_rt_str_dup(const char *s);
 
 static void hyper_rt_runtime_error(int64_t line, const char *msg) {
     fflush(stdout);
@@ -67,12 +68,7 @@ static void hyper_rt_runtime_error(int64_t line, const char *msg) {
 }
 
 static char *rt_strdup(const char *s) {
-    size_t n = strlen(s) + 1;
-    char *out = (char *)malloc(n);
-    if (out) {
-        memcpy(out, s, n);
-    }
-    return out;
+    return hyper_rt_str_dup(s);
 }
 
 static int64_t cstr_payload(const char *text) {

@@ -43,6 +43,8 @@ typedef struct {
 
 extern int64_t hyper_rt_list_new(void);
 extern void hyper_rt_list_push(int64_t list, int64_t value, int64_t kind);
+extern char *hyper_rt_str_dup(const char *s);
+extern void hyper_rt_owned_str_register(void *p);
 
 static void hyper_rt_runtime_error(int64_t line, const char *msg) {
     fflush(stdout);
@@ -66,6 +68,7 @@ static char *rt_strndup(const unsigned char *s, size_t n) {
     }
     memcpy(out, s, n);
     out[n] = '\0';
+    hyper_rt_owned_str_register(out);
     return out;
 }
 
@@ -497,7 +500,7 @@ int64_t hyper_rt_file_path(int64_t handle, int64_t _handle_kind, int64_t line,
     (void)_handle_kind;
     (void)_line_kind;
     RtFile *f = rt_file_from_handle(handle, line);
-    return (int64_t)(intptr_t)rt_strdup(f->path ? f->path : "");
+    return (int64_t)(intptr_t)hyper_rt_str_dup(f->path ? f->path : "");
 }
 
 int64_t hyper_rt_file_mode(int64_t handle, int64_t _handle_kind, int64_t line,
@@ -505,5 +508,5 @@ int64_t hyper_rt_file_mode(int64_t handle, int64_t _handle_kind, int64_t line,
     (void)_handle_kind;
     (void)_line_kind;
     RtFile *f = rt_file_from_handle(handle, line);
-    return (int64_t)(intptr_t)rt_strdup(f->mode ? f->mode : "");
+    return (int64_t)(intptr_t)hyper_rt_str_dup(f->mode ? f->mode : "");
 }

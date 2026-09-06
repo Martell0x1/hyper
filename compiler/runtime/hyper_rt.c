@@ -153,6 +153,53 @@ typedef struct {
 
 static void free_rt_value(RtValue v);
 
+static void **g_owned_strs;
+static size_t g_owned_n;
+static size_t g_owned_cap;
+
+void hyper_rt_owned_str_register(void *p) {
+    if (!p) {
+        return;
+    }
+    if (g_owned_n == g_owned_cap) {
+        size_t ncap = g_owned_cap ? g_owned_cap * 2 : 16;
+        void **n = (void **)realloc(g_owned_strs, ncap * sizeof(void *));
+        if (!n) {
+            return;
+        }
+        g_owned_strs = n;
+        g_owned_cap = ncap;
+    }
+    g_owned_strs[g_owned_n++] = p;
+}
+
+void hyper_rt_owned_str_release(void *p) {
+    if (!p) {
+        return;
+    }
+    for (size_t i = 0; i < g_owned_n; i++) {
+        if (g_owned_strs[i] == p) {
+            g_owned_strs[i] = g_owned_strs[--g_owned_n];
+            free(p);
+            return;
+        }
+    }
+}
+
+char *hyper_rt_str_dup(const char *s) {
+    if (!s) {
+        s = "";
+    }
+    size_t n = strlen(s) + 1;
+    char *out = (char *)malloc(n);
+    if (!out) {
+        return NULL;
+    }
+    memcpy(out, s, n);
+    hyper_rt_owned_str_register(out);
+    return out;
+}
+
 static void free_rt_list(RtList *list) {
     if (!list) {
         return;
@@ -191,9 +238,7 @@ static void free_rt_struct(RtStruct *st) {
 static void free_rt_value(RtValue v) {
     switch (v.kind) {
     case KIND_STR:
-        if (v.payload) {
-            free((void *)(intptr_t)v.payload);
-        }
+        hyper_rt_owned_str_release((void *)(intptr_t)v.payload);
         break;
     case KIND_LIST:
         free_rt_list((RtList *)(intptr_t)v.payload);
@@ -750,12 +795,7 @@ int64_t hyper_rt_coll_keys(int64_t payload, int64_t kind, int64_t line, int64_t 
     const RtDict *dict = (const RtDict *)(intptr_t)payload;
     for (size_t i = 0; i < dict->len; i++) {
         const char *key = dict->entries[i].key ? dict->entries[i].key : "";
-        size_t n = strlen(key);
-        char *copy = (char *)malloc(n + 1);
-        if (copy) {
-            memcpy(copy, key, n + 1);
-        }
-        hyper_rt_list_push(list, (int64_t)(intptr_t)copy, KIND_STR);
+        hyper_rt_list_push(list, (int64_t)(intptr_t)hyper_rt_str_dup(key), KIND_STR);
     }
     return list;
 }
@@ -781,13 +821,7 @@ int64_t hyper_rt_value_to_str(int64_t payload, int64_t kind) {
     }
     case KIND_STR: {
         const char *s = payload ? (const char *)(intptr_t)payload : "";
-        size_t n = strlen(s);
-        char *out = (char *)malloc(n + 1);
-        if (!out) {
-            return 0;
-        }
-        memcpy(out, s, n + 1);
-        return (int64_t)(intptr_t)out;
+        return (int64_t)(intptr_t)hyper_rt_str_dup(s);
     }
     case KIND_BOOL:
         snprintf(buf, sizeof(buf), "%s", payload ? "true" : "false");
@@ -806,15 +840,11 @@ int64_t hyper_rt_value_to_str(int64_t payload, int64_t kind) {
         break;
     }
     size_t n = strlen(buf);
-    char *out = (char *)malloc(n + 1);
-    if (!out) {
-        return 0;
-    }
-    memcpy(out, buf, n + 1);
+    char *out = hyper_rt_str_dup(buf);
     return (int64_t)(intptr_t)out;
 }
 
-int64_t hyper_rt_str_concat(int64_t left, int64_t right) {
+int64_t hyper_rt_str_concat(int64_t left, int64_t right, int64_t consume_left, int64_t consume_right) {
     const char *a = left ? (const char *)(intptr_t)left : "";
     const char *b = right ? (const char *)(intptr_t)right : "";
     size_t na = strlen(a);
@@ -825,6 +855,13 @@ int64_t hyper_rt_str_concat(int64_t left, int64_t right) {
     }
     memcpy(out, a, na);
     memcpy(out + na, b, nb + 1);
+    hyper_rt_owned_str_register(out);
+    if (consume_left) {
+        hyper_rt_owned_str_release((void *)(intptr_t)left);
+    }
+    if (consume_right) {
+        hyper_rt_owned_str_release((void *)(intptr_t)right);
+    }
     return (int64_t)(intptr_t)out;
 }
 
