@@ -7,7 +7,7 @@ use super::{
     KIND_LIST, KIND_NONE, KIND_STR, KIND_U64,
 };
 use crate::error;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::c_char;
 
 fn fatal(line: i64, msg: impl Into<String>) -> ! {
@@ -15,7 +15,7 @@ fn fatal(line: i64, msg: impl Into<String>) -> ! {
 }
 
 fn cstr_payload(text: &str) -> i64 {
-    CString::new(text).unwrap_or_default().into_raw() as i64
+    super::heap_cstr(text)
 }
 
 fn cstr_to_str<'a>(payload: i64) -> &'a str {

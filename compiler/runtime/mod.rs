@@ -16,6 +16,7 @@ pub const KIND_FILE: i64 = 8;
 pub const KIND_MMAP: i64 = 9;
 pub const KIND_U64: i64 = 10;
 
+mod builtins;
 mod file;
 mod io;
 mod json;
@@ -61,6 +62,15 @@ pub(crate) fn owned_str_release(payload: i64) {
         }
     }
 }
+
+pub use builtins::{
+    hyper_rt_builtin_abs, hyper_rt_builtin_all, hyper_rt_builtin_any, hyper_rt_builtin_bin,
+    hyper_rt_builtin_bool, hyper_rt_builtin_chr, hyper_rt_builtin_divmod, hyper_rt_builtin_float,
+    hyper_rt_builtin_hex, hyper_rt_builtin_int, hyper_rt_builtin_len, hyper_rt_builtin_max,
+    hyper_rt_builtin_min, hyper_rt_builtin_oct, hyper_rt_builtin_ord, hyper_rt_builtin_pow,
+    hyper_rt_builtin_reversed, hyper_rt_builtin_round, hyper_rt_builtin_sorted,
+    hyper_rt_builtin_str, hyper_rt_builtin_sum,
+};
 pub use file::{
     hyper_rt_file_close, hyper_rt_file_flush, hyper_rt_file_is_closed, hyper_rt_file_mode,
     hyper_rt_file_open, hyper_rt_file_path, hyper_rt_file_read_all, hyper_rt_file_read_n,
