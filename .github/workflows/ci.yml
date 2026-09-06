@@ -159,8 +159,8 @@ jobs:
 
       - name: Compiler emit-exe dict hash-map smoke
         run: |
-          cargo run --quiet -- compile ci/dict_compile.hyp --emit-exe /tmp/hyper_dict
-          /tmp/hyper_dict
+          cargo run --quiet -- compile ci/dict_compile.hyp --emit-exe "$HYPER_TMP/hyper_dict"
+          "$HYPER_TMP/run_exe.sh" "$HYPER_TMP/hyper_dict"
 
       - name: Compiler emit-exe strings smoke
         run: |
