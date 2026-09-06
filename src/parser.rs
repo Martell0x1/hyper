@@ -437,6 +437,31 @@ impl Parser {
             });
         }
 
+        // `range` is a keyword used by `for i in range(...)`; also allow `range(...)` as a list builtin.
+        if self.check(&TokenType::Range) && self.check_next(&TokenType::LeftParen) {
+            let line = self.peek().line as u32;
+            self.advance(); // Range
+            let mut args = Vec::new();
+            self.consume(TokenType::LeftParen, "Expect '(' after range.")?;
+            if !self.check(&TokenType::RightParen) {
+                args.push(CallArg::Positional(self.expression()?));
+                while self.match_types(&[TokenType::Comma]) {
+                    if self.check(&TokenType::RightParen) {
+                        break;
+                    }
+                    args.push(CallArg::Positional(self.expression()?));
+                }
+            }
+            self.consume(TokenType::RightParen, "Expect ')' after range arguments.")?;
+            return Ok(Expr::Call {
+                callee: Box::new(Expr::Variable {
+                    name: "range".to_string(),
+                    line,
+                }),
+                args,
+            });
+        }
+
         // `bool` is a type keyword; allow `bool(x)` as the conversion builtin (like `input()`).
         if self.check(&TokenType::TypeBool) && self.check_next(&TokenType::LeftParen) {
             let line = self.peek().line as u32;
@@ -1420,22 +1445,39 @@ impl Parser {
         self.consume(TokenType::In, "Expect 'in' after loop variable.")?;
 
         let iter = if self.match_types(&[TokenType::Range]) {
+            let range_line = self.previous().line as u32;
             self.consume(TokenType::LeftParen, "Expect '(' after 'range'.")?;
             let first_arg = self.expression()?;
 
-            let (start_expr, end_expr) = if self.match_types(&[TokenType::Comma]) {
-                (first_arg, self.expression()?)
+            if self.match_types(&[TokenType::Comma]) {
+                let second_arg = self.expression()?;
+                if self.match_types(&[TokenType::Comma]) {
+                    let third_arg = self.expression()?;
+                    self.consume(TokenType::RightParen, "Expect ')' after range arguments.")?;
+                    ForIter::Iterable(Expr::Call {
+                        callee: Box::new(Expr::Variable {
+                            name: "range".to_string(),
+                            line: range_line,
+                        }),
+                        args: vec![
+                            CallArg::Positional(first_arg),
+                            CallArg::Positional(second_arg),
+                            CallArg::Positional(third_arg),
+                        ],
+                    })
+                } else {
+                    self.consume(TokenType::RightParen, "Expect ')' after range arguments.")?;
+                    ForIter::Range {
+                        start: first_arg,
+                        end: second_arg,
+                    }
+                }
             } else {
-                (
-                    Expr::Literal(Literal::Number("0".to_string())),
-                    first_arg,
-                )
-            };
-
-            self.consume(TokenType::RightParen, "Expect ')' after range arguments.")?;
-            ForIter::Range {
-                start: start_expr,
-                end: end_expr,
+                self.consume(TokenType::RightParen, "Expect ')' after range arguments.")?;
+                ForIter::Range {
+                    start: Expr::Literal(Literal::Number("0".to_string())),
+                    end: first_arg,
+                }
             }
         } else {
             ForIter::Iterable(self.expression()?)
@@ -1607,6 +1649,28 @@ mod tests {
                 if matches!(then_branch.as_ref(), Stmt::Block(b) if matches!(b[0], Stmt::Continue { .. }))
         ));
         assert!(matches!(&inner[1], Stmt::Break { .. }));
+    }
+
+    #[test]
+    fn range_and_enumerate_are_calls() {
+        let stmts = parse_program("print(range(3))\nprint(enumerate([1, 2]))\n");
+        assert_eq!(stmts.len(), 2);
+        let Stmt::Print { values, .. } = &stmts[0] else {
+            panic!("expected print(range(...))");
+        };
+        assert!(matches!(
+            &values[0],
+            Expr::Call { callee, .. }
+                if matches!(callee.as_ref(), Expr::Variable { name, .. } if name == "range")
+        ));
+        let Stmt::Print { values, .. } = &stmts[1] else {
+            panic!("expected print(enumerate(...))");
+        };
+        assert!(matches!(
+            &values[0],
+            Expr::Call { callee, .. }
+                if matches!(callee.as_ref(), Expr::Variable { name, .. } if name == "enumerate")
+        ));
     }
 }
 
