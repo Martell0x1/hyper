@@ -695,7 +695,13 @@ void hyper_rt_dict_set(int64_t dict_h, int64_t key, int64_t key_kind, int64_t va
     }
 }
 
-int64_t hyper_rt_index_get(int64_t obj, int64_t obj_kind, int64_t idx, int64_t idx_kind, int64_t *out_kind) {
+int64_t hyper_rt_index_get(
+        int64_t obj, 
+        int64_t obj_kind, 
+        int64_t idx, 
+        int64_t idx_kind, 
+        int64_t *out_kind
+) {
     if (obj_kind == KIND_DICT) {
         return hyper_rt_dict_get(obj, idx, idx_kind, out_kind);
     }
@@ -708,7 +714,14 @@ int64_t hyper_rt_index_get(int64_t obj, int64_t obj_kind, int64_t idx, int64_t i
     return 0;
 }
 
-void hyper_rt_index_set(int64_t obj, int64_t obj_kind, int64_t idx, int64_t idx_kind, int64_t value, int64_t val_kind) {
+void hyper_rt_index_set(
+    int64_t obj,
+    int64_t obj_kind,
+    int64_t idx,
+    int64_t idx_kind,
+    int64_t value,
+    int64_t val_kind
+) {
     if (obj_kind == KIND_DICT) {
         hyper_rt_dict_set(obj, idx, idx_kind, value, val_kind);
     } else if (obj_kind == KIND_LIST) {
